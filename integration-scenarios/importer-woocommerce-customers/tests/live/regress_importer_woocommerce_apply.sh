@@ -53,6 +53,9 @@ for side in 1 2; do
     artifact=$(fetch_artifact "$slug" "$version" "cli$side")
     combo_capture "install$side-$slug" wp_side "$side" plugin install "$artifact" --activate
   done
+  role=source; [ "$side" = 1 ] || role=target
+  combo_capture "load-order-set$side" native "$side" "$SCENARIO/load-order-native.php" set "$role"
+  combo_capture "load-order-before$side" native "$side" "$SCENARIO/load-order-native.php" observe "$role"
   combo_capture "hpos$side" establish_woocommerce_hpos wp_side "$side" --require="$CAPSULE/admin-context.php" --user=admin
   role=source; [ "$side" = 1 ] || role=target
   combo_capture "settings$side" native "$side" "$CAPSULE/settings-native.php" "setup-$role"
@@ -168,4 +171,8 @@ php "$SCENARIO_ROOT/fixtures/native-evidence.php" "$sink" "$PAIR"
 combo_capture final-recapture candidate 2 capture --repo=/siterepo --out=/siterepo/.tmp-importer-woo-final --format=json
 pair_live_ownership_repo_host
 combo_capture final-convergence php "$SCENARIO_ROOT/fixtures/repository-convergence.php" "$R1" "$R2" "$R2/.tmp-importer-woo-final"
+for side in 1 2; do
+  role=source; [ "$side" = 1 ] || role=target
+  combo_capture "load-order-after$side" native "$side" "$SCENARIO/load-order-native.php" observe "$role"
+done
 pair_live_ownership_complete "PASS: combined $MODE template Apply, native consumers, recapture and exact repeat preservation"

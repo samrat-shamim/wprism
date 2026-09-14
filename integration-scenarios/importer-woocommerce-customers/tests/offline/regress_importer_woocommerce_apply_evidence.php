@@ -496,4 +496,65 @@ foreach ([
         'actual catalog guard ' . ($accepted ? 'admits ' : 'refuses ') . $phase . ' in ' . ($admin ? 'admin' : 'ordinary') . ' context');
 }
 
+require_once dirname(__DIR__, 2) . '/fixtures/load-order-evidence.php';
+foreach (['source', 'target'] as $side) {
+    $order = ImporterWooLoadOrderEvidence::expected($side);
+    $record = ['side' => $side, 'active' => $order, 'loaded' => $order,
+        'versions' => ['importer' => '2.7.5', 'woocommerce' => '11.0.1']];
+    ImporterWooLoadOrderEvidence::verify($record, $side);
+    wprism_check(true, "fresh $side native load order passes");
+    foreach (['wrong-side', 'active-reversed', 'loaded-reversed', 'missing', 'duplicate', 'foreign', 'version'] as $fault) {
+        $bad = $record;
+        if ($fault === 'wrong-side') $bad['side'] = 'other';
+        if ($fault === 'active-reversed') $bad['active'] = array_reverse($order);
+        if ($fault === 'loaded-reversed') $bad['loaded'] = array_reverse($order);
+        if ($fault === 'missing') array_pop($bad['loaded']);
+        if ($fault === 'duplicate') $bad['loaded'][] = $order[0];
+        if ($fault === 'foreign') $bad['active'][] = 'foreign/plugin.php';
+        if ($fault === 'version') $bad['versions']['importer'] = '2.7.4';
+        wprism_check_throws(static fn() => ImporterWooLoadOrderEvidence::verify($bad, $side), RuntimeException::class,
+            "$side native load premise rejects $fault");
+    }
+}
+wprism_check_throws(static fn() => ImporterWooLoadOrderEvidence::expected('unknown'), RuntimeException::class,
+    'unknown load-order side refuses');
+
+// Execute the real observer with actual included entry files. The active
+// option alone cannot prove execution order when a loader reorders plugins.
+$loadTmp = $root . '/sandbox/tmp/importer-woo-load-' . bin2hex(random_bytes(6));
+mkdir($loadTmp, 0700);
+try {
+    foreach ([ImporterWooLoadOrderEvidence::IMPORTER, ImporterWooLoadOrderEvidence::WOO] as $file) {
+        mkdir(dirname($loadTmp . '/' . $file), 0700, true);
+        file_put_contents($loadTmp . '/' . $file, '<?php // native entry witness');
+    }
+    foreach (['source', 'target'] as $side) foreach ([false, true] as $reverse) {
+        $order = ImporterWooLoadOrderEvidence::expected($side);
+        $code = '<?php define("WP_PLUGIN_DIR", ' . var_export($loadTmp, true) . ');'
+            . 'define("WT_U_IEW_VERSION", "2.7.5"); define("WC_VERSION", "11.0.1");'
+            . 'function is_admin() { return true; } function current_user_can($cap) { return true; }'
+            . 'function get_option($key) { return ' . var_export($order, true) . '; }';
+        foreach ($reverse ? array_reverse($order) : $order as $file) $code .= 'require ' . var_export($loadTmp . '/' . $file, true) . ';';
+        $code .= '$args = ["observe", ' . var_export($side, true) . ']; require '
+            . var_export(dirname(__DIR__, 2) . '/fixtures/load-order-native.php', true) . ';';
+        file_put_contents($loadTmp . '/probe.php', $code);
+        $process = proc_open([PHP_BINARY, $loadTmp . '/probe.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        $stdout = stream_get_contents($pipes[1]); fclose($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]); fclose($pipes[2]);
+        $exit = proc_close($process);
+        if ($reverse) {
+            wprism_check($exit !== 0 && str_contains($stderr, 'exact fresh native premise required'),
+                "$side actual observer rejects reversed entry execution despite correct active option");
+        } else {
+            wprism_check($exit === 0 && $stderr === '', "$side actual observer accepts fresh included entry order");
+            ImporterWooLoadOrderEvidence::verify(json_decode($stdout, true, flags: JSON_THROW_ON_ERROR), $side);
+        }
+    }
+} finally {
+    foreach ([ImporterWooLoadOrderEvidence::IMPORTER, ImporterWooLoadOrderEvidence::WOO] as $file) {
+        unlink($loadTmp . '/' . $file); rmdir(dirname($loadTmp . '/' . $file));
+    }
+    unlink($loadTmp . '/probe.php'); rmdir($loadTmp);
+}
+
 wprism_check_summary('Importer/Woo exact Apply database transition');
