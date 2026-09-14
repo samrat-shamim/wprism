@@ -88,14 +88,11 @@ assert_rest_blocked() {
 assert_rest_not_plugin_blocked() {
   local post_id="$1"
   rest_request "$post_id"
-  [ "$REST_CODE" = "201" ] \
-    || fail "REST endpoint did not return WordPress' native comment creation response after its REST toggle was disabled (status=$REST_CODE body=$REST_JSON)"
-  printf '%s\n' "$REST_JSON" | jq -e --argjson post "$post_id" '
-    (.id | numbers) and .post == $post and .content.raw == "wprism-disable-comments-rest-probe"
-  ' >/dev/null \
+  [ "$REST_CODE" = "401" ] \
+    || fail "REST endpoint did not return WordPress' native unauthenticated response after its REST toggle was disabled (status=$REST_CODE body=$REST_JSON)"
+  printf '%s\n' "$REST_JSON" | jq -e '.code == "rest_comment_login_required" and .data.status == 401' >/dev/null \
     || fail "REST endpoint returned an unexpected non-plugin response after its REST toggle was disabled: $REST_JSON"
-  cleanup_rest_probe_comment
-  pass "REST endpoint returns WordPress' native comment creation response when its toggle is disabled"
+  pass "REST endpoint returns WordPress' native unauthenticated response when its toggle is disabled"
 }
 
 xmlrpc_request() {
