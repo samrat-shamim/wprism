@@ -233,4 +233,39 @@ wprism_check_throws(static fn() => ImporterWooDatabaseEvidence::fromSink($sink, 
 $record('before-database', $dump);
 wprism_check_same($image, ImporterWooDatabaseEvidence::fromSink($sink, 'impcustomer', 2, 'before'),
     'restored independently successful streams reproduce the exact image');
+// Compose oneoffs can consume stdin even for a non-interactive SQL command.
+// Drive the real producer with a deliberately stdin-draining transport.
+$script = $sink . '/observe-probe.sh';
+file_put_contents($script, <<<'BASH'
+#!/usr/bin/env bash
+set -euo pipefail
+SCENARIO_ROOT="$1"
+sink="$2"
+PAIR=impcustomer
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+wp_side() { cat >/dev/null; }
+combo_capture() {
+    printf '%s\n' "$1"
+    shift
+    if [ "$1" = wp_side ]; then "$@"; fi
+}
+. "$SCENARIO_ROOT/fixtures/observe.sh"
+combo_database_observe 2 before
+BASH);
+$process = proc_open(['bash', $script, dirname(__DIR__, 2), $sink],
+    [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+wprism_check(is_resource($process), 'actual shell observation probe starts');
+if (is_resource($process)) {
+    $stdout = stream_get_contents($pipes[1]); $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]); fclose($pipes[2]);
+    wprism_check_same(0, proc_close($process), 'stdin-draining native transport completes the producer');
+    wprism_check_same('', $stderr, 'producer emits no shell diagnostics');
+    $expected = ['before-tables'];
+    foreach ($tables as $name) $expected[] = 'before-columns-' . $name;
+    $expected[] = 'before-database'; $expected[] = 'before-tables-after';
+    foreach ($tables as $name) $expected[] = 'before-columns-after-' . $name;
+    $expected[] = 'before-image';
+    wprism_check_same(implode("\n", $expected) . "\n", $stdout,
+        'every table is observed twice despite a child command that drains stdin');
+}
 wprism_check_summary('Importer/WooCommerce customer reference ownership');
