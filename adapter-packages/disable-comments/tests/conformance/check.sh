@@ -81,9 +81,6 @@ assert_xmlrpc_enabled() {
 TARGET_POST=$(wp_conf2 post list --post_type=post --name=disable-comments-endpoint-fixture --field=ID)
 require_observed_nonempty "Disable Comments target post identity" "$TARGET_POST"
 
-assert_rest_blocked "$TARGET_POST"
-assert_xmlrpc_blocked
-
 # The target-only rows are deliberately written after deploy and before Apply;
 # the option sub-key merge must preserve them while replacing only the two
 # authored endpoint switches.
@@ -100,6 +97,9 @@ TARGET_SIBLING=$(wp_conf2 eval '
 [ "$(wp_conf2 user meta get 1 disable_comments_review_dismissed)" = "target-only-review" ] \
   || fail "Apply did not preserve target-only review-dismissal user meta"
 pass "Apply preserves target-only shared-option, runtime-option, and user-meta rows"
+
+assert_rest_blocked "$TARGET_POST"
+assert_xmlrpc_blocked
 
 # Deactivation must leave the stored endpoint switches and core post intact;
 # deploy must reactivate the exact code and restore both native request gates.
