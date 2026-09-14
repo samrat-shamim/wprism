@@ -429,6 +429,48 @@ grep -qE '^term\|[1-9][0-9]*\|attachment\|file$' <<<"$TERM_META_OUT" \
   || fail "conf2 product_cat thumbnail_id did not resolve to a local attachment with a real media file (got: $TERM_META_OUT)"
 pass "conf2 product_cat thumbnail_id resolves through termmeta to its own local attachment and media file"
 
+# The 11.1.0 video gallery is JSON in postmeta, and its ids are references. A
+# capture that passed them through verbatim would leave conf1's attachment ids
+# naming whatever conf2 happens to have at those numbers. Assert conf2 resolves
+# both -- the video and its poster -- to ITS OWN attachments, that the mime is
+# still video, and that the poster is the very same media identity conf2's
+# product_cat thumbnail resolved to above, which is the convergence the shared
+# source attachment was seeded to prove.
+VIDEO_GALLERY_OUT=$($COMPOSE run --rm -T cli2 wp eval '
+$product = wc_get_product(wc_get_product_id_by_sku("CONF-WIDGET-1"));
+$raw = $product ? get_post_meta($product->get_id(), "_wc_video_gallery", true) : "";
+$items = is_string($raw) && $raw !== "" ? json_decode($raw, true) : null;
+$item = is_array($items) && count($items) === 1 ? $items[0] : null;
+$videoId = is_array($item) ? (int) ($item["id"] ?? 0) : 0;
+$posterId = is_array($item) ? (int) ($item["poster_id"] ?? 0) : 0;
+$term = get_term_by("slug", "conformance-widgets", "product_cat");
+$thumbId = $term ? (int) get_term_meta($term->term_id, "thumbnail_id", true) : 0;
+$videoMime = $videoId ? (string) get_post_mime_type($videoId) : "";
+$videoLocal = $videoId && get_post($videoId) && get_post($videoId)->post_type === "attachment";
+$posterLocal = $posterId && get_post($posterId) && get_post($posterId)->post_type === "attachment";
+echo wp_json_encode([
+    "items" => is_array($items) ? count($items) : -1,
+    "source_type" => is_array($item) ? (string) ($item["source_type"] ?? "") : "",
+    "position" => is_array($item) ? (int) ($item["position"] ?? 0) : 0,
+    "video_local" => (bool) $videoLocal,
+    "video_mime_is_video" => str_starts_with($videoMime, "video/"),
+    "poster_local" => (bool) $posterLocal,
+    "poster_is_category_thumbnail" => $posterId > 0 && $posterId === $thumbId,
+], JSON_UNESCAPED_SLASHES);
+' 2>&1 | tail -1)
+require_observed_nonempty "conf2 WooCommerce video gallery observation" "$VIDEO_GALLERY_OUT"
+echo "conf2 video gallery check: $VIDEO_GALLERY_OUT"
+jq -e '
+  .items == 1 and
+  .source_type == "attachment" and
+  .position == 1 and
+  .video_local == true and
+  .video_mime_is_video == true and
+  .poster_local == true and
+  .poster_is_category_thumbnail == true
+' <<<"$VIDEO_GALLERY_OUT" >/dev/null   || fail "conf2 _wc_video_gallery did not resolve both nested attachment references to its own media: $VIDEO_GALLERY_OUT"
+pass "conf2 resolves both _wc_video_gallery attachment references to its own media, and its poster is the same target identity the category thumbnail resolved to"
+
 THUMBNAIL_LAZY_RC=0
 THUMBNAIL_LAZY_RAW=$($COMPOSE run --rm -T cli2 wp eval '
 require_once ABSPATH . "wp-admin/includes/image.php";

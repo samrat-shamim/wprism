@@ -2439,24 +2439,131 @@ foreach ((array) ($manifest['option_patterns'] ?? []) as $wooOptionPattern) {
 }
 woo_ok($wooEnvPatternDeclared,
     'the option 11.1.0 deletes on upgrade is declared env, so its removal is target-local rather than authored loss');
-// 11.1.0 introduces _wc_video_gallery as product post_meta. This manifest's ref
-// vocabulary is flat, so an 'authored' rule would ship source attachment ids to a
-// target verbatim; the boundary is documented and the key stays unclassified so
-// capture refuses loudly instead.
-$wooVideoGalleryNote = (string) ($manifest['notes'][
-    '11.1.0 product video gallery boundary (beta feature, deliberately unclassified)'
-] ?? '');
-woo_ok(!array_key_exists('_wc_video_gallery', (array) ($manifest['post_meta'] ?? [])),
-    'the 11.1.0 product video gallery meta stays unclassified rather than carrying an inexpressible nested ref');
+// 11.1.0's _wc_video_gallery is a JSON-encoded list whose items carry attachment
+// ids in id and optional poster_id. Both are remapped by json_refs -- the same
+// mechanism Elementor's _elementor_data uses -- so the wildcard must address list
+// elements and both fields must be declared, or one environment's attachment ids
+// reach a target where they name different posts.
+$wooVideoGalleryRule = (array) (($manifest['post_meta'] ?? [])['_wc_video_gallery'] ?? []);
+woo_ok(($wooVideoGalleryRule['class'] ?? null) === 'authored'
+    && ($wooVideoGalleryRule['json_encoded'] ?? null) === true,
+    'the 11.1.0 product video gallery is authored state decoded from its JSON envelope');
+$wooVideoGalleryPaths = array_map(
+    static fn(array $ref): string => (string) ($ref['path'] ?? ''),
+    (array) ($wooVideoGalleryRule['json_refs'] ?? [])
+);
+sort($wooVideoGalleryPaths, SORT_STRING);
+woo_ok($wooVideoGalleryPaths === ['$.*.id', '$.*.poster_id'],
+    'both attachment references inside every video gallery item are declared: '
+        . implode(', ', $wooVideoGalleryPaths));
+woo_ok(
+    $wooVideoGalleryPaths !== []
+        && count(array_filter(
+            (array) ($wooVideoGalleryRule['json_refs'] ?? []),
+            static fn(array $ref): bool => ($ref['kind'] ?? null) === 'post'
+        )) === count($wooVideoGalleryPaths),
+    'every declared video gallery reference is a post reference'
+);
+// position and source_type are not references and must not be declared as any.
+woo_ok(
+    !in_array('$.*.position', $wooVideoGalleryPaths, true)
+        && !in_array('$.*.source_type', $wooVideoGalleryPaths, true),
+    'the non-reference video gallery fields stay undeclared rather than being remapped'
+);
+// The declaration is only worth as much as the evidence that exercises it: the
+// seed must write the gallery through WooCommerce's own writer, and the target
+// must be asserted to resolve BOTH nested ids to its own media.
+foreach ([
+    'ProductMediaGallery::set_stored_video_gallery_items(',
+    "'source_type' => 'attachment',",
+    "'post_mime_type' => 'video/mp4',",
+    'require_fixture_ids VIDEO_ID',
+] as $wooVideoSeedWitness) {
+    woo_ok(str_contains($wooSeedHarness, $wooVideoSeedWitness),
+        "the conformance seed authors a video gallery natively: $wooVideoSeedWitness");
+}
+foreach ([
+    '.video_local == true and',
+    '.poster_local == true and',
+    '.poster_is_category_thumbnail == true',
+    '_wc_video_gallery did not resolve both nested attachment references to its own media',
+] as $wooVideoCheckWitness) {
+    woo_ok(str_contains($wooCheckHarness, $wooVideoCheckWitness),
+        "the target check proves both nested references resolved locally: $wooVideoCheckWitness");
+}
+$wooVideoGalleryNote = (string) ($manifest['notes']['11.1.0 product video gallery references'] ?? '');
 foreach ([
     'src/Internal/ProductGallery/ProductMediaGallery.php',
-    'agent/src/Capture/CaptureSafetyGates.php:32-51',
-    'incomplete_state_discovery / unclassified_state on post_meta:_wc_video_gallery',
-    'cannot express a reference nested inside a JSON object',
+    "returning [] for anything whose media_type is not 'video' or whose source_type is not 'attachment'",
+    "source_type is invariantly 'attachment' across the admitted range",
 ] as $wooVideoGalleryWitness) {
     woo_ok(str_contains($wooVideoGalleryNote, $wooVideoGalleryWitness),
-        "shipped Woo claim records the 11.1.0 video gallery boundary: $wooVideoGalleryWitness");
+        "the shipped claim states how the video gallery references are carried: $wooVideoGalleryWitness");
 }
+
+// The two 11.1.0 markers ride the closed runtime alternation, not the authored or
+// env ones: an authored ruling would transport one site's 'this already happened
+// here' flag to a target where it has not.
+$wooRuntimePattern = null;
+foreach ((array) ($manifest['option_patterns'] ?? []) as $wooOptionPattern) {
+    if (($wooOptionPattern['class'] ?? '') === 'runtime'
+        && str_contains((string) ($wooOptionPattern['match'] ?? ''), 'queue_flush_rewrite_rules')) {
+        $wooRuntimePattern = (string) $wooOptionPattern['match'];
+    }
+}
+woo_ok(is_string($wooRuntimePattern) && $wooRuntimePattern !== '',
+    'the closed runtime marker alternation is still the one carrying queue_flush_rewrite_rules');
+foreach ([
+    'woocommerce_email_editor_rewrites_flushed',
+    'woocommerce_order_withdrawal_inbox_notification_created',
+] as $wooRuntimeMarker) {
+    woo_ok(preg_match('/' . $wooRuntimePattern . '/', $wooRuntimeMarker) === 1,
+        "the 11.1.0 target-local marker is classified runtime: $wooRuntimeMarker");
+    woo_ok(preg_match('/' . $wooEndpointPattern . '/', $wooRuntimeMarker) === 0,
+        "the 11.1.0 target-local marker is not swept into the authored family: $wooRuntimeMarker");
+}
+foreach ([
+    'woocommerce_email_editor_rewrites',
+    'woocommerce_order_withdrawal',
+    'woocommerce_order_withdrawal_inbox_notification',
+    'woocommerce_email_editor_rewrites_flushed_x',
+] as $wooRuntimeNonMember) {
+    woo_ok(preg_match('/' . $wooRuntimePattern . '/', $wooRuntimeNonMember) === 0,
+        "widening the runtime marker family did not make it greedy: $wooRuntimeNonMember");
+}
+// Action Scheduler's expiring mutex lands in this adapter's claimed
+// action_scheduler_ namespace the moment the lifecycle provider actually drains
+// the queue, so an unclassified row would abort capture intermittently. It is
+// runtime, and the pattern is closed on the one lock type the shipped source uses
+// rather than left as a prefix.
+$wooLockPattern = null;
+foreach ((array) ($manifest['option_patterns'] ?? []) as $wooOptionPattern) {
+    if (str_starts_with((string) ($wooOptionPattern['match'] ?? ''), '^action_scheduler_lock_')) {
+        $wooLockPattern = $wooOptionPattern;
+    }
+}
+woo_ok(is_array($wooLockPattern) && ($wooLockPattern['class'] ?? null) === 'runtime',
+    "Action Scheduler's option lock is classified runtime");
+woo_ok(preg_match('/' . $wooLockPattern['match'] . '/', 'action_scheduler_lock_async-request-runner') === 1,
+    'the lock pattern admits the exact key ActionScheduler_OptionLock::get_key() writes');
+foreach ([
+    'action_scheduler_lock_',
+    'action_scheduler_lock_other',
+    'action_scheduler_lock_async-request-runner-x',
+] as $wooLockNonMember) {
+    woo_ok(preg_match('/' . $wooLockPattern['match'] . '/', $wooLockNonMember) === 0,
+        "the lock pattern stayed closed rather than becoming a prefix: $wooLockNonMember");
+}
+$wooEnvPatternDeclared = false;
+foreach ((array) ($manifest['option_patterns'] ?? []) as $wooOptionPattern) {
+    if (($wooOptionPattern['class'] ?? '') === 'env'
+        && str_contains((string) ($wooOptionPattern['match'] ?? ''),
+            'wc_feature_woocommerce_additional_variation_images_enabled')) {
+        $wooEnvPatternDeclared = true;
+    }
+}
+woo_ok($wooEnvPatternDeclared,
+    'the option 11.1.0 deletes on upgrade is declared env, so its removal is target-local rather than authored loss');
 $seedUpdate = strpos($wooCheckHarness, 'wp_update_attachment_metadata((int) $id, $metadata)');
 $seedReadback = strpos($wooCheckHarness, 'wp_get_attachment_metadata((int) $id)', $seedUpdate === false ? 0 : $seedUpdate);
 woo_ok($seedUpdate !== false && $seedReadback !== false && $seedReadback > $seedUpdate,
