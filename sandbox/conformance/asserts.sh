@@ -515,3 +515,16 @@ assert_wprism_apply_ready() { # <what> <JSON apply capture>
   jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$last" >/dev/null \
     || fail "$1 did not return a clean canary and passed canonical verification"
 }
+
+# Fixture adoption is declared by the entry, before any pair mutation. It is
+# explicit operator intent for the test target, never adapter runtime policy.
+conformance_adopt_by_slug() { # <one entry JSON object>
+  jq -ers '
+    if length != 1 or (.[0] | type) != "object" then error("expected one conformance entry") else
+      .[0] | (if has("adopt_by_slug") then .adopt_by_slug else ["terms", "posts"] end) |
+      if type == "array" and length <= 4 and length == (unique | length) and
+        all(.[]; type == "string" and (. as $kind | ["terms", "posts", "menus", "tables"] | index($kind) != null))
+      then join(",") else error("adopt_by_slug must be a unique list of reviewed entity kinds") end
+    end
+  ' <<<"$1"
+}

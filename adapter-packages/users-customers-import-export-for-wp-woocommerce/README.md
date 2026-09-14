@@ -18,7 +18,14 @@ WordPress 7.1, PHP 8.3.33 and MariaDB 11.8.8. Three real native exports provide
 populated history/file witnesses: applying retention one preserves all three;
 a native Settings Save afterward removes the two older records and files.
 Users, usermeta, other options and target-local nested settings survive Apply.
-The source-only conformance entry retains an explicit deployment refusal.
+The conformance entry uses `agent-roundtrip`: it first proves the host
+production gate refuses this experimental adapter, then exercises public agent
+deployment and full Apply. Five native saved templates and all nine settings
+converge on a separately prepared target. The fixture explicitly adopts typed
+tables, provisions both CSV inputs through `env-set --stdin`, and checks all
+eleven native tables plus operational files immediately after Apply. Both export
+copies and both nonempty imports consume target-local data; the blank draft
+reopens, and the complete canonical state remains exact after native jobs.
 
 The native lane also rejects an invalid repository value through public
 compile/plan/Apply and an invalid raw native value through Capture. It checks

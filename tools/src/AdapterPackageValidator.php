@@ -2831,9 +2831,14 @@ final class AdapterPackageValidator
     {
         $testsRoot = $capsule . '/tests';
         $needsContract = false;
-        if (is_dir($testsRoot)) {
+        // Reusable capsule fixtures carry the same evidence obligations as
+        // entry-point tests; moving a helper cannot hide its premise contract.
+        foreach ([$testsRoot, $capsule . '/fixtures'] as $premiseRoot) {
+            if (!is_dir($premiseRoot)) {
+                continue;
+            }
             $iterator = new \RecursiveIteratorIterator(
-                new \RecursiveDirectoryIterator($testsRoot, \FilesystemIterator::SKIP_DOTS)
+                new \RecursiveDirectoryIterator($premiseRoot, \FilesystemIterator::SKIP_DOTS)
             );
             foreach ($iterator as $entry) {
                 if (!$entry->isFile() || $entry->isLink() || $entry->getExtension() !== 'sh') {
@@ -2944,7 +2949,7 @@ final class AdapterPackageValidator
             $seen[$line] = true;
 
             $source = null;
-            if (preg_match('~^tests/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.sh$~D', $relative) === 1) {
+            if (preg_match('~^(?:tests|fixtures)/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.sh$~D', $relative) === 1) {
                 $source = $capsule . '/' . $relative;
             } elseif (preg_match(
                 '~^@repo/sandbox/tests/certify/[A-Za-z0-9_.-]+\.sh$~D',

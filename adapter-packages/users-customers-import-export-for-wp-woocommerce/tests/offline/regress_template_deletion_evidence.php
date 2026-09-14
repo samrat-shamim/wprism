@@ -155,7 +155,7 @@ $plan = array_fill_keys(['create', 'update', 'adopt', 'drift', 'conflict', 'dele
     'provider_problems', 'warnings', 'collision', 'incomplete_apply', 'incomplete_lifecycle', 'missing_user'], []);
 $plan['adapter_dispositions'] = array_map(static fn(string $code): array => ['code' => $code, 'name' => 'users-customers-import-export-for-wp-woocommerce',
     'status' => 'blocked', 'source' => 'shipped', 'trust_tier' => 'declarative_manifest', 'certification' => 'registry'],
-    ['authored_state_not_certified', 'operation_not_certified']);
+    ['authored_state_not_certified']);
 $plan['delete'] = array_map(static fn(string $uuid): array => ['uuid' => $uuid, 'type' => 'wt_iew_mapping_template',
     'deletion_kind' => 'table', 'deletion_type' => 'wt_iew_mapping_template'], ['original-export', 'original-import', 'draft-import']);
 $repository = ['deletions' => array_fill_keys(array_column($plan['delete'], 'uuid'), [])];

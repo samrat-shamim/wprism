@@ -69,6 +69,25 @@ entry uses `mode: "capture-plan"`, puts its source assertions in
 `capture-check.sh`, and makes `check.sh` explicitly refuse accidental target
 promotion. A bounded native Apply suite can qualify individual settings while
 the broader deployment entry remains source-only.
+
+Once the experimental disposition declares both `deploy` and `apply`, use
+`mode: "agent-roundtrip"` to exercise target activation, Apply, plugin consumers
+and byte-identical recapture. The harness first proves that host deployment
+still refuses the experimental claim, then runs the public agent verbs. This
+mode cannot emit a certified conformance vector and does not grant production
+promotion. Certification also requires the owned version matrix and ready
+evidence across all twelve scenario families; see the package validator.
+
+An entry may declare `adopt_by_slug` as a unique array drawn from `terms`,
+`posts`, `menus`, and `tables`. The default is `["terms", "posts"]`; an empty
+array explicitly selects no adoption. This is fixture intent for an existing
+target, validated before pair mutation, not a shipped adapter permission.
+For example, a template roundtrip that seeds existing target rows declares
+`["terms", "posts", "tables"]`. Keep target-local preservation assertions in
+the capsule's post-Apply check. Reusable shell helpers belong under `fixtures/`;
+premise contracts may name active statements there as well as under `tests/`.
+Both roots are scanned for required evidence contracts.
+
 `platform.json` is the object a site-adapter certificate reads its bound
 compatibility cells out of (§ v3.6), so it has exactly one on-disk
 representation; the agent refuses at load time if its

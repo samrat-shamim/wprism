@@ -1,5 +1,6 @@
 {
   "entry": {
+    "adopt_by_slug": ["terms", "posts", "menus"],
     "pin": ["core", "polylang"],
     "plugins": [{"slug": "polylang", "version": "3.8.6"}],
     "post_types": ["post", "page", "wp_block", "attachment"],

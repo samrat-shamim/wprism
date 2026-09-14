@@ -1,9 +1,9 @@
 # format wprism-target-observation-premises/v1
 # expected observations=140 fixtures=0
-observation	tests/conformance/capture-check.sh	capture_wprism_json_success IMPORTER_VERIFY1 'Importer exact native and canonical settings readback' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" verify-capture --use-include --user=admin
-observation	tests/conformance/capture-check.sh	capture_wprism_json_success IMPORTER_RECAPTURE 'Importer repeated public Capture' wp_conf1 wprism capture --repo=/siterepo --format=json
-observation	tests/conformance/capture-check.sh	capture_wprism_json_success IMPORTER_VERIFY2 'Importer repeated native and canonical settings readback' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" verify-capture --use-include --user=admin
-observation	tests/conformance/seed.sh	capture_wprism_json_success IMPORTER_SAVE 'Importer native settings Save' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" save-source --use-include --user=admin
+observation	fixtures/settings-capture-check.sh	capture_wprism_json_success IMPORTER_VERIFY1 'Importer exact native and canonical settings readback' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" verify-capture --use-include --user=admin
+observation	fixtures/settings-capture-check.sh	capture_wprism_json_success IMPORTER_RECAPTURE 'Importer repeated public Capture' wp_conf1 wprism capture --repo=/siterepo --format=json
+observation	fixtures/settings-capture-check.sh	capture_wprism_json_success IMPORTER_VERIFY2 'Importer repeated native and canonical settings readback' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" verify-capture --use-include --user=admin
+observation	fixtures/settings-seed.sh	capture_wprism_json_success IMPORTER_SAVE 'Importer native settings Save' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" save-source --use-include --user=admin
 observation	tests/live/regress_settings_apply.sh	capture "setup$side" native_side "$side" "setup-$role"
 observation	tests/live/regress_settings_apply.sh	capture baseline-capture candidate 1 capture --repo=/siterepo --format=json
 observation	tests/live/regress_settings_apply.sh	capture baseline-apply candidate 2 apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --format=json
