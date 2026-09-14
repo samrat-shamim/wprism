@@ -15,6 +15,12 @@ final class ImporterWooScopedApplyEvidence {
         if (!$ok) throw new RuntimeException('Importer/Woo scoped Apply evidence: ' . $why);
     }
 
+    public static function sourceContract(string $stem, string $pair): array {
+        $bytes = \WPrismTest\PrivateCommandOutput::readObject($stem,
+            ImporterWooDatabaseEvidence::transport($pair, 1), \WPrismTest\EvidenceSizeProfile::CONFORMANCE_TREE);
+        return \WPrism\ScopeContract::from_array(json_decode($bytes, true, flags: JSON_THROW_ON_ERROR));
+    }
+
     public static function selected(array $intent): array {
         self::check(count($intent) === 2 && array_unique(array_column($intent, 'kind')) === array_column($intent, 'kind'),
             'two independently captured pending templates');
@@ -67,7 +73,7 @@ final class ImporterWooScopedApplyEvidence {
             'canonical terminal session binds independent source, scope and caller request');
         $work = $session['authority']['selection'];
         self::check($work['work_items'] === [[
-            'desired_hash' => $selected[0]['hash'], 'identity_hash' => hash('sha256', $selected[0]['uuid']),
+            'desired_hash' => $selected[0]['desired_hash'], 'identity_hash' => hash('sha256', $selected[0]['uuid']),
             'type' => 'wt_iew_mapping_template',
         ]] && $work['deletion_items'] === [] && $work['action_items'] === [] && $work['effect_items'] === [],
             'only the selected export is work; no deletion, provider or effect');

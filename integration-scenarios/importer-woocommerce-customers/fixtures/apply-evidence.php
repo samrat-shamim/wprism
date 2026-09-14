@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/database-evidence.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Uuid.php';
 require_once dirname(__DIR__, 3) . '/sandbox/tests/lib/FilesystemTreeEvidence.php';
 
@@ -58,7 +59,7 @@ final class ImporterWooApplyEvidence {
             $resolved = json_decode($matches[0]['data'], true, flags: JSON_THROW_ON_ERROR);
             self::check(!isset($resolved['method_' . $kind . '_form_data']['selected_template']), 'target baseline was materialized before the measured update');
             $resolved['advanced_form_data']['wt_iew_batch_count'] = 7;
-            $intent[] = ['id' => $matches[0]['id'], 'uuid' => $front['uuid'], 'kind' => $kind, 'hash' => $new[$path]['sha256'], 'form' => $resolved, 'path' => $path];
+            $intent[] = ['id' => $matches[0]['id'], 'uuid' => $front['uuid'], 'kind' => $kind, 'hash' => $new[$path]['sha256'], 'desired_hash' => hash('sha256', \WPrism\Canon::encode($front)), 'form' => $resolved, 'path' => $path];
         }
         self::check(count($intent) === 2 && count(array_unique(array_column($intent, 'kind'))) === 2, 'exactly one changed import and export');
         return $intent;

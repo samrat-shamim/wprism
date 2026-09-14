@@ -41,7 +41,7 @@ if ($phase === 'remaining') {
 }
 $receipt = $command($phase . '-apply', 'apply');
 if ($mode === 'scoped') {
-    $contract = $object('export-scope');
+    $contract = ImporterWooScopedApplyEvidence::sourceContract($sink . '/export-scope', $pair);
     ImporterWooScopedApplyEvidence::plan($command('scoped-plan', 'plan'), $contract, $intent);
     ImporterWooScopedApplyEvidence::transition($before, $after, $intent, $contract['source'], $contract['scope_hash'],
         'importer-woo-export-batch', $object($phase . '-window'), $receipt, $phase === 'repeat');

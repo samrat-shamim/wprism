@@ -7,7 +7,7 @@ require_once dirname(__DIR__, 2) . '/fixtures/apply-evidence.php';
 $uuid = static fn(int $n): string => sprintf('12345678-1234-7123-8123-%012d', $n);
 $intent = [];
 foreach (['export', 'import'] as $i => $kind) $intent[] = ['id' => 101 + $i, 'uuid' => $uuid($i + 1), 'kind' => $kind,
-    'hash' => str_repeat((string) ($i + 1), 64), 'form' => ['mapping_form_data' => ['mapping_selected_fields' => ['billing_city' => 'New city']],
+    'hash' => str_repeat((string) ($i + 1), 64), 'desired_hash' => str_repeat((string) ($i + 5), 64), 'form' => ['mapping_form_data' => ['mapping_selected_fields' => ['billing_city' => 'New city']],
         'method_' . $kind . '_form_data' => []]];
 $session = static fn(string $nonce, int $time): string => json_encode(['artifact_hash' => str_repeat('a', 64),
     'begun_at' => $time, 'owner' => 'direct-' . str_repeat($nonce, 32), 'session_id' => 'ps-' . str_repeat($nonce, 32)], JSON_THROW_ON_ERROR);
@@ -176,7 +176,7 @@ $scopeStore = new class implements WPrism\ScopedApplySessionStorage {
 $h = static fn(string $s): string => hash('sha256', $s);
 $scopeSource = ['artifact_hash' => str_repeat('a', 64), 'manifest_hash' => $h('manifest'), 'state_revision_hash' => $h('state')];
 $scopeLease = ['artifact_hash' => str_repeat('a', 64), 'owner' => 'direct-' . str_repeat('2', 32), 'session_id' => 'ps-' . str_repeat('2', 32)];
-$scopeWork = [['identity_hash' => $h($intent[0]['uuid']), 'type' => 'wt_iew_mapping_template', 'desired_hash' => $intent[0]['hash']]];
+$scopeWork = [['identity_hash' => $h($intent[0]['uuid']), 'type' => 'wt_iew_mapping_template', 'desired_hash' => $intent[0]['desired_hash']]];
 $scopeSelection = ['work_items' => $scopeWork, 'work_hash' => WPrism\ScopedApplySession::hash_value($scopeWork),
     'capabilities_hash' => $h('capabilities'), 'ledger_map_identity_hashes' => [$h($intent[0]['uuid'])],
     'ledger_map_identity_set_hash' => WPrism\ScopedApplySession::hash_value([$h($intent[0]['uuid'])])];
@@ -294,6 +294,8 @@ try {
     foreach ($derived as $entity) {
         $file = 'tables/wt_iew_mapping_template/' . $entity['uuid'] . '.json';
         wprism_check_same(array_column($desired['files'], 'sha256', 'path')[$file], $entity['hash'], 'baseline hash comes from independently captured desired bytes');
+        wprism_check($entity['desired_hash'] !== $entity['hash'], 'scoped semantic hash stays distinct from the file-byte ledger hash');
+        wprism_check_same(hash('sha256', WPrism\Canon::encode($desiredFronts[$entity['kind']])), $entity['desired_hash'], 'scoped work hash derives from the independent canonical document');
     }
     foreach (['other-field', 'name', 'wrong-batch', 'one-save'] as $fault) {
         $bad = $desiredFronts;
@@ -407,6 +409,17 @@ try {
     $copied = $transportRoot . '/repo/.tmp-importer-woo-export-scope.json';
     wprism_check(file_get_contents($copied) === WPrism\Canon::encode($contract) && (fileperms($copied) & 0777) === 0644,
         'public contract copy preserves bytes and is readable by the target UID');
+    $scopeStem = $transportRoot . '/sink/export-scope';
+    foreach (['stderr' => " Container wprism-routeproof-cli1-run-123456789abc Creating \n", 'exit' => "0\n"] as $suffix => $bytes) {
+        file_put_contents($scopeStem . '.' . $suffix, $bytes); chmod($scopeStem . '.' . $suffix, 0600);
+    }
+    wprism_check_same(WPrism\Canon::encode($contract), WPrism\Canon::encode(ImporterWooScopedApplyEvidence::sourceContract($scopeStem, 'routeproof')),
+        'source contract admits only the source container transport');
+    foreach ([" Container wprism-routeproof-cli2-run-123456789abc Creating \n", "unexpected operator output\n"] as $badDiagnostic) {
+        file_put_contents($scopeStem . '.stderr', $badDiagnostic);
+        wprism_check_throws(static fn() => ImporterWooScopedApplyEvidence::sourceContract($scopeStem, 'routeproof'), RuntimeException::class,
+            'source contract refuses target transport and unexpected diagnostics');
+    }
     $configuration = json_decode(file_get_contents($transportRoot . '/sink/envs.json'), true, flags: JSON_THROW_ON_ERROR);
     wprism_check_same(['envs' => ['source' => ['transport' => 'docker', 'compose_file' => $transportRoot . '/sandbox/pair.yml',
         'service' => 'cli1', 'repo_path' => '/siterepo']]], $configuration, 'scope host transport selects only the source service');
