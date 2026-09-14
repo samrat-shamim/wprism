@@ -98,8 +98,23 @@ changed surrounding state, malformed revisions and incomplete observations.
 Both failures require their exact public refusal and fresh private injected cause.
 
 Five native template reopens, four CSV consumers and exact canonical recapture
-pass after retry. This qualifies the two transaction boundaries, not crash-after-intent
-or tamper handling. Signed deletion and the remaining recovery cases retain gaps;
+pass after retry. The [process-death variant](../tests/live/regress_recovery_crash.sh)
+reuses this full fixture at the same two commit boundaries with actual SIGKILL.
+The shared subprocess control requires kernel signal 9 and absent PHP cleanup;
+the retained container record binds the exact invocation, real init, requested
+fault environment and non-OOM termination. The fixture captures and removes
+the stopped container before diagnostic collection, whose fresh record set must
+remain empty. It permits only the crashed owner's exact durable lease alongside
+the existing phase changes: `apply-session-begin` after authored rollback,
+`apply-ledger` after ledger rollback. The product finalizer renews that latter
+phase before opening its transaction, so it survives the interruption.
+
+Retries wait for the observed lease to expire naturally using the existing
+bounded test TTL; they never clear the lease or modify timestamps. Successful
+retry and repeat must release their leases and retain complete surrounding state.
+Native reopens, CSV consumers and exact recapture are required again afterward.
+Other interruption points, tamper and early retry against a still-live lease
+remain unqualified. Signed deletion and the remaining recovery cases retain gaps;
 overall readiness and shipped package identity are unchanged.
 
 ## Derived state

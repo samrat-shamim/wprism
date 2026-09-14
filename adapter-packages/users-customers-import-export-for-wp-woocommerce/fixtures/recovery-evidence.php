@@ -148,20 +148,22 @@ final class ImporterRecoveryEvidence {
         self::session($old['promotion_session']['v'], $new['promotion_session']['v'], $artifact, $window);
         $oldSession = json_decode($old['promotion_session']['v'], true, flags: JSON_THROW_ON_ERROR);
         $newSession = json_decode($new['promotion_session']['v'], true, flags: JSON_THROW_ON_ERROR);
+        // ApplyLedgerFinalizer renews apply-ledger before opening its transaction;
+        // unlike transaction-local heartbeats, that phase survives commit interruption.
         if ($mode === 'kill' && $pending) {
             self::check(isset($old['promotion_lock']), 'crash leaves its durable lease until natural expiry');
             $lease = json_decode($old['promotion_lock']['v'], true, flags: JSON_THROW_ON_ERROR);
-            self::lease($lease, $oldSession, $phase === 'ledger-failure' ? 'apply-session-begin' : 'apply-rebuild');
+            self::lease($lease, $oldSession, $phase === 'ledger-failure' ? 'apply-session-begin' : 'apply-ledger');
             self::check($lease['expires_at'] <= $window['before'], 'retry waits for the prior crashed lease to expire');
             unset($old['promotion_lock']);
         } else self::check(!isset($old['promotion_lock']), 'settled or ordinary-failure preimage has no lease');
         if ($mode === 'kill' && str_ends_with($phase, '-failure')) {
             self::check(isset($new['promotion_lock']), 'actual crash retains its own durable lease');
             $lease = json_decode($new['promotion_lock']['v'], true, flags: JSON_THROW_ON_ERROR);
-            self::lease($lease, $newSession, $phase === 'authored-failure' ? 'apply-session-begin' : 'apply-rebuild');
+            self::lease($lease, $newSession, $phase === 'authored-failure' ? 'apply-session-begin' : 'apply-ledger');
             self::check($lease['acquired_at'] >= $window['before'] && $lease['acquired_at'] <= $window['after']
                 && $lease['expires_at'] - 20 >= $window['before'] && $lease['expires_at'] - 20 <= $window['after'],
-                'crash lease has the exact bounded fixture TTL and invocation timestamps');
+                'bounded acquisition and renewal timestamps under the exact requested TTL');
             $old['promotion_lock'] = $new['promotion_lock'];
         }
         $old['promotion_session'] = $new['promotion_session'];

@@ -8,9 +8,34 @@ require_once $package . '/fixtures/recovery-evidence.php';
 require_once $package . '/fixtures/native-record-fixture.php';
 require_once $root . '/agent/src/Repository/RepositoryEntityParser.php';
 require_once $root . '/agent/src/Apply/ApplyPlanner.php';
+require_once $root . '/sandbox/tests/lib/wp_stubs.php';
+require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
+require_once $root . '/agent/src/Apply/ApplyServices.php';
 
 use WPrism\Canon;
 use WPrismTest\FilesystemTreeEvidence;
+
+// The finalizer renews before its transaction, so this phase survives SIGKILL
+// at ledger commit (native02). Exercise the actual composition and ordering.
+$wpdb = WPrismTest\FakeWpdb::install();
+$compiledProbe = WPrism\CompiledRepository::create(['tree' => []]);
+$unused = static function (): never { throw new RuntimeException('unexpected finalizer boundary'); };
+$renewed = null;
+$servicesProbe = new WPrism\ApplyServices(new WPrism\Policy(), $compiledProbe, new WPrism\ApplyServiceCallbacks(
+    taxonomyOwnership: $unused,
+    renewPromotionLock: static function (string $phase) use (&$renewed, $wpdb): never {
+        wprism_check_same([], $wpdb->queries(), 'durable ledger renewal precedes every ledger transaction query');
+        $renewed = $phase;
+        throw new RuntimeException('observed pre-transaction renewal');
+    },
+    renewRegenerationLease: $unused, renewProviderLease: $unused, lockDeleteGuards: $unused,
+    deletionDatabaseProfile: $unused, recheckDeleteGuard: $unused, selectionDeclaresChannelFor: $unused,
+    selectionDeclaresEntityBatchFor: $unused, selectionTriggersProviderActionFor: $unused,
+    pinnedProviderActionOwns: $unused, upsertMeta: $unused
+), $root);
+wprism_check_throws(static fn() => $servicesProbe->apply_ledger_finalizer()->finalize($compiledProbe,
+    [], [], [], [], false, false, null, null, [], ''), RuntimeException::class, 'actual ledger finalizer reaches its pre-transaction renewal');
+wprism_check_same('apply-ledger', $renewed, 'composition binds the durable ledger phase independently of the recovery oracle');
 
 $settings = json_decode(file_get_contents($package . '/fixtures/native-settings.json'), true, flags: JSON_THROW_ON_ERROR)['source'];
 $beforeNative = importer_test_native_record($package, $settings);
@@ -150,7 +175,11 @@ $lease = static fn(string $owner, string $phase, int $acquired, int $expires): s
     'acquired_at' => $acquired, 'expires_at' => $expires,
 ], JSON_THROW_ON_ERROR);
 $crashed = $replaceKv($failed, ['promotion_lock' => $lease('2', 'apply-session-begin', 101, 121)]);
-$ledgerCrashed = $replaceKv($committed, ['promotion_session' => $session('3', 131), 'promotion_lock' => $lease('3', 'apply-rebuild', 130, 152)]);
+$ledgerCrashed = $replaceKv($committed, ['promotion_session' => $session('3', 131), 'promotion_lock' => $lease('3', 'apply-ledger', 130, 152)]);
+wprism_check_throws(static fn() => ImporterRecoveryEvidence::transition($crashed,
+    $replaceKv($ledgerCrashed, ['promotion_lock' => $lease('3', 'apply-rebuild', 130, 152)]),
+    $source, $intent, $artifact, ['before' => 130, 'after' => 140], 'ledger-failure', $revision, 'kill'),
+    RuntimeException::class, 'ledger interruption cannot claim the earlier rebuild phase');
 $crashRetried = $replaceKv($recovered, ['promotion_session' => $session('4', 161)]);
 $crashRepeated = $replaceKv($repeat, ['promotion_session' => $session('5', 181)]);
 $crashPhases = ['authored-failure' => [$base, $crashed, ['before' => 100, 'after' => 110]],
