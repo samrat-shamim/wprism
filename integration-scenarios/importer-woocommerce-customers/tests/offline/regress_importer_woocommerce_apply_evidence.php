@@ -22,11 +22,15 @@ $before = [
         ['uuid' => $uuid(2), 'entity_type' => 'wt_iew_mapping_template', 'content_hash' => str_repeat('e', 64)],
         ['uuid' => $uuid(3), 'entity_type' => 'product', 'content_hash' => str_repeat('f', 64)],
     ],
+    'wp_wprism_map' => [
+        ['uuid' => $uuid(1), 'entity_type' => 'wt_iew_mapping_template', 'id_kind' => 'iew_template', 'local_id' => 101],
+        ['uuid' => $uuid(2), 'entity_type' => 'wt_iew_mapping_template', 'id_kind' => 'iew_template', 'local_id' => 102],
+    ],
     'wp_wprism_kv' => [['k' => 'applied_revision', 'v' => str_repeat('b', 40)], ['k' => 'promotion_session', 'v' => $session('1', 50)]],
 ];
 $neighbors = ['wp_options', 'wp_posts', 'wp_postmeta', 'wp_users', 'wp_usermeta', 'wp_wt_iew_action_history',
     'wp_wc_customer_lookup', 'wp_wc_orders', 'wp_wc_orders_meta', 'wp_wc_order_addresses', 'wp_wc_order_operational_data',
-    'wp_unrecognized_extension', 'wp_wprism_map', 'wp_wprism_journal'];
+    'wp_unrecognized_extension', 'wp_wprism_journal'];
 foreach ($neighbors as $name) $before[$name] = [['id' => 11, 'local_value' => 'keep-local']];
 ksort($before, SORT_STRING);
 // The fixture's SQL emitter is deliberately independent of the production
@@ -44,7 +48,7 @@ $read = static function (array $rows, ?string $mutateTable = null, bool $schema 
             $definitions[] = "  `$field` $type";
         }
         $columns[$table] .= "precision_canary\tdecimal(26,8)\tNULL\tNO\t\t0\t\tselect,insert,update,references\t\n";
-        $control = in_array($table, ['wp_wt_iew_mapping_template', 'wp_wprism_state', 'wp_wprism_kv'], true);
+        $control = in_array($table, ['wp_wt_iew_mapping_template', 'wp_wprism_state', 'wp_wprism_kv', 'wp_wprism_map'], true);
         if ($control) $columns[$table] = substr($columns[$table], 0, strpos($columns[$table], 'precision_canary'));
         else {
             $definitions[] = '  `precision_canary` decimal(26,8)';
@@ -95,6 +99,13 @@ foreach (['template-neighbor', 'template-name', 'template-id', 'stale-form', 'ex
     if ($fault === 'removed-neighbor') unset($bad['wp_unrecognized_extension']);
     wprism_check_throws(static fn() => $verify($read($bad)), RuntimeException::class, "unexpected $fault refuses");
 }
+$wrongMap = $before; $wrongMap['wp_wprism_map'][0]['local_id'] = 102;
+$wrongMapAfter = $after; $wrongMapAfter['wp_wprism_map'] = $wrongMap['wp_wprism_map'];
+wprism_check_throws(static fn() => ImporterWooApplyEvidence::transition($read($wrongMap), $read($wrongMapAfter), $intent,
+    str_repeat('c', 40), str_repeat('a', 64), ['before' => 100, 'after' => 110]), RuntimeException::class,
+    'an unchanged but incorrect UUID-to-local-ID binding refuses');
+$changedMap = $after; $changedMap['wp_wprism_map'][0]['local_id'] = 102;
+wprism_check_throws(static fn() => $verify($read($changedMap)), RuntimeException::class, 'identity-map changes outside the intended baseline hashes refuse');
 $repeated = $after; $repeated['wp_wprism_kv'][1]['v'] = $session('3', 205);
 ImporterWooApplyEvidence::transition($newImage, $read($repeated), $intent, str_repeat('c', 40), str_repeat('a', 64),
     ['before' => 200, 'after' => 210], true);
@@ -132,5 +143,53 @@ try {
 } finally {
     foreach (['webtoffee_export', 'webtoffee_import'] as $name) { unlink("$directory/$name/local.csv"); rmdir("$directory/$name"); }
     rmdir($directory);
+}
+$canonicalRoot = $root . '/sandbox/tmp/importer-woo-intent-' . bin2hex(random_bytes(6));
+mkdir($canonicalRoot . '/state/tables/wt_iew_mapping_template', 0700, true);
+$forms = []; $fronts = []; $targetRows = $before;
+foreach (['export', 'import'] as $i => $kind) {
+    $forms[$kind] = ['advanced_form_data' => ['wt_iew_batch_count' => 10],
+        'method_' . $kind . '_form_data' => [], 'mapping_form_data' => ['label' => 'Retain']];
+    $fronts[$kind] = ['uuid' => $uuid($i + 1), 'table' => 'wt_iew_mapping_template',
+        'columns' => ['template_type' => $kind, 'item_type' => 'user',
+            'name' => $kind === 'export' ? 'Selected users' : 'Reusable input mapping',
+            'data' => json_encode($forms[$kind], JSON_THROW_ON_ERROR)]];
+    $targetRows['wp_wt_iew_mapping_template'][$i]['data'] = json_encode($forms[$kind], JSON_THROW_ON_ERROR);
+}
+$writeTree = static function (array $records) use ($canonicalRoot): array {
+    foreach ($records as $front) file_put_contents($canonicalRoot . '/state/tables/wt_iew_mapping_template/' . $front['uuid'] . '.json',
+        json_encode($front, JSON_THROW_ON_ERROR));
+    return WPrismTest\FilesystemTreeEvidence::capture($canonicalRoot, 'state');
+};
+try {
+    $baseline = $writeTree($fronts); $desiredFronts = $fronts;
+    foreach (['export', 'import'] as $kind) {
+        $forms[$kind]['advanced_form_data']['wt_iew_batch_count'] = 7;
+        $desiredFronts[$kind]['columns']['data'] = json_encode($forms[$kind], JSON_THROW_ON_ERROR);
+    }
+    $desired = $writeTree($desiredFronts); $targetImage = $read($targetRows);
+    $derived = ImporterWooApplyEvidence::intent($baseline, $desired, $targetImage);
+    wprism_check_same([101, 102], array_column($derived, 'id'), 'intent uses both stable target IDs observed before Apply');
+    wprism_check_same([$forms['export'], $forms['import']], array_column($derived, 'form'), 'complete expected forms derive from the converged preimage and named native Save');
+    foreach ($derived as $entity) {
+        $file = 'tables/wt_iew_mapping_template/' . $entity['uuid'] . '.json';
+        wprism_check_same(array_column($desired['files'], 'sha256', 'path')[$file], $entity['hash'], 'baseline hash comes from independently captured desired bytes');
+    }
+    foreach (['other-field', 'name', 'wrong-batch', 'one-save'] as $fault) {
+        $bad = $desiredFronts;
+        if ($fault === 'other-field') { $form = $forms['export']; $form['mapping_form_data']['label'] = 'Different'; $bad['export']['columns']['data'] = json_encode($form, JSON_THROW_ON_ERROR); }
+        if ($fault === 'name') $bad['export']['columns']['name'] = 'Different';
+        if ($fault === 'wrong-batch') { $form = $forms['export']; $form['advanced_form_data']['wt_iew_batch_count'] = 8; $bad['export']['columns']['data'] = json_encode($form, JSON_THROW_ON_ERROR); }
+        if ($fault === 'one-save') $bad['import'] = $fronts['import'];
+        wprism_check_throws(static fn() => ImporterWooApplyEvidence::intent($baseline, $writeTree($bad), $targetImage), RuntimeException::class,
+            "canonical $fault cannot manufacture the allowed Apply delta");
+    }
+    file_put_contents($canonicalRoot . '/state/unexpected.json', '{}');
+    wprism_check_throws(static fn() => ImporterWooApplyEvidence::intent($baseline, $writeTree($desiredFronts), $targetImage), RuntimeException::class,
+        'an extra canonical file cannot be omitted from the authored change roster');
+} finally {
+    foreach ($fronts as $front) unlink($canonicalRoot . '/state/tables/wt_iew_mapping_template/' . $front['uuid'] . '.json');
+    if (is_file($canonicalRoot . '/state/unexpected.json')) unlink($canonicalRoot . '/state/unexpected.json');
+    foreach (['/state/tables/wt_iew_mapping_template', '/state/tables', '/state', ''] as $directory) rmdir($canonicalRoot . $directory);
 }
 wprism_check_summary('Importer/Woo exact Apply database transition');

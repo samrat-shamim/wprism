@@ -9,7 +9,7 @@ use WPrismTest\SqlDumpEvidence;
 
 /** Exact update-only contract; initial adoption and native CSV jobs have separate windows. */
 final class ImporterWooApplyEvidence {
-    private const CONTROLS = ['wp_wt_iew_mapping_template', 'wp_wprism_state', 'wp_wprism_kv'];
+    private const CONTROLS = ['wp_wt_iew_mapping_template', 'wp_wprism_state', 'wp_wprism_kv', 'wp_wprism_map'];
 
     private static function check(bool $ok, string $why): void {
         if (!$ok) throw new RuntimeException('Importer/Woo Apply evidence: ' . $why);
@@ -26,6 +26,41 @@ final class ImporterWooApplyEvidence {
                 SqlDumpEvidence::columnRoster($columns[$table]), EvidenceSizeProfile::NATIVE_DATABASE);
         }
         return ['database' => $database, 'controls' => $controls];
+    }
+
+    /** Baseline convergence precedes this comparison; only two native batch Saves are authored. */
+    public static function intent(array $baseline, array $desired, array $target): array {
+        foreach ([$baseline, $desired] as $tree) WPrismTest\FilesystemTreeEvidence::assertRecord($tree, 'state');
+        self::check($baseline['directories'] === $desired['directories'], 'canonical directory roster survives the two Saves');
+        $old = array_column($baseline['files'], null, 'path'); $new = array_column($desired['files'], null, 'path');
+        self::check(array_keys($old) === array_keys($new), 'no added or removed canonical file');
+        $intent = [];
+        foreach ($old as $path => $file) {
+            if ($file['sha256'] === $new[$path]['sha256']) continue;
+            self::check(str_starts_with($path, 'tables/wt_iew_mapping_template/'), 'only saved user-template canonical files change');
+            $prior = json_decode(base64_decode($file['contents_base64'], true), true, flags: JSON_THROW_ON_ERROR);
+            $front = json_decode(base64_decode($new[$path]['contents_base64'], true), true, flags: JSON_THROW_ON_ERROR);
+            $form = json_decode($prior['columns']['data'], true, flags: JSON_THROW_ON_ERROR);
+            $wanted = $form; $wanted['advanced_form_data']['wt_iew_batch_count'] = 7;
+            self::check($wanted !== $form && json_decode($front['columns']['data'], true, flags: JSON_THROW_ON_ERROR) === $wanted,
+                'native Save changed exactly the desired batch setting');
+            $prior['columns']['data'] = $front['columns']['data'];
+            self::check($prior === $front && $front['table'] === 'wt_iew_mapping_template'
+                && $front['columns']['item_type'] === 'user', 'all other canonical template fields are unchanged');
+            $kind = $front['columns']['template_type'];
+            self::check(in_array($kind, ['import', 'export'], true)
+                && $front['columns']['name'] === ($kind === 'import' ? 'Reusable input mapping' : 'Selected users'),
+                'only the two named native Save targets');
+            $matches = array_values(array_filter($target['controls']['wp_wt_iew_mapping_template'], static fn(array $row): bool =>
+                $row['template_type'] === $kind && $row['item_type'] === 'user' && $row['name'] === $front['columns']['name']));
+            self::check(count($matches) === 1, 'one preexisting independently observed target binding');
+            $resolved = json_decode($matches[0]['data'], true, flags: JSON_THROW_ON_ERROR);
+            self::check(!isset($resolved['method_' . $kind . '_form_data']['selected_template']), 'target baseline was materialized before the measured update');
+            $resolved['advanced_form_data']['wt_iew_batch_count'] = 7;
+            $intent[] = ['id' => $matches[0]['id'], 'uuid' => $front['uuid'], 'kind' => $kind, 'hash' => $new[$path]['sha256'], 'form' => $resolved];
+        }
+        self::check(count($intent) === 2 && count(array_unique(array_column($intent, 'kind'))) === 2, 'exactly one changed import and export');
+        return $intent;
     }
 
     private static function index(array $rows, string $column): array {
@@ -56,6 +91,9 @@ final class ImporterWooApplyEvidence {
                 && isset($states[$uuid]) && !isset($uuids[$uuid])
                 && is_string($entity['hash'] ?? null) && preg_match('/^[a-f0-9]{64}$/D', $entity['hash']) === 1
                 && is_array($entity['form'] ?? null), 'unique existing import/export intent');
+            $bindings = array_values(array_filter($old['wp_wprism_map'], static fn(array $row): bool =>
+                $row['uuid'] === $uuid && $row['entity_type'] === 'wt_iew_mapping_template' && $row['id_kind'] === 'iew_template'));
+            self::check(count($bindings) === 1 && $bindings[0]['local_id'] === $id, 'canonical UUID binds the independently observed target template ID');
             $kinds[$kind] = $ids[$id] = $uuids[$uuid] = true;
             $i = $templates[$id]; $row = $old[$table][$i]; $next = $new[$table][$i] ?? [];
             self::check($row['template_type'] === $kind && $row['item_type'] === 'user'
