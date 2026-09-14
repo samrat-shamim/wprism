@@ -117,3 +117,13 @@ For dependency and lifecycle evidence, use `IMPORTER_DEPENDENCY_PAIR`,
 with both absolute archives matching the lock and the same clean source pin,
 then run
 `bash adapter-packages/users-customers-import-export-for-wp-woocommerce/tests/live/regress_dependency_apply.sh`.
+
+The SSH artifact lane exercises both locked archives on an adopted host. It
+installs each inactive, then activates 2.7.5 in its native administrator
+context and checks the raw lifecycle postconditions before an admin observer.
+From a clean standalone clone, supply a unique `ADOPT_FIXTURE`, free
+`ADOPT_SSH_PORT`, exact `WPRISM_EXPECTED_SOURCE_SHA` and
+`WPRISM_SSH_ADOPT_EXTENSION=adapter-packages/users-customers-import-export-for-wp-woocommerce/tests/live/regress_artifact_ssh.sh`,
+then run `bash sandbox/tests/live/regress_ssh_adopt.sh`.
+The shared harness owns adoption, recovery authority and labeled cleanup.
+This lane does not qualify template deletion or change the experimental grade.

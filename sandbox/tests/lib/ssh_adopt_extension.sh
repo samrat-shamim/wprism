@@ -2,55 +2,66 @@
 
 # Shared extension machinery for regress_ssh_adopt.sh. The parent suite owns
 # its target, registry, diagnostics, and signed checkpoint provider; callers
-# select certified plugin artifacts plus narrowly validated fixture state.
+# select locked plugin artifacts plus narrowly validated fixture state.
 
 # shellcheck source=../../bin/artifact-library.sh
 . "$ROOT/sandbox/bin/artifact-library.sh"
+. "$ROOT/sandbox/tests/lib/private_command_capture.sh"
 
-wprism_ssh_install_certified_plugin() { # <artifact-slug> <version>
-  [ "$#" -eq 2 ] || fail 'certified plugin install requires an artifact slug and version'
-  local slug="$1" version="$2" entry url sha256 archive partial actual remote
+wprism_ssh_install_locked_plugin() { # <artifact-slug> <version> <role> <activate|inactive>
+  [ "$#" -eq 4 ] || fail 'locked plugin install requires artifact slug, version, evidence role and activation mode'
+  local slug="$1" version="$2" role="$3" activation="$4" activate_flag=''
+  local entry url sha256 archive partial actual remote expected_status
+  case "$role" in
+    certified-boundary|exercise-fixture|refusal-fixture) ;;
+    *) fail "locked plugin evidence role '$role' is unknown" ;;
+  esac
+  case "$activation" in
+    activate) activate_flag=--activate; expected_status=active ;;
+    inactive) expected_status=inactive ;;
+    *) fail "locked plugin activation mode '$activation' is unknown" ;;
+  esac
 
   [[ "$slug" =~ ^[a-z0-9][a-z0-9._-]*[a-z0-9]$ ]] \
-    || fail "certified plugin artifact slug '$slug' is malformed"
+    || fail "locked plugin artifact slug '$slug' is malformed"
   [[ "$version" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]] \
-    || fail "certified plugin artifact version '$version' is malformed"
-  command -v curl >/dev/null 2>&1 || fail 'curl is required for certified SSH plugin artifacts'
-  entry="$(artifact_library_jq -ce --arg slug "$slug" --arg version "$version" '
+    || fail "locked plugin artifact version '$version' is malformed"
+  command -v curl >/dev/null 2>&1 || fail 'curl is required for locked SSH plugin artifacts'
+  entry="$(artifact_library_jq -ce --arg slug "$slug" --arg version "$version" --arg role "$role" '
     .plugins[$slug][$version]
-    | if type == "object" and .role == "certified-boundary" then .
-      else error("requested plugin artifact is not a certified boundary") end
-  ')" || fail "no certified artifact-library boundary exists for $slug $version"
-  url="$(jq -er '.url' <<<"$entry")" || fail "certified artifact $slug $version has no URL"
-  sha256="$(jq -er '.sha256' <<<"$entry")" || fail "certified artifact $slug $version has no digest"
+    | if type == "object" and .role == $role then .
+      else error("requested plugin artifact has a different evidence role") end
+  ')" || fail "no locked artifact-library entry with role $role exists for $slug $version"
+  url="$(jq -er '.url' <<<"$entry")" || fail "locked artifact $slug $version has no URL"
+  sha256="$(jq -er '.sha256' <<<"$entry")" || fail "locked artifact $slug $version has no digest"
   [[ "$url" == https://* && "$url" != *"'"* && "$url" != *[[:space:]]* ]] \
-    || fail "certified artifact $slug $version has a malformed HTTPS URL"
+    || fail "locked artifact $slug $version has a malformed HTTPS URL"
   [[ "$sha256" =~ ^[a-f0-9]{64}$ ]] \
-    || fail "certified artifact $slug $version has a malformed SHA-256"
+    || fail "locked artifact $slug $version has a malformed SHA-256"
 
   archive="$TMP/plugin-${slug}-${version}-${sha256}.zip"
   partial="$archive.partial"
   [ ! -e "$archive" ] && [ ! -L "$archive" ] && [ ! -e "$partial" ] && [ ! -L "$partial" ] \
-    || fail "certified artifact scratch path already exists for $slug $version"
+    || fail "locked artifact scratch path already exists for $slug $version"
   ( umask 077; curl --fail --location --silent --show-error \
       --proto '=https' --proto-redir '=https' --connect-timeout 20 --max-time 180 \
       --max-filesize 268435456 --output "$partial" "$url" ) \
-    || fail "certified artifact download failed for $slug $version"
+    || fail "locked artifact download failed for $slug $version"
   [ -f "$partial" ] && [ ! -L "$partial" ] \
-    || fail "certified artifact download was not an ordinary file for $slug $version"
+    || fail "locked artifact download was not an ordinary file for $slug $version"
   [ "$(wc -c <"$partial" | tr -d '[:space:]')" -le 268435456 ] \
-    || fail "certified artifact exceeded the 256 MiB fixture bound for $slug $version"
+    || fail "locked artifact exceeded the 256 MiB fixture bound for $slug $version"
   actual="$(php -r 'echo hash_file("sha256", $argv[1]);' "$partial")" \
-    || fail "certified artifact digest could not be read for $slug $version"
+    || fail "locked artifact digest could not be read for $slug $version"
   [ "$actual" = "$sha256" ] \
-    || fail "certified artifact digest mismatch for $slug $version"
+    || fail "locked artifact digest mismatch for $slug $version"
   mv "$partial" "$archive"
 
   remote="/home/wprism/recovery-fixture/plugin-${slug}-${version}-${sha256}.zip"
   ssh_fixture "test ! -e '$remote' && test ! -L '$remote'" \
-    || fail "certified artifact target path already exists for $slug $version"
+    || fail "locked artifact target path already exists for $slug $version"
   scp -F "$TMP/ssh_config" "$archive" "wprism-adopt-fixture:$remote" >/dev/null \
-    || fail "certified artifact upload failed for $slug $version"
+    || fail "locked artifact upload failed for $slug $version"
   ssh_fixture "
     set -eu
     trap 'rm -f -- $remote' EXIT
@@ -58,9 +69,10 @@ wprism_ssh_install_certified_plugin() { # <artifact-slug> <version>
     test \"\$actual\" = '$sha256'
     cd /var/www/html
     ! wp plugin is-installed '$slug' >/dev/null 2>&1
-    wp plugin install '$remote' --activate --quiet
+    wp plugin install '$remote' $activate_flag --quiet
     test \"\$(wp plugin get '$slug' --field=version)\" = '$version'
-  " || fail "certified artifact installation failed for $slug $version"
+    test \"\$(wp plugin get '$slug' --field=status)\" = '$expected_status'
+  " || fail "locked artifact installation failed for $slug $version"
 }
 
 wprism_ssh_stage_code_inventory() { # <active-plugin-directory>...

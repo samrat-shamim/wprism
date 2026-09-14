@@ -2374,7 +2374,7 @@ wprism_check(
         && str_contains($sshDeletion, 'exec bash "$ROOT/sandbox/tests/live/regress_ssh_adopt.sh"'),
     'the extension remains WP-CLI eval-safe when sourced and delegates direct execution to the shared SSH product gate'
 );
-$sshWooInstall = strpos($sshDeletion, 'wprism_ssh_install_certified_plugin "$adapter" "$expected_version"');
+$sshWooInstall = strpos($sshDeletion, 'wprism_ssh_install_locked_plugin "$adapter" "$expected_version" certified-boundary activate');
 $sshWooTerms = strpos($sshDeletion, 'WC_Install::create_terms();');
 $sshBaselineCapture = strpos($sshDeletion, 'capture target --target-branch="$TARGET_REPOSITORY_BRANCH"');
 wprism_check(
@@ -2389,7 +2389,7 @@ wprism_check(
 $sshExtensionHelper = (string) file_get_contents($root . '/sandbox/tests/lib/ssh_adopt_extension.sh');
 wprism_check(
     str_contains($sshDeletion, 'wprism_ssh_enroll_full_recovery rm-combo')
-        && str_contains($sshDeletion, 'wprism_ssh_install_certified_plugin "$adapter" "$expected_version"')
+        && str_contains($sshDeletion, 'wprism_ssh_install_locked_plugin "$adapter" "$expected_version" certified-boundary activate')
         && str_contains($sshDeletion, 'wprism_ssh_stage_code_inventory')
         && str_contains($sshDeletion, 'advanced-custom-fields polylang seo-by-rank-math woocommerce')
         && str_contains($sshDeletion, 'wprism_ssh_stage_generation_releases 1')

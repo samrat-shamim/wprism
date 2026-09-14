@@ -1074,7 +1074,7 @@ woo_ok(is_file($woocommerceCodeReleaseProviderPath),
     'WooCommerce deletion live proof reuses the shared exact plan-bound code-release provider fixture');
 woo_ok(
     str_contains($woocommerceScopedDeletionHarness,
-        'wprism_ssh_install_certified_plugin woocommerce "$woo_version"')
+        'wprism_ssh_install_locked_plugin woocommerce "$woo_version" certified-boundary activate')
         && !str_contains($woocommerceScopedDeletionHarness, 'wp plugin install woocommerce')
         && str_contains($sshExtensionLibrary, 'artifact_library_jq -ce')
         && str_contains($sshExtensionLibrary, '.role == "certified-boundary"')
@@ -2550,7 +2550,7 @@ foreach ([
     '.envs.target.rollback_recovery.effect_provider',
     '.envs.target.rollback_recovery.code_release_provider',
     'adopt target >/dev/null',
-    'wprism_ssh_install_certified_plugin woocommerce "$woo_version"',
+    'wprism_ssh_install_locked_plugin woocommerce "$woo_version" certified-boundary activate',
     'WOOCOMMERCE_BIS_ALPHA_ENABLED',
     'WC_Install::maybe_enable_hpos();',
     'WC_Install::create_tables();',

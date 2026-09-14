@@ -12,6 +12,32 @@ require_once dirname(__DIR__, 2) . '/tools/src/ActiveShellSource.php';
 
 final class ActiveShellSourceTest extends TestCase
 {
+    public function testReviewedSshEntryPointMakesItsHelperPremisesReachable(): void
+    {
+        $source = <<<'SH'
+unused() {
+  observe_native dormant
+}
+wprism_ssh_adopt_extension_unused() {
+  observe_native lookalike
+}
+native_helper() {
+  observe_native owned
+}
+wprism_ssh_adopt_extension() {
+  native_helper
+}
+SH;
+        self::assertNotNull(ActiveShellSource::statement($source, 'observe_native owned'));
+        self::assertNull(ActiveShellSource::statement($source, 'observe_native dormant'));
+        self::assertNull(ActiveShellSource::statement($source, 'observe_native lookalike'));
+        $root = dirname(__DIR__, 2);
+        self::assertNotNull(ActiveShellSource::statement(
+            (string) file_get_contents($root . '/sandbox/tests/live/regress_ssh_adopt.sh'),
+            'wprism_ssh_adopt_extension'
+        ));
+    }
+
     public function testPluralCensusRetainsRepeatedReachableStatementsWithoutRelaxingUniquePremises(): void
     {
         $source = <<<'SH'

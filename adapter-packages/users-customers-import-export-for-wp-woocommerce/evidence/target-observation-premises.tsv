@@ -1,5 +1,5 @@
 # format wprism-target-observation-premises/v1
-# expected observations=130 fixtures=0
+# expected observations=140 fixtures=0
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success IMPORTER_VERIFY1 'Importer exact native and canonical settings readback' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" verify-capture --use-include --user=admin
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success IMPORTER_RECAPTURE 'Importer repeated public Capture' wp_conf1 wprism capture --repo=/siterepo --format=json
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success IMPORTER_VERIFY2 'Importer repeated native and canonical settings readback' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" verify-capture --use-include --user=admin
@@ -130,3 +130,13 @@ observation	tests/live/regress_dependency_apply.sh	capture prepared-status statu
 observation	tests/live/regress_dependency_apply.sh	capture prepared-admin-status admin_status
 observation	tests/live/regress_dependency_apply.sh	capture deactivated-status status
 observation	tests/live/regress_dependency_apply.sh	refusal deactivated apply
+observation	tests/live/regress_artifact_ssh.sh	importer_ssh_artifact_capture upload scp -F "$TMP/ssh_config"
+observation	tests/live/regress_artifact_ssh.sh	importer_ssh_artifact_capture initial wp_ssh_fixture --skip-plugins --user=admin
+observation	tests/live/regress_artifact_ssh.sh	importer_ssh_artifact_capture install-prior
+observation	tests/live/regress_artifact_ssh.sh	importer_ssh_artifact_capture prior wp_ssh_fixture --skip-plugins --user=admin
+observation	tests/live/regress_artifact_ssh.sh	importer_ssh_artifact_capture delete-prior wp_ssh_fixture plugin delete "$slug" --quiet
+observation	tests/live/regress_artifact_ssh.sh	importer_ssh_artifact_capture install-supported
+observation	tests/live/regress_artifact_ssh.sh	importer_ssh_artifact_capture supported wp_ssh_fixture --skip-plugins --user=admin
+observation	tests/live/regress_artifact_ssh.sh	importer_ssh_artifact_capture activate wp_ssh_fixture --require="$fixture/admin-context.php" --user=admin
+observation	tests/live/regress_artifact_ssh.sh	importer_ssh_artifact_capture activated wp_ssh_fixture --skip-plugins --user=admin
+observation	tests/live/regress_artifact_ssh.sh	importer_ssh_artifact_capture admin wp_ssh_fixture --require="$fixture/admin-context.php" --user=admin

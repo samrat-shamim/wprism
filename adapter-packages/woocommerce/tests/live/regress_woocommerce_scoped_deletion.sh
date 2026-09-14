@@ -40,7 +40,7 @@ wprism_ssh_adopt_extension() {
   pass "candidate-bound upload/effect/code-release providers are enrolled for full automatic recovery"
 
   say "install the exact WooCommerce deletion boundary on the adopted SSH target"
-  wprism_ssh_install_certified_plugin woocommerce "$woo_version"
+  wprism_ssh_install_locked_plugin woocommerce "$woo_version" certified-boundary activate
   [ "$(ssh_fixture 'cd /var/www/html && wp plugin get woocommerce --field=version')" = "$woo_version" ] \
     || fail "WooCommerce scoped-deletion extension left its exact plugin boundary"
   if [ "$woo_version" = "11.0.1" ]; then
