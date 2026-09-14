@@ -23,6 +23,7 @@ require_once __DIR__ . '/../Kernel/ReferenceShapeGrammar.php';
 require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 require_once __DIR__ . '/../Grammar/AttrIdCodecGrammar.php';
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
+require_once __DIR__ . '/../Grammar/DerivedBodyGrammar.php';
 require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
 require_once __DIR__ . '/../Kernel/BlockContentGrammar.php';
 require_once __DIR__ . '/../Kernel/BlockMediaDerivativeGrammar.php';
@@ -133,5 +134,6 @@ final class ManifestValidator {
         // after § v3.2/§ v3.3 have had their say about whether the section
         // exists for this manifest at all.
         BodyRefGrammar::validate_body_refs($manifest, $label);
+        DerivedBodyGrammar::assert_body_mode_gate($manifest, $label);
     }
 }

@@ -509,8 +509,19 @@ $cf7Manifest = json_decode(
 );
 check(
     is_array($cf7Manifest)
-        && (($cf7Manifest['post_types']['wpcf7_contact_form'] ?? null) === []),
+        && array_key_exists('wpcf7_contact_form', (array) ($cf7Manifest['post_types'] ?? [])),
     'contact-form-7 declares its non-public wpcf7_contact_form post type for discovery'
+);
+// The declaration is no longer empty, and what it now carries is the point: CF7
+// writes post_content as a flattened dump of the properties it also stores as
+// meta and never reads it back, so the body is regenerated rather than authored.
+// Pinned here beside the discovery claim because an empty declaration would
+// silently restore the old behaviour -- capturing that dump, and with it the
+// source site's admin address.
+check(
+    is_array($cf7Manifest)
+        && (($cf7Manifest['post_types']['wpcf7_contact_form']['body'] ?? null) === 'derived'),
+    'contact-form-7 declares that contact form bodies are plugin-derived, not authored state'
 );
 // Addressed per subject since WP-4.4 (spec/repo-format.md § v3.4).
 $cf7Disposition = json_decode(

@@ -3,11 +3,15 @@ declare(strict_types=1);
 
 /** Closed offline matrix for CF7 6.x property, identity, and residue shapes. */
 
-if (!defined('WPRISM_SPEC_VERSION')) {
-    define('WPRISM_SPEC_VERSION', 2);
-}
-
 $repoRoot = dirname(__DIR__, 4);
+// This suite used to carry `define('WPRISM_SPEC_VERSION', 2)`. That literal was
+// free while CF7's own manifest was spec 2; declaring `derived-post-body/v1`
+// makes it spec 3, and a private copy of the number would then refuse this
+// capsule's own manifest for being NEWER than the engine the suite pretended to
+// be. agent_version.php exists for exactly this rot (WP-4.12) — read the source
+// of record instead of retyping it.
+require_once $repoRoot . '/sandbox/tests/lib/agent_version.php';
+wprism_test_define_agent_versions();
 require_once $repoRoot . '/sandbox/tests/lib/check.php';
 require_once $repoRoot . '/sandbox/tests/lib/wp_stubs.php';
 require_once $repoRoot . '/agent/src/Kernel/Canon.php';

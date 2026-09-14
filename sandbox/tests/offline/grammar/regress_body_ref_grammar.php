@@ -267,9 +267,16 @@ wprism_check_same(
     'A8: the published ungated body vocabulary is unchanged — no shipped manifest\'s bytes move'
 );
 wprism_check_same(
-    ['structured-body-refs/v1' => ['json']],
+    [
+        'structured-body-refs/v1' => ['json'],
+        // WP: `derived` arrived the same way `json` did, and that is the point
+        // this assertion defends. A8's first half above is unchanged — the base
+        // vocabulary is still exactly three — so no shipped manifest's bytes
+        // moved for it either.
+        'derived-post-body/v1' => ['derived'],
+    ],
     Policy::closed_vocabularies()['feature_gated_post_type_body_modes'],
-    'A8: and the gated member is published BESIDE it, keyed by the feature that admits it, never folded in'
+    'A8: and every gated member is published BESIDE it, keyed by the feature that admits it, never folded in'
 );
 
 // ===========================================================================

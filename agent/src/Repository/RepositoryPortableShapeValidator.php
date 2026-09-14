@@ -42,6 +42,7 @@ if (!class_exists(Secrets::class, false)) {
     require_once __DIR__ . '/../Kernel/Secrets.php';
 }
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
+require_once __DIR__ . '/../Grammar/DerivedBodyGrammar.php';
 require_once __DIR__ . '/../Grammar/AuthoredValueCodec.php';
 require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 require_once __DIR__ . '/../Kernel/BlockAttributeReader.php';
@@ -112,6 +113,22 @@ final class RepositoryPortableShapeValidator {
                 if (method_exists($this->policy, 'body_mode')
                     && $this->policy->body_mode((string) ($d['type'] ?? '')) === BodyRefGrammar::BODY_MODE) {
                     $this->validate_json_body((string) ($entity['body'] ?? ''), (string) $d['type'], $path);
+                }
+                // A derived body is empty by construction (PostCapture). A
+                // hand-written or hand-edited one is bytes apply will never
+                // write, so carrying them would put content back on disk in
+                // state/ -- the one thing this mode exists to prevent -- while
+                // looking inert. Refuse it rather than silently ignore it.
+                if (method_exists($this->policy, 'body_mode')
+                    && $this->policy->body_mode((string) ($d['type'] ?? '')) === DerivedBodyGrammar::BODY_MODE
+                    && (string) ($entity['body'] ?? '') !== DerivedBodyGrammar::BODY) {
+                    $this->add(
+                        'schema_content_mismatch',
+                        $path,
+                        'body',
+                        'a post type whose body is declared ' . DerivedBodyGrammar::BODY_MODE
+                            . ' must carry an empty body; the owning plugin derives it on each site from state the repository already carries'
+                    );
                 }
                 if (($d['parent'] ?? null) !== null) {
                     $this->validate_declared_ref($d['parent'], 'post', $path, 'parent');

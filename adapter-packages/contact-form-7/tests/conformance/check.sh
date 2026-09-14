@@ -139,6 +139,48 @@ printf '%s\n' "$TARGET" | jq -e '
   (.legacy.form | contains("legacy-literal")) and (.legacy.mail.body | contains($home))
 ' >/dev/null || fail "CF7 native properties, long data, legacy storage, or target sovereignty did not converge: $TARGET"
 
+# derived-post-body/v1: a form's post_content is CF7's own flattening of the
+# properties this adapter carries as meta, so it is not canonical state
+# (agent/src/Grammar/DerivedBodyGrammar.php). Each witness fails against a
+# distinct defect:
+#  - published state carries an EMPTY body for every form. Carrying it published
+#    a second, undeclared copy of that state -- the copy whose source admin
+#    address capture's clearance refused;
+#  - the adopted target form keeps the body ITS OWN save() derived in
+#    postdeploy.sh ("Hostile target main form"). Carrying the body replaces it
+#    with the source dump (source-only recipient/sender); an apply that wrote the
+#    empty canonical body blanks it.
+# The failure text projects the body (length, one boolean) rather than printing
+# it: the target's derivation holds the target admin address.
+CF7_STATE_BODIES=$(wp_conf1 eval '
+  $bodies = [];
+  foreach (glob("/siterepo/state/posts/wpcf7_contact_form/*.md") ?: [] as $file) {
+      [, $body] = \WPrism\Canon::parse_post_file((string) file_get_contents($file));
+      $bodies[basename($file)] = strlen($body);
+  }
+  ksort($bodies);
+  echo wp_json_encode($bodies), "\n";
+' | awk 'NF { line=$0 } END { print line }')
+require_observed_nonempty "CF7 published form bodies" "$CF7_STATE_BODIES"
+jq -e '
+  (keys | any(endswith("--conformance-contact-form.md"))) and
+  (to_entries | all(.value == 0))
+' <<<"$CF7_STATE_BODIES" >/dev/null \
+  || fail "CF7 published state carries a non-empty derived form body: $CF7_STATE_BODIES"
+CF7_TARGET_BODY=$(wp_conf2 eval '
+  $post = get_page_by_path("conformance-contact-form", OBJECT, "wpcf7_contact_form");
+  echo wp_json_encode(["content" => $post ? (string) $post->post_content : null]), "\n";
+' | awk 'NF { line=$0 } END { print line }')
+require_observed_nonempty "CF7 adopted target form body" "$CF7_TARGET_BODY"
+jq -e '
+  (.content | type == "string") and
+  (.content | contains("Hostile target main form")) and
+  (.content | contains("main-recipient@example.test") | not) and
+  (.content | contains("main-sender@example.test") | not)
+' <<<"$CF7_TARGET_BODY" >/dev/null \
+  || fail "CF7 apply did not leave the adopted target form its own derived body: $(jq -c '{length: ((.content // "") | length), own_derivation: ((.content // "") | contains("Hostile target main form"))}' <<<"$CF7_TARGET_BODY")"
+pass "derived form body: published state carries none, and apply leaves the adopted target form its own derivation"
+
 SOURCE_MAIN=$(jq -r '.main.id' <<<"$SOURCE")
 TARGET_MAIN=$(jq -r '.main.id' <<<"$TARGET")
 SOURCE_LEGACY=$(jq -r '.legacy.id' <<<"$SOURCE")

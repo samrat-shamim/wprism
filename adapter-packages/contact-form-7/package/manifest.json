@@ -1,5 +1,6 @@
 {
-  "spec_version": 2,
+  "spec_version": 3,
+  "engine_features": ["derived-post-body/v1", "spec-window/v1"],
   "name": "contact-form-7",
   "interpreter": "contact-form-7",
   "plugin": "contact-form-7/wp-contact-form-7.php",
@@ -28,7 +29,7 @@
     "_messages": {"class": "authored", "plain_data": true, "allow_pii": true}
   },
   "post_types": {
-    "wpcf7_contact_form": {}
+    "wpcf7_contact_form": {"body": "derived"}
   },
   "shortcode_attrs": {
     "contact-form-7": [

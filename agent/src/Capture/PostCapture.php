@@ -3,6 +3,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Grammar/Blocks.php';
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
+require_once __DIR__ . '/../Grammar/DerivedBodyGrammar.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/PersonalData.php';
@@ -164,7 +165,16 @@ final class PostCapture {
         }
 
         $bodyMode = $this->policy->body_mode($post->post_type);
-        if ($bodyMode === 'serialized') {
+        if ($bodyMode === DerivedBodyGrammar::BODY_MODE) {
+            // The owning plugin derives this post_content from state this
+            // repository already carries. Recording it would publish a second,
+            // undeclared copy of that state -- for CF7's default form, one
+            // carrying the SOURCE site's admin address, which the reviewed
+            // `_mail` rule is the one declaration allowed to carry. The
+            // canonical body is empty, so the clearance scan below has nothing
+            // to police and apply has nothing to write.
+            $body = DerivedBodyGrammar::BODY;
+        } elseif ($bodyMode === 'serialized') {
             $context = "{$post->post_type} '{$post->post_name}' body";
             $decoded = PlainData::decode_serialized((string) $post->post_content, $context);
             $secretLabel = Secrets::clearance_match_deep('body', $decoded);

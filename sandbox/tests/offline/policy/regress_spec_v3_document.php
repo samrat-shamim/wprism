@@ -223,12 +223,20 @@ sort($featureReaders, SORT_STRING);
 // vocabulary and can refuse an unimplemented name.
 // Scalar reference intersection adds one lower-layer declaration reader;
 // it consumes the manifest's feature but owns no implementation roster.
+// `derived-post-body/v1` adds the next gate reader, and it is BodyRefGrammar's
+// shape exactly: DerivedBodyGrammar owns that one name and reads a manifest's
+// declared list for the single narrower question its gated `derived` body MODE
+// turns on — whether this document may spend it — which it cannot delegate
+// upward across the module ladder. It publishes no roster and refuses no
+// unimplemented name, so the ratcheted property is unchanged: exactly one file
+// OWNS the vocabulary.
 wprism_check_same(
     [
         'agent/src/Adapter/ActionProviderGrammar.php',
         'agent/src/Adapter/AdapterContractGrammar.php',
         'agent/src/Grammar/BodyRefGrammar.php',
         'agent/src/Grammar/ColumnCodecGrammar.php',
+        'agent/src/Grammar/DerivedBodyGrammar.php',
         'agent/src/Kernel/BlockContentGrammar.php',
         'agent/src/Kernel/BlockValueGrammar.php',
         'agent/src/Kernel/ReferenceShapeGrammar.php',
@@ -238,7 +246,7 @@ wprism_check_same(
         'cli/src/Adapter/ManifestValidate.php',
     ],
     $featureReaders,
-    'v3.2 ENFORCED: the channel has one shipped OWNER beside nine gate readers of exact declarations or '
+    'v3.2 ENFORCED: the channel has one shipped OWNER beside ten gate readers of exact declarations or '
         . 'interpreter ownership, and one publisher that consumes none'
 );
 // WP-6.4 moved this from one name to two, and the second is the assertion
@@ -280,6 +288,7 @@ wprism_check_same(
         'column-record-fields/v1',
         'column-value-cases/v1',
         'conditional-json-refs/v1',
+        'derived-post-body/v1',
         'encoded-text-values/v1',
         'invalidate-vocabulary/v1',
         'json-column-codecs/v1',

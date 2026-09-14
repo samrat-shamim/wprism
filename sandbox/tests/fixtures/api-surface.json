@@ -1,5 +1,5 @@
 {
-    "class_count": 526,
+    "class_count": 527,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -21496,6 +21496,78 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\DerivedBodyGrammar": {
+            "abstract": false,
+            "constants": {
+                "BODY": {
+                    "value_repr": ""
+                },
+                "BODY_MODE": {
+                    "value_repr": "derived"
+                },
+                "FEATURE": {
+                    "value_repr": "derived-post-body/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_body_mode_gate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "declares_feature": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "self::FEATURE",
+                            "has_default": true,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
                     "static": true,
                     "visibility": "public"
                 }

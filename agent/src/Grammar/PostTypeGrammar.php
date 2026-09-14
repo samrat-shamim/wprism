@@ -5,6 +5,8 @@ namespace WPrism;
 // admits, read from the one file that defines them rather than restated here —
 // two spellings of one gated value agree until the day one of them moves.
 require_once __DIR__ . '/BodyRefGrammar.php';
+// Same reason, for the mode `derived-post-body/v1` admits.
+require_once __DIR__ . '/DerivedBodyGrammar.php';
 
 /**
  * The pure post-type behavior grammar extracted from Policy.php
@@ -213,7 +215,10 @@ final class PostTypeGrammar {
      * unrecognised top-level key and refuses BY FEATURE NAME (§ v3.3's growth
      * rule), instead of meeting `json` alone and refusing it as a typo.
      */
-    private const FEATURE_GATED_BODY_MODES = [BodyRefGrammar::FEATURE => [BodyRefGrammar::BODY_MODE]];
+    private const FEATURE_GATED_BODY_MODES = [
+        BodyRefGrammar::FEATURE => [BodyRefGrammar::BODY_MODE],
+        DerivedBodyGrammar::FEATURE => [DerivedBodyGrammar::BODY_MODE],
+    ];
 
     /**
      * feature => the predicate that answers "did THIS manifest declare it".
@@ -228,7 +233,10 @@ final class PostTypeGrammar {
      * @return array<string,callable(array<string,mixed>):bool>
      */
     private static function gated_body_mode_predicates(): array {
-        return [BodyRefGrammar::FEATURE => static fn(array $m): bool => BodyRefGrammar::declares_feature($m)];
+        return [
+            BodyRefGrammar::FEATURE => static fn(array $m): bool => BodyRefGrammar::declares_feature($m),
+            DerivedBodyGrammar::FEATURE => static fn(array $m): bool => DerivedBodyGrammar::declares_feature($m),
+        ];
     }
 
     /** The closed `post_types.<type>.phase` vocabulary. */

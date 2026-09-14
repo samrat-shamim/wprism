@@ -2410,6 +2410,13 @@ regress-attr-id-codec-grammar:
 regress-body-ref-grammar:
 	php sandbox/tests/offline/grammar/regress_body_ref_grammar.php
 
+# The sibling body mode, and the half its deferral depends on: PostTypeGrammar
+# recognises a gated value instead of calling it a typo, which is only safe while
+# something later actually refuses it. Both halves are asserted here, so deleting
+# either cannot leave a spec_version 2 manifest able to spend a v3 body mode.
+regress-derived-post-body:
+	php sandbox/tests/offline/grammar/regress_derived_post_body.php
+
 # The two primitives above, plus the rest of one adapter's declared surfaces, as
 # ONE INSTALLED FILE rather than as a manifest built in PHP:
 # sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json is the tree's first

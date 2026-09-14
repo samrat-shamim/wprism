@@ -12,6 +12,7 @@ require_once __DIR__ . '/CacheInvalidationTransaction.php';
 require_once __DIR__ . '/EnvironmentValues.php';
 require_once __DIR__ . '/../Grammar/Blocks.php';
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
+require_once __DIR__ . '/../Grammar/DerivedBodyGrammar.php';
 // Deliberately NOT require_once('Ledger.php') or require_once('Db.php') here:
 // sandbox/tests/offline/code-half/regress_code_revision_enforcement.php and
 // regress_scoped_promotion_target.php both reach this file transitively
@@ -190,6 +191,10 @@ final class PostMaterializer {
                 "{$front['type']} '{$front['slug']}'",
                 fn(string $text): string => $this->tokens->detokenize_text($text)
             ),
+            // Capture recorded this body empty on purpose; say so here rather
+            // than falling through to the block rewriter, which would be asked
+            // to parse a string the mode guarantees is ''.
+            DerivedBodyGrammar::BODY_MODE => DerivedBodyGrammar::BODY,
             default => Blocks::apply_rewrite($body, $this->policy, $this->tokens),
         };
         $fields = [
@@ -245,6 +250,15 @@ final class PostMaterializer {
             if ($this->policy->field_class($front['type'], $frontField) === 'derived') {
                 unset($fields[$dbColumn]);
             }
+        }
+        // The same reasoning, for a whole body the owning plugin derives. The
+        // captured body is '' by construction, so writing it to an EXISTING row
+        // would replace the target's own derived post_content with nothing
+        // — the regression this mode exists to prevent, not merely a no-op.
+        // ensure_post_row() has already inserted '' for a brand-new row, which
+        // is the same value the plugin will overwrite on its next save.
+        if ($this->policy->body_mode((string) $front['type']) === DerivedBodyGrammar::BODY_MODE) {
+            unset($fields['post_content']);
         }
         Db::update($wpdb->posts, $fields, ['ID' => $id], null, null, 'apply update post');
         CacheInvalidationTransaction::queue_post($id, (string) $front['type'], 'apply update post');

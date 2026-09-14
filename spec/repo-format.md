@@ -1049,6 +1049,21 @@ each one closed and the coordinates that stayed open beside it.
   checkpoint-bound, create-only, and durably recoverable.
 - **`structured-body-refs/v1`** (WP-6.5, § v3.20) — claims `body_refs` and admits the `json` post-body
   mode under one feature, so a document cannot declare either inert half without the other.
+- **`derived-post-body/v1`** — claims NO top-level key: it admits the `derived` post-body mode, which
+  states that the owning plugin derives this post type's `post_content` from state the repository already
+  carries authoritatively, so the body is not canonical state. Capture records an empty body, apply writes
+  no `post_content` for an existing row, and the portable-shape validator refuses a non-empty one. Each
+  site therefore keeps its own last derivation; the mode does not re-derive after apply, which — as for
+  the field-level class — happens only where a rebuild action exists. It is NOT that field-level
+  `derived` class: `DERIVABLE_FIELD_COLUMNS` admits only `title`/`modified`/`modified_gmt`, and a derived
+  FIELD is still recorded verbatim into `state/` — for a body whose problem is the bytes, that is the
+  wrong instrument. The worked example is Contact Form 7 6.1.7, whose `save()` stores
+  `implode("\n", wpcf7_array_flatten($props))` and writes the same properties to `_<prop>` meta. Carrying
+  the body published a second, undeclared copy of that state — including the source site's admin address,
+  which the default form's sender holds and which the capsule's reviewed `_mail` `allow_pii` rule is the
+  one declaration permitted to carry. CF7 reads the body only implicitly, through `WP_Query` search (its
+  admin forms list and REST `contact-forms?search=`), so on a target with no rebuild action, body-text
+  search sees that site's own last derivation while title search is unaffected.
 
 
 A feature need not claim a key at all. WP-6.2 is the worked example: `invalidate-vocabulary/v1` widens a

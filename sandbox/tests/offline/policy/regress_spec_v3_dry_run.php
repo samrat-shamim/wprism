@@ -794,12 +794,19 @@ wprism_check_same(
 // ReferenceShapeGrammar consumes scalar-reference-intersection/v1 and native
 // value predicates at its declaration boundary. Policy verifies the exact
 // interpreter owner's feature enrollment; neither duplicates the vocabulary.
+// DerivedBodyGrammar is BodyRefGrammar's shape exactly: it owns the name
+// `derived-post-body/v1` as a constant the contract grammar reads back, and
+// reads a manifest's DECLARED list for the one narrower question its gated
+// `derived` body MODE turns on — may this document spend it. Grammar sits
+// below Adapter on tools/modules.json's ladder, so it cannot delegate that
+// upward; it publishes no roster and refuses no unimplemented name.
 wprism_check_same(
     [
         'agent/src/Adapter/ActionProviderGrammar.php',
         'agent/src/Adapter/AdapterContractGrammar.php',
         'agent/src/Grammar/BodyRefGrammar.php',
         'agent/src/Grammar/ColumnCodecGrammar.php',
+        'agent/src/Grammar/DerivedBodyGrammar.php',
         'agent/src/Kernel/BlockContentGrammar.php',
         'agent/src/Kernel/BlockValueGrammar.php',
         'agent/src/Kernel/ReferenceShapeGrammar.php',
@@ -810,8 +817,8 @@ wprism_check_same(
     ],
     $featureReaders,
     'V3-FEAT: the channel has exactly one shipped OWNER — the contract grammar, which holds the vocabulary and '
-        . 'refuses an unimplemented name — beside nine gate readers (provider contracts, body mode, column framing, leaf content, '
-        . 'block groups, value predicates, row ownership, invalidate verbs, interpreter ownership) that ask only '
+        . 'refuses an unimplemented name — beside ten gate readers (provider contracts, body mode, derived body, column '
+        . 'framing, leaf content, block groups, value predicates, row ownership, invalidate verbs, interpreter ownership) that ask only '
         . 'whether THIS document declared the feature their gated declaration needs, and one publisher that '
         . 'refuses nothing'
 );
@@ -836,6 +843,7 @@ wprism_check_same(
         'column-record-fields/v1',
         'column-value-cases/v1',
         'conditional-json-refs/v1',
+        'derived-post-body/v1',
         'encoded-text-values/v1',
         'invalidate-vocabulary/v1',
         'json-column-codecs/v1',

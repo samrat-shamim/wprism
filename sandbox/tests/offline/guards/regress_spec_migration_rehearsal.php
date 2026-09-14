@@ -513,7 +513,7 @@ $multilingualPins = array_map(
     (array) ($multilingualSite['manifests'] ?? [])
 );
 wprism_check_same(
-    ['core', 'contact-form-7', 'wps-hide-login'],
+    ['core', 'classic-editor', 'wps-hide-login'],
     $multilingualPins,
     'the historical flag-day cohort pins only retained-v2 adapters, keeping later per-adapter restamps out of this drill'
 );
