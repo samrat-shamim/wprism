@@ -68,9 +68,13 @@ if (in_array($phase, ['seed-source', 'seed-target'], true)) {
     foreach ($logins as $login) {
         $user = get_user_by('login', $login);
         $check($user instanceof WP_User, 'capsule native setup precedes customer seed');
+        // Woo 11.0.1's customer data-store update() writes email/display name,
+        // not role (class-wc-customer-data-store.php:198-212). Establish it
+        // through WordPress before loading Woo's customer representation.
+        $user->set_role('customer');
         $customer = new WC_Customer($user->ID);
         $check($customer->get_billing_city() === '' && $customer->get_shipping_city() === '', 'seed never replaces addresses');
-        $customer->set_role('customer');
+        $check($customer->get_role() === 'customer', 'native WordPress customer role is persisted');
         $customer->set_billing_first_name('Local');
         $customer->set_billing_last_name($side);
         $customer->set_billing_city($side === 'source' ? 'Paris' : 'Dhaka');

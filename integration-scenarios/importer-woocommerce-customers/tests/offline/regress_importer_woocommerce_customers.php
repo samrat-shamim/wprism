@@ -289,6 +289,13 @@ $nativeAfter['customers']['import-template-reader']['billing']['city'] = 'Chatto
 $nativeAfter['customers']['import-template-reader']['shipping']['city'] = 'Osaka';
 ImporterWooNativeEvidence::consumers($nativeBefore, $nativeAfter);
 wprism_check(true, 'fresh native readback allows exactly the two mapped address changes');
+$subscribers = $nativeBefore; $subscribersAfter = $nativeAfter;
+foreach (array_keys($subscribers['customers']) as $login) {
+    $subscribers['customers'][$login]['role'] = 'subscriber';
+    $subscribersAfter['customers'][$login]['role'] = 'subscriber';
+}
+wprism_check_throws(static fn() => ImporterWooNativeEvidence::consumers($subscribers, $subscribersAfter), RuntimeException::class,
+    'unchanged subscriber roles cannot substantiate the native customer premise');
 foreach (['order-total', 'neighbor-address', 'missing-customer', 'extra-field'] as $fault) {
     $bad = $nativeAfter;
     if ($fault === 'order-total') $bad['customers']['template-reader']['orders'][0]['total'] = '12.51';
