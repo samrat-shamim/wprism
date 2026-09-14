@@ -366,4 +366,54 @@ foreach (['other-template', 'extra-update', 'missing-update', 'unchanged-import'
         "scoped plan evidence rejects $fault");
 }
 
+// Run the actual contract transport block with only the host executable seam
+// replaced. A plugin-loaded agent scope call cannot satisfy this probe.
+$driver = file_get_contents(dirname(__DIR__, 2) . '/tests/live/regress_importer_woocommerce_apply.sh');
+$start = strpos($driver, "  php -r '$" . 'config=');
+$end = strpos($driver, '  combo_capture scoped-plan', $start === false ? 0 : $start);
+if ($start === false || $end === false) throw new RuntimeException('missing isolated scope transport block');
+$transportBlock = substr($driver, $start, $end - $start);
+$transportRoot = sys_get_temp_dir() . '/importer-woo-scope-route-' . bin2hex(random_bytes(6));
+foreach (['', '/cli', '/sink', '/repo', '/sandbox'] as $relative) mkdir($transportRoot . $relative, 0700);
+$host = <<<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "$#" -eq 6 ]
+[ "$1" = "--envs-file=$TEST_ROOT/sink/envs.json" ]
+[ "$2 $3" = 'scope source' ]
+[ "$4" = "--roots=table:wt_iew_mapping_template:$TEST_UUID" ]
+[ "$5 $6" = '--contract --format=json' ]
+cat "$TEST_ROOT/contract.json"
+SH;
+$probe = <<<'SH'
+set -euo pipefail
+umask 077
+ROOT="$1"; sink="$ROOT/sink"; R2="$ROOT/repo"; export_uuid="$2"
+export TEST_ROOT="$ROOT" TEST_UUID="$export_uuid"
+combo_capture() { local label="$1"; shift; "$@" > "$sink/$label.stdout"; }
+SH;
+file_put_contents($transportRoot . '/cli/wprism', $host);
+chmod($transportRoot . '/cli/wprism', 0700);
+file_put_contents($transportRoot . '/probe.sh', $probe . "\n" . $transportBlock);
+file_put_contents($transportRoot . '/contract.json', WPrism\Canon::encode($contract));
+try {
+    $process = proc_open(['/bin/bash', $transportRoot . '/probe.sh', $transportRoot, $planIntent[0]['uuid']],
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (!is_resource($process)) throw new RuntimeException('cannot run scope transport probe');
+    fclose($pipes[0]);
+    $output = stream_get_contents($pipes[1]); $error = stream_get_contents($pipes[2]);
+    fclose($pipes[1]); fclose($pipes[2]);
+    wprism_check(proc_close($process) === 0 && $output === '' && $error === '', 'actual scope transport uses the isolated host CLI with exact selector');
+    $copied = $transportRoot . '/repo/.tmp-importer-woo-export-scope.json';
+    wprism_check(file_get_contents($copied) === WPrism\Canon::encode($contract) && (fileperms($copied) & 0777) === 0644,
+        'public contract copy preserves bytes and is readable by the target UID');
+    $configuration = json_decode(file_get_contents($transportRoot . '/sink/envs.json'), true, flags: JSON_THROW_ON_ERROR);
+    wprism_check_same(['envs' => ['source' => ['transport' => 'docker', 'compose_file' => $transportRoot . '/sandbox/pair.yml',
+        'service' => 'cli1', 'repo_path' => '/siterepo']]], $configuration, 'scope host transport selects only the source service');
+} finally {
+    $entries = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($transportRoot, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+    foreach ($entries as $entry) { $entry->isDir() ? rmdir($entry->getPathname()) : unlink($entry->getPathname()); }
+    rmdir($transportRoot);
+}
+
 wprism_check_summary('Importer/Woo exact Apply database transition');

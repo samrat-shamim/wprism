@@ -118,10 +118,14 @@ revision=$(git -C "$R2" rev-parse HEAD)
 apply_image apply-before
 if [ "$MODE" = scoped ]; then
   export_uuid=$(php -r '$ids=[]; foreach(glob($argv[1]."/state/tables/wt_iew_mapping_template/*.json") as $path) { $row=json_decode(file_get_contents($path),true,flags:JSON_THROW_ON_ERROR); if($row["columns"]["name"]==="Selected users" && $row["columns"]["template_type"]==="export" && $row["columns"]["item_type"]==="user") $ids[]=$row["uuid"]; } if(count($ids)!==1) exit(1); echo $ids[0];' "$R1")
-  combo_capture export-scope wp_side 1 wprism scope --repo=/siterepo --roots="table:wt_iew_mapping_template:$export_uuid" --contract --format=json
+  # Contract resolution belongs to the isolated host control plane; ordinary
+  # plugin-loaded WP-CLI refuses it before compilation (Cli::scope).
+  php -r '$config=["envs"=>["source"=>["transport"=>"docker","compose_file"=>$argv[2],"service"=>"cli1","repo_path"=>"/siterepo"]]]; file_put_contents($argv[1],json_encode($config,JSON_THROW_ON_ERROR));' "$sink/envs.json" "$ROOT/sandbox/pair.yml"
+  combo_capture export-scope "$ROOT/cli/wprism" --envs-file="$sink/envs.json" scope source --roots="table:wt_iew_mapping_template:$export_uuid" --contract --format=json
   # Scope stdout is public canonical evidence; transport/private diagnostics stay
   # in the retained capture streams. Only that contract enters the target repo.
   cp "$sink/export-scope.stdout" "$R2/.tmp-importer-woo-export-scope.json"
+  chmod 0644 "$R2/.tmp-importer-woo-export-scope.json"
   combo_capture scoped-plan candidate 2 plan --repo=/siterepo --scope-contract=/siterepo/.tmp-importer-woo-export-scope.json --format=json
 fi
 for phase in update repeat; do
