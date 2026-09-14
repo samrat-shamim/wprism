@@ -42,11 +42,11 @@ converged_filter='
   and (.rows.whitelist | length) == 1
   and .rows.blacklist["1"].start == "192.168.7.7" and .rows.blacklist["1"].end == "192.168.7.7"
   and (.rows.blacklist | length) == 1
-  and .rows.disable_brute == 0 and .rows.neighbor == "target-only-neighbor"
+  and .rows.disable_brute == "0" and .rows.neighbor == "target-only-neighbor"
   and .effective.max_retries == 3 and .effective.lockout_time == 900 and .effective.max_lockouts == 5
   and .effective.lockouts_extend == 21600 and .effective.reset_retries == 43200
   and .effective.notify_email == 1 and .effective.notify_email_address == "admin@example.test"
-  and .effective.trusted_ips == true and .effective.disable_brute == 0
+  and .effective.trusted_ips == true and .effective.disable_brute == "0"
   and .access.whitelisted_member.whitelisted == true and .access.whitelisted_member.blacklisted == false
   and .access.blacklisted_member.blacklisted == true and .access.blacklisted_member.whitelisted == false
   and .access.neutral.whitelisted == false and .access.neutral.blacklisted == false
@@ -93,7 +93,7 @@ UNINSTALL_MAIL=$(wp_conf2 option get loginizer_login_mail --format=json)
 require_observed_nonempty "Loginizer notification template residue after uninstall" "$UNINSTALL_MAIL"
 printf '%s\n' "$UNINSTALL_MAIL" | jq -e '.enable == 1 and .subject == "[$sitename] Failed login attempts"' >/dev/null \
   || fail "Loginizer notification-template residue changed unexpectedly: $UNINSTALL_MAIL"
-UNINSTALL_TOGGLE=$(wp_conf2 option get loginizer_disable_brute --format=json)
+UNINSTALL_TOGGLE=$(wp_conf2 option get loginizer_disable_brute)
 require_observed_nonempty "Loginizer toggle residue after uninstall" "$UNINSTALL_TOGGLE"
 [ "$UNINSTALL_TOGGLE" = "0" ] \
   || fail "Loginizer disable-toggle residue changed unexpectedly: $UNINSTALL_TOGGLE"
@@ -112,7 +112,7 @@ if wp_conf2 plugin is-installed loginizer >/dev/null 2>&1; then
 fi
 [ "$(wp_conf2 option get loginizer_target_probe)" = "target-only-neighbor" ] \
   || fail "missing-code refusal partially mutated the target"
-[ "$(wp_conf2 option get loginizer_disable_brute --format=json)" = "0" ] \
+[ "$(wp_conf2 option get loginizer_disable_brute)" = "0" ] \
   || fail "missing-code refusal changed Loginizer's source-equal uninstall residue"
 
 OBSERVED_SHA=$(wp_conf2 eval "echo hash_file('sha256', '$LOGINIZER_ARTIFACT');")

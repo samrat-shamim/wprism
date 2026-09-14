@@ -22,7 +22,7 @@ check_loginizer_boundary_content() {
     and .body_carries_home == true
     and .rows.whitelist["1"].start == "10.0.0.5" and (.rows.whitelist | length) == 1
     and .rows.blacklist["1"].start == "192.168.7.7" and (.rows.blacklist | length) == 1
-    and .rows.disable_brute == 0
+    and .rows.disable_brute == "0"
     and .effective.max_retries == 3 and .effective.lockout_time == 900
     and .effective.notify_email_address == "admin@example.test" and .effective.trusted_ips == true
     and .effective.disable_brute == 0
