@@ -51,9 +51,10 @@ snapshot() {
 }
 refusal() {
   local name="$1" verb="$2" result=0 suffix
+  shift 2
   snapshot "$name-before"
   for suffix in stdout stderr exit; do (umask 077; set -C; : > "$sink/$name-refusal.$suffix"); done
-  wprism_private_capture_stage "$sink" "$name-refusal" candidate 2 "$verb" --repo=/siterepo --format=json || result=$?
+  wprism_private_capture_stage "$sink" "$name-refusal" candidate 2 "$verb" --repo=/siterepo --format=json "$@" || result=$?
   snapshot "$name-after"
   [ "$result" -eq 1 ] || fail "$name-refusal exited $result (expected 1); retained pre/postimages in $sink"
   php "$PACKAGE_ROOT/fixtures/settings-evidence.php" admit-command "$sink/$name-refusal" "$PAIR" "$verb" 1
@@ -65,14 +66,15 @@ pair_live_ownership_up
 fixture=/var/www/html/wp-content/mu-plugins/adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures
 settings() { local side="$1"; shift; wp_side "$side" --require="$fixture/admin-context.php" eval-file "$fixture/settings-native.php" "$@" --use-include --user=admin; }
 templates() { local side="$1"; shift; wp_side "$side" --require="$fixture/admin-context.php" eval-file "$fixture/templates-native.php" "$@" --use-include --user=admin; }
-status() { wp_side 2 --require="$fixture/admin-context.php" eval-file "$fixture/dependency-native.php" --use-include --user=admin; }
+status() { wp_side 2 --skip-plugins eval-file "$fixture/dependency-native.php" --use-include --user=admin; }
+admin_status() { wp_side 2 --require="$fixture/admin-context.php" eval-file "$fixture/dependency-native.php" --use-include --user=admin; }
 install() { local side="$1" archive="$2"; shift 2; "${COMPOSE[@]}" run --rm -T -v "$archive:/importer.zip:ro" "cli$side" wp plugin install /importer.zip "$@"; }
 for side in 1 2; do
   capture "cron$side" wp_side "$side" config set DISABLE_WP_CRON true --raw
   capture "empty$side" wp_side "$side" site empty --yes
   capture "install$side" install "$side" "$zip"
 done
-capture activate-source wp_side 1 plugin activate users-customers-import-export-for-wp-woocommerce
+capture activate-source wp_side 1 --require="$fixture/admin-context.php" plugin activate users-customers-import-export-for-wp-woocommerce
 capture settings-source settings 1 setup-source
 capture save-source settings 1 save-source
 capture templates-source templates 1 setup-source
@@ -92,19 +94,29 @@ capture binding2 establish_core_environment_bindings wp_side /siterepo admin@exa
 capture installed-inactive status
 capture initial-deploy candidate 2 deploy --repo=/siterepo --format=json
 capture initial-status status
+capture initial-admin-status admin_status
+capture settings-target settings 2 setup-target
+capture save-target settings 2 save-target
 capture templates-target templates 2 setup-target
+capture deactivate-before-apply wp_side 2 --require="$fixture/admin-context.php" plugin deactivate users-customers-import-export-for-wp-woocommerce
+capture inactive-status status
+refusal inactive apply --adopt-by-slug=posts,terms,tables --default-author=admin
+capture prepared-deploy candidate 2 deploy --repo=/siterepo --format=json
+capture prepared-status status
+capture prepared-admin-status admin_status
 capture initial-apply candidate 2 apply --repo=/siterepo --adopt-by-slug=posts,terms,tables --default-author=admin --format=json
 capture jobs settings 2 jobs
 capture retained-before settings 2 raw-observe
 capture repeat-deploy candidate 2 deploy --repo=/siterepo --format=json
-capture deactivate wp_side 2 plugin deactivate users-customers-import-export-for-wp-woocommerce
-capture inactive-status status
+capture deactivate wp_side 2 --require="$fixture/admin-context.php" plugin deactivate users-customers-import-export-for-wp-woocommerce
+capture deactivated-status status
 capture deactivated-native settings 2 raw-observe
-refusal inactive apply
+refusal deactivated apply
 capture reactivated-deploy candidate 2 deploy --repo=/siterepo --format=json
 capture reactivated-status status
+capture reactivated-admin-status admin_status
 capture reactivated-native settings 2 raw-observe
-capture uninstall wp_side 2 plugin uninstall users-customers-import-export-for-wp-woocommerce --deactivate
+capture uninstall wp_side 2 --require="$fixture/admin-context.php" plugin uninstall users-customers-import-export-for-wp-woocommerce --deactivate
 capture missing-status status
 capture uninstalled-native settings 2 raw-observe
 refusal missing deploy
@@ -115,6 +127,7 @@ capture delete-prior wp_side 2 plugin delete users-customers-import-export-for-w
 capture reinstall install 2 "$zip"
 capture reinstalled-deploy candidate 2 deploy --repo=/siterepo --format=json
 capture reinstalled-status status
+capture reinstalled-admin-status admin_status
 capture reinstalled-apply candidate 2 apply --repo=/siterepo --format=json
 capture reinstalled-native settings 2 raw-observe
 capture final-capture candidate 2 capture --repo=/siterepo --format=json

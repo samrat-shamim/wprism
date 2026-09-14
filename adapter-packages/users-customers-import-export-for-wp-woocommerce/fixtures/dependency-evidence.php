@@ -10,6 +10,12 @@ final class ImporterDependencyEvidence {
 
     public static function profile(string $case): array {
         $plugin = self::PLUGIN;
+        if ($case === 'deactivated') {
+            return ['command' => 'apply', 'reason_code' => 'apply_refused', 'nodes' => [[
+                'class' => WPrism\CommandRefusalException::class, 'parent_index' => null, 'relation' => 'root',
+                'message' => "wprism: ordinary target drift requires capture/reconciliation before apply; no target mutation attempted:\n  - options/core.json",
+            ]]];
+        }
         if ($case === 'inactive') {
             $finding = "active_plugins in state/options/core.json declares '$plugin', and its code is installed, but it is not active in this environment. Run 'wprism deploy <env>' before apply so activation hooks and schema migrations complete first.";
             $message = "wprism: apply refused — code_mismatch:\n\n  - $finding\n\n"
@@ -68,38 +74,57 @@ $beforeActivation = $read('installed-inactive');
 wprism_check($beforeActivation['version'] === '2.7.5' && !$beforeActivation['active'] && !$beforeActivation['loaded']
     && $beforeActivation['tables'] === ['wt_iew_mapping_template' => false, 'wt_iew_action_history' => false],
     'fresh target has exact inactive code and neither native plugin table before deployment');
-foreach (['initial', 'reactivated', 'reinstalled'] as $case) {
+foreach (['initial', 'prepared', 'reactivated', 'reinstalled'] as $case) {
     $deploy = $read("$case-deploy", 'deploy');
     $state = $read("$case-status");
     wprism_check($deploy['activated'] === [ImporterDependencyEvidence::PLUGIN] && $deploy['warnings'] === [],
         'public deployment performs exactly the expected native activation: ' . $case);
-    wprism_check($state['version'] === '2.7.5' && $state['active'] && $state['loaded'] && $state['marker'] === '1'
+    wprism_check($state['version'] === '2.7.5' && $state['active'] && !$state['loaded'] && $state['marker'] === '1'
         && $state['tables'] === ['wt_iew_mapping_template' => true, 'wt_iew_action_history' => true],
-        'fresh native observation proves activation marker and both native tables: ' . $case);
+        'raw observation before plugin loading proves persisted activation marker and both native tables: ' . $case);
+    $admin = $read("$case-admin-status");
+    wprism_check($admin === array_replace($state, ['loaded' => true]),
+        'subsequent native admin bootstrap exposes the same existing lifecycle postconditions: ' . $case);
 }
 $repeat = $read('repeat-deploy', 'deploy');
 wprism_check($repeat['activated'] === [] && $repeat['deactivated'] === [] && $repeat['warnings'] === [],
     'settled deployment repeats without activation hooks');
 foreach (['initial', 'reinstalled'] as $case) {
     $apply = $read("$case-apply", 'apply');
-    wprism_check($apply['canary'] === 'clean' && $apply['warnings'] === [] && $apply['verification']['result'] === 'pass',
-        'public Apply passes independent verification without warnings: ' . $case);
+    $warnings = [];
+    if ($case === 'initial') {
+        $tree = $read('inactive-before-state')['state'];
+        WPrismTest\FilesystemTreeEvidence::assertRecord($tree, 'state');
+        $terms = array_values(array_filter(array_column($tree['files'], 'path'),
+            static fn(string $path): bool => preg_match('~^terms/category/[0-9a-f-]{36}--uncategorized\.json$~D', $path) === 1));
+        if (count($terms) !== 1) throw new RuntimeException('one captured default-term identity is required for explicit adoption');
+        $uuid = substr(basename($terms[0]), 0, 36);
+        $warnings = ["adopted env term 1 as $uuid ({$terms[0]})"];
+    }
+    wprism_check($apply['canary'] === 'clean' && $apply['warnings'] === $warnings && $apply['verification']['result'] === 'pass',
+        'public Apply passes verification with only the explicitly requested initial default-term adoption: ' . $case);
 }
 $baseline = $read('retained-before');
 wprism_check(count($baseline['tables']['wt_iew_action_history']) === 4 && count($baseline['tables']['wt_iew_mapping_template']) === 4
-    && count($baseline['files']) === 4, 'retention has real saved templates, four completed native jobs and operational files');
+    && count($baseline['files']) === 6
+    && isset($baseline['files']['webtoffee_export/.htaccess'], $baseline['files']['webtoffee_export/index.php'])
+    && count(array_filter(array_keys($baseline['files']), static fn(string $path): bool => str_ends_with($path, '.csv'))) === 4,
+    'retention has four saved templates/jobs, four CSVs and both native directory protection files');
 foreach (['deactivated', 'reactivated', 'uninstalled', 'reinstalled'] as $case) {
     wprism_check(ImporterDependencyEvidence::retained($baseline, $read("$case-native")),
         'native lifecycle retains complete template/history/core data rows, authored settings and operational files: ' . $case);
 }
-foreach (['inactive' => ['2.7.5', 'apply'], 'missing' => [null, 'deploy'], 'prior' => ['2.7.4', 'deploy']] as $case => [$version, $verb]) {
+foreach (['inactive' => ['2.7.5', 'apply'], 'deactivated' => ['2.7.5', 'apply'], 'missing' => [null, 'deploy'], 'prior' => ['2.7.4', 'deploy']] as $case => [$version, $verb]) {
     $status = $read("$case-status");
     wprism_check($status['version'] === $version && !$status['active'] && !$status['loaded'] && $status['marker'] === null,
         'exact native dependency refusal premise: ' . $case);
     $public = $read("$case-refusal", $verb, 1);
     wprism_check(($public['format'] ?? null) === 'wprism-command-refusal/v1' && ($public['ok'] ?? null) === false
-        && ($public['command'] ?? null) === $verb && ($public['reason_code'] ?? null) === $verb . '_failed'
-        && ($public['details_redacted'] ?? null) === true, 'public dependency refusal preserves the private-cause boundary: ' . $case);
+        && ($public['command'] ?? null) === $verb && ($public['reason_code'] ?? null) === ImporterDependencyEvidence::profile($case)['reason_code']
+        && ($case === 'deactivated'
+            ? !array_key_exists('details_redacted', $public)
+                && $public['message'] === 'the target changed after the repository baseline, so this plan is stale and cannot be partially applied'
+            : ($public['details_redacted'] ?? null) === true), 'public dependency refusal preserves the private-cause boundary: ' . $case);
     $private = substr(explode("\n", (string) file_get_contents("$sink/$case-refusal.stderr"), 2)[0], strlen('private command diagnostics (unverified): '));
     $diagnostic = json_decode(WPrismTest\PrivateCommandOutput::readObject($private . '/private', $transport), true, 512, JSON_THROW_ON_ERROR);
     WPrismTest\PrivateRefusalReceipt::verifyDiagnostic($diagnostic, ImporterDependencyEvidence::profile($case));

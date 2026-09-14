@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+// The caller first skips ordinary plugins: Importer main-file:119 can run
+// activation on admin bootstrap, so loading it here would manufacture proof.
 require_once ABSPATH . 'wp-admin/includes/plugin.php';
 if (!current_user_can('manage_options')) throw new RuntimeException('Importer dependency probe requires its owned administrator');
 $plugin = 'users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php';

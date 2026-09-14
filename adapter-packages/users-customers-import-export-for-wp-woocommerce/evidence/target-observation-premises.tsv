@@ -1,5 +1,5 @@
 # format wprism-target-observation-premises/v1
-# expected observations=119 fixtures=0
+# expected observations=130 fixtures=0
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success IMPORTER_VERIFY1 'Importer exact native and canonical settings readback' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" verify-capture --use-include --user=admin
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success IMPORTER_RECAPTURE 'Importer repeated public Capture' wp_conf1 wprism capture --repo=/siterepo --format=json
 observation	tests/conformance/capture-check.sh	capture_wprism_json_success IMPORTER_VERIFY2 'Importer repeated native and canonical settings readback' wp_conf1 --require="$IMPORTER_FIXTURES/admin-context.php" eval-file "$IMPORTER_FIXTURES/settings-native.php" verify-capture --use-include --user=admin
@@ -98,14 +98,14 @@ observation	tests/live/regress_dependency_apply.sh	capture initial-apply candida
 observation	tests/live/regress_dependency_apply.sh	capture jobs settings 2 jobs
 observation	tests/live/regress_dependency_apply.sh	capture retained-before settings 2 raw-observe
 observation	tests/live/regress_dependency_apply.sh	capture repeat-deploy candidate 2 deploy --repo=/siterepo --format=json
-observation	tests/live/regress_dependency_apply.sh	capture deactivate wp_side 2 plugin deactivate users-customers-import-export-for-wp-woocommerce
+observation	tests/live/regress_dependency_apply.sh	capture deactivate wp_side 2 --require="$fixture/admin-context.php" plugin deactivate users-customers-import-export-for-wp-woocommerce
 observation	tests/live/regress_dependency_apply.sh	capture inactive-status status
 observation	tests/live/regress_dependency_apply.sh	capture deactivated-native settings 2 raw-observe
-observation	tests/live/regress_dependency_apply.sh	refusal inactive apply
+observation	tests/live/regress_dependency_apply.sh	refusal inactive apply --adopt-by-slug=posts,terms,tables --default-author=admin
 observation	tests/live/regress_dependency_apply.sh	capture reactivated-deploy candidate 2 deploy --repo=/siterepo --format=json
 observation	tests/live/regress_dependency_apply.sh	capture reactivated-status status
 observation	tests/live/regress_dependency_apply.sh	capture reactivated-native settings 2 raw-observe
-observation	tests/live/regress_dependency_apply.sh	capture uninstall wp_side 2 plugin uninstall users-customers-import-export-for-wp-woocommerce --deactivate
+observation	tests/live/regress_dependency_apply.sh	capture uninstall wp_side 2 --require="$fixture/admin-context.php" plugin uninstall users-customers-import-export-for-wp-woocommerce --deactivate
 observation	tests/live/regress_dependency_apply.sh	capture missing-status status
 observation	tests/live/regress_dependency_apply.sh	capture uninstalled-native settings 2 raw-observe
 observation	tests/live/regress_dependency_apply.sh	refusal missing deploy
@@ -119,3 +119,14 @@ observation	tests/live/regress_dependency_apply.sh	capture reinstalled-status st
 observation	tests/live/regress_dependency_apply.sh	capture reinstalled-apply candidate 2 apply --repo=/siterepo --format=json
 observation	tests/live/regress_dependency_apply.sh	capture reinstalled-native settings 2 raw-observe
 observation	tests/live/regress_dependency_apply.sh	capture final-capture candidate 2 capture --repo=/siterepo --format=json
+observation	tests/live/regress_dependency_apply.sh	capture initial-admin-status admin_status
+observation	tests/live/regress_dependency_apply.sh	capture reactivated-admin-status admin_status
+observation	tests/live/regress_dependency_apply.sh	capture reinstalled-admin-status admin_status
+observation	tests/live/regress_dependency_apply.sh	capture settings-target settings 2 setup-target
+observation	tests/live/regress_dependency_apply.sh	capture save-target settings 2 save-target
+observation	tests/live/regress_dependency_apply.sh	capture deactivate-before-apply wp_side 2 --require="$fixture/admin-context.php" plugin deactivate users-customers-import-export-for-wp-woocommerce
+observation	tests/live/regress_dependency_apply.sh	capture prepared-deploy candidate 2 deploy --repo=/siterepo --format=json
+observation	tests/live/regress_dependency_apply.sh	capture prepared-status status
+observation	tests/live/regress_dependency_apply.sh	capture prepared-admin-status admin_status
+observation	tests/live/regress_dependency_apply.sh	capture deactivated-status status
+observation	tests/live/regress_dependency_apply.sh	refusal deactivated apply

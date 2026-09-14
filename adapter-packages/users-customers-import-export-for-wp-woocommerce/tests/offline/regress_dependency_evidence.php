@@ -29,18 +29,37 @@ WPrismTest\FakeWpdb::install()->setColumns('options', [
     ['option_id' => 3, 'option_name' => 'template', 'option_value' => 'fixture', 'autoload' => 'yes'],
 ]);
 register_shutdown_function(static fn() => WPrismTest\WpStore::reset());
-foreach (['inactive' => [], 'missing' => ['plugins' => [], 'plugin_exists' => [$plugin => false]], 'prior' => ['plugins' => [$plugin => '2.7.4']]] as $case => $changes) {
+$compiled = WPrism\CompiledRepository::create(['tree' => []]);
+$unexpected = static fn() => throw new RuntimeException('dependency refusal must precede Apply services');
+$services = new WPrism\ApplyServices($policy, $compiled, new WPrism\ApplyServiceCallbacks(
+    taxonomyOwnership: $unexpected, renewPromotionLock: $unexpected,
+    renewRegenerationLease: $unexpected, renewProviderLease: $unexpected,
+    lockDeleteGuards: $unexpected, deletionDatabaseProfile: $unexpected,
+    recheckDeleteGuard: $unexpected, selectionDeclaresChannelFor: $unexpected,
+    selectionDeclaresEntityBatchFor: $unexpected, selectionTriggersProviderActionFor: $unexpected,
+    pinnedProviderActionOwns: $unexpected, upsertMeta: $unexpected
+), '/fixture/repo');
+foreach (['inactive' => [], 'deactivated' => [], 'missing' => ['plugins' => [], 'plugin_exists' => [$plugin => false]], 'prior' => ['plugins' => [$plugin => '2.7.4']]] as $case => $changes) {
     try {
         $observation = array_replace($facts, $changes);
-        if ($case === 'inactive') {
-            WPrism\ApplyPreparationCoordinator::enforce_code_mismatch_gate(
-                WPrism\LifecyclePlanner::code_mismatch($policy, $desired), []);
+        if (in_array($case, ['inactive', 'deactivated'], true)) {
+            $plan = array_fill_keys(['collision', 'conflict', 'delete_conflict', 'drift', 'create', 'update', 'missing_user'], []);
+            $plan['code_mismatch'] = WPrism\LifecyclePlanner::code_mismatch($policy, $desired);
+            if ($case === 'deactivated') $plan['drift'] = [['path' => 'options/core.json']];
+            $coordinator = new WPrism\ApplyPreparationCoordinator('/fixture/repo', $policy, $services,
+                new WPrism\RebuildSelection($policy), new WPrism\ScopedApplyWorkflow(), $unexpected, $unexpected);
+            $request = new WPrism\ApplyPreparationRequest([], $compiled, $plan, [], false, false, false, false,
+                'dependency-probe', str_repeat('e', 64));
+            $warnings = []; $overrides = [];
+            $coordinator->prepare($request, $warnings, $overrides);
         } else {
             WPrism\LifecyclePlanner::deployment_status_from_observation($policy, $desired, false, $observation);
         }
         $actual = null;
     } catch (RuntimeException $failure) {
         $actual = $failure->getMessage();
+        wprism_check_same(ImporterDependencyEvidence::profile($case)['nodes'][0]['class'], get_class($failure),
+            'refusal receipt names the exact thrown type: ' . $case);
     }
     wprism_check_same(ImporterDependencyEvidence::profile($case)['nodes'][0]['message'], $actual,
         'native refusal cause is prebound to the actual public preparation gate: ' . $case);
