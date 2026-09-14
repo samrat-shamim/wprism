@@ -35,12 +35,10 @@ use WPrism\Canon;
 use WPrism\ManifestDispositions;
 use WPrism\Policy;
 
-// PR #614 changed TEC's reviewed 6.17.4 boundary; PR #615 changed CF7's message
-// PII declaration and interpreter. Re-pin only those two capsule addresses and
-// their containing worlds. TEC's disposition also moves the cohort registry,
-// so every registry-addressed snapshot changes. Polylang was already re-pinned
-// by PR #613; its digest, all other capsule addresses and every pin order stay.
-const BASELINE_FIXTURE_SHA256 = 'cbca24cbcedc16fb02bf38b4a160f4ad76334b9ebabdb18bd87507c0385f6dfe';
+// The native pa_* hierarchy fact moves only Woo's manifest and adapter digest.
+// Its three containing pin sets move with it; the disposition registry, pin
+// order, neighbouring adapters and all unrelated snapshots stay byte-identical.
+const BASELINE_FIXTURE_SHA256 = 'ab37053711590a78561440e80a0d40f12a4ed55943cc8d719e2773a4a1c18a41';
 const RANK_WORLD_MANIFEST_HASH = '1abfc1bf9f4bda838068124522378a658e41602b54c76650dd951315e21f7a67';
 const YOAST_WORLD_MANIFEST_HASH = 'bdd68201e681e7e9b7ac1bdfc6475ab91a2bb28596e98bc80807a695637bcaed';
 const REGISTRY_SHA256 = '6448cabb56ddb12ffc0a4beb3ecd2bb0d15e33807eed91c4b465dcea1478cb4a';
