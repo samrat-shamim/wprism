@@ -7,6 +7,7 @@ require_once $root . '/sandbox/tests/lib/check.php';
 require_once $package . '/fixtures/recovery-evidence.php';
 require_once $package . '/fixtures/native-record-fixture.php';
 require_once $root . '/agent/src/Repository/RepositoryEntityParser.php';
+require_once $root . '/agent/src/Apply/ApplyPlanner.php';
 
 use WPrism\Canon;
 use WPrismTest\FilesystemTreeEvidence;
@@ -119,7 +120,9 @@ $replaceKv = static function (array $image, array $changes): array {
     return $image;
 };
 $failed = $replaceKv($base, ['promotion_session' => $session('2', 101), 'apply_in_progress' => ImporterRecoveryEvidence::marker($intent)]);
-$committed = $replaceKv($failed, ['promotion_session' => $session('3', 102)]);
+$retryIds = array_column($base['database']['rows']['wp_wprism_state'], 'uuid'); sort($retryIds, SORT_STRING);
+$retryMarker = Canon::encode(['format' => 'wprism-apply-in-progress/v2', 'preserved_drift' => [], 'write_set' => $retryIds]);
+$committed = $replaceKv($failed, ['promotion_session' => $session('3', 102), 'apply_in_progress' => $retryMarker]);
 $committed['native'] = $afterNative;
 foreach ($afterNative['tables'] as $table => $tableRows) $committed['database']['rows']['wp_' . $table] = $tableRows;
 $recovered = $replaceKv($committed, ['promotion_session' => $session('4', 103), 'apply_in_progress' => null, 'applied_revision' => $revision]);
@@ -129,6 +132,19 @@ $repeat = $replaceKv($recovered, ['promotion_session' => $session('5', 104)]);
 $phases = ['authored-failure' => [$base, $failed], 'ledger-failure' => [$failed, $committed],
     'retry' => [$committed, $recovered], 'repeat' => [$recovered, $repeat]];
 $window = ['before' => 100, 'after' => 110];
+wprism_check_throws(static fn() => ImporterRecoveryEvidence::transition($base, $failed, $source, $intent,
+    $artifact, $window, 'authored-failure', 'abbreviated'), RuntimeException::class,
+    'recovery requires an exact repository commit, including at failure boundaries');
+
+wprism_check_throws(static fn() => ImporterRecoveryEvidence::transition($failed,
+    $replaceKv($committed, ['apply_in_progress' => ImporterRecoveryEvidence::marker($intent)]),
+    $source, $intent, $artifact, $window, 'ledger-failure', $revision), RuntimeException::class,
+    'second interrupted attempt cannot retain the first narrower write-set marker');
+wprism_check_throws(static fn() => ImporterRecoveryEvidence::transition(
+    $replaceKv($committed, ['apply_in_progress' => ImporterRecoveryEvidence::marker($intent)]), $recovered,
+    $source, $intent, $artifact, $window, 'retry', $revision), RuntimeException::class,
+    'normal retry requires the complete prior replay marker');
+
 foreach ($phases as $phase => [$before, $after]) {
     ImporterRecoveryEvidence::transition($before, $after, $source, $intent, $artifact, $window, $phase, $revision);
     wprism_check(true, 'complete transition admits ' . $phase);
@@ -181,6 +197,11 @@ $plan['update'] = [];
 foreach ($intent as $id => $entity) $plan['update'][] = ['uuid' => $id, 'type' => $entity['type'], 'path' => $entity['path']];
 $plan['unchanged'] = [['uuid' => $uuid(1)]]; $plan['artifact_hash'] = $artifact;
 wprism_check_same($artifact, ImporterRecoveryEvidence::plan($base, $base, $plan, $intent), 'initial Plan binds three updates and the complete unchanged roster without writes');
+$projectedRetry = WPrism\ApplyPlanner::project_incomplete_apply_retry($plan, ImporterRecoveryEvidence::marker($intent));
+wprism_check_same($retryMarker, WPrism\IncompleteApplyMarker::encode([], $projectedRetry['update']),
+    'product retry planner records unchanged entities in the next complete write-set marker');
+wprism_check_same([], $projectedRetry['unchanged'], 'incomplete retry replays every settled entity');
+
 foreach (['missing', 'duplicate', 'wrong-path', 'wrong-type', 'extra-create', 'warning', 'artifact', 'missing-unchanged', 'duplicate-unchanged'] as $fault) {
     $bad = $plan;
     if ($fault === 'missing') array_pop($bad['update']);

@@ -73,8 +73,8 @@ final class ImporterRecoveryEvidence {
         return $plan['artifact_hash'];
     }
 
-    public static function marker(array $intent): string {
-        $ids = array_keys($intent); sort($ids, SORT_STRING);
+    public static function marker(array $intent, array $replayed = []): string {
+        $ids = array_values(array_unique(array_merge(array_keys($intent), $replayed))); sort($ids, SORT_STRING);
         return Canon::encode(['format' => 'wprism-apply-in-progress/v2', 'preserved_drift' => [], 'write_set' => $ids]);
     }
 
@@ -118,6 +118,7 @@ final class ImporterRecoveryEvidence {
     public static function transition(array $before, array $after, array $source, array $intent,
         string $artifact, array $window, string $phase, string $revision): void {
         self::check(in_array($phase, ['authored-failure', 'ledger-failure', 'retry', 'repeat'], true), 'known recovery phase');
+        self::check(preg_match('/^[a-f0-9]{40}$/D', $revision) === 1, 'exact repository commit for recovery');
         self::nativeDatabase($before); self::nativeDatabase($after);
         self::check($intent === self::intent($before['repository']['state']), 'intent binds the complete observed repository');
         self::check($before['repository'] === $after['repository'], 'recovery preserves complete canonical tree and policy');
@@ -130,7 +131,11 @@ final class ImporterRecoveryEvidence {
         $new = self::keyed($after['database']['rows']['wp_wprism_kv'], 'k');
         self::check(isset($old['applied_revision'], $old['promotion_session'], $new['promotion_session']), 'populated recovery baseline');
         $pending = in_array($phase, ['ledger-failure', 'retry'], true);
-        self::check(($pending && ($old['apply_in_progress']['v'] ?? null) === self::marker($intent))
+        // ApplyPlanner::project_incomplete_apply_retry also replays unchanged rows;
+        // the second interrupted attempt therefore records the complete baseline roster.
+        $replayed = array_column($before['database']['rows']['wp_wprism_state'], 'uuid');
+        $priorMarker = self::marker($intent, $phase === 'retry' ? $replayed : []);
+        self::check(($pending && ($old['apply_in_progress']['v'] ?? null) === $priorMarker)
             || (!$pending && !isset($old['apply_in_progress'])), 'phase has its exact pending or settled preimage');
         $baseline = self::keyed($before['database']['rows']['wp_wprism_state'], 'uuid');
         foreach ($intent as $uuid => $entity) self::check(isset($baseline[$uuid])
@@ -141,7 +146,8 @@ final class ImporterRecoveryEvidence {
             : $old['applied_revision']['v'] !== $revision, 'phase has the exact prior revision boundary');
         self::session($old['promotion_session']['v'], $new['promotion_session']['v'], $artifact, $window);
         $old['promotion_session'] = $new['promotion_session'];
-        if (str_ends_with($phase, '-failure')) $old['apply_in_progress'] = ['k' => 'apply_in_progress', 'v' => self::marker($intent)];
+        if (str_ends_with($phase, '-failure')) $old['apply_in_progress'] = ['k' => 'apply_in_progress',
+            'v' => self::marker($intent, $phase === 'ledger-failure' ? $replayed : [])];
         elseif ($phase === 'retry') {
             unset($old['apply_in_progress']);
             $old['applied_revision']['v'] = $revision;
