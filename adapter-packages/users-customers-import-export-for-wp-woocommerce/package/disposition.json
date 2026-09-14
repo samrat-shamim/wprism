@@ -22,13 +22,18 @@
       "compile",
       "plan",
       "apply",
+      "delete",
       "recapture"
     ],
     "lifecycle_phases": [],
     "deletion_semantics": {
-      "supported": [],
+      "supported": [
+        "table:wt_iew_mapping_template"
+      ],
       "unsupported": [
-        "mapping template, history, user and customer deletion"
+        "history, user and customer deletion",
+        "non-user and case-variant template deletion",
+        "template deletion with unreviewed executable owners"
       ]
     }
   },
@@ -41,6 +46,7 @@
       "regress-settings-apply",
       "regress-export-templates",
       "regress-import-templates",
+      "regress-template-deletion",
       "regress-templates-harness",
       "regress-templates-apply"
     ]

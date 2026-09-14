@@ -22,6 +22,22 @@
     "typed-column-values/v1"
   ],
   "option_autoload": "preserve",
+  "deletions": {
+    "table:wt_iew_mapping_template": {
+      "cascades": [],
+      "guards": [],
+      "executable_owner_boundary": "all_active_owners",
+      "executable_owner_identities": {
+        "plugin:users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php": [
+          {
+            "format": "wprism-executable-tree/v1",
+            "root": "plugins/users-customers-import-export-for-wp-woocommerce",
+            "sha256": "5aa9ac5e9fc7dc10a3ad38ea3ce324592b952937d56c171e8129879fea888a2a"
+          }
+        ]
+      }
+    }
+  },
   "options": {
     "wt_iew_advanced_settings": {
       "class": "env",
@@ -135,6 +151,7 @@
     }
   },
   "notes": [
+    "Official 2.7.5 admin/class-wt-import-export-for-woo-admin.php:395-418 deletes one mapping-template row without hooks, cascades or cache writes. Saved copies and history retain independent form snapshots; selected_template is a local wizard cursor, not a retained dependency. Only declared user/import and user/export rows are deletable. The all-active-owner boundary requires the exact reviewed Importer tree and independent site agreements, and refuses additional plugin owners without their own agreeing declaration.",
     "Experimental 2.7.5 settings and saved user import/export template capsule. Native settings and export evidence are retained; broader production qualification remains separate.",
     "admin/modules/export/classes/class-export-ajax.php:391-400 uses the saved selected_template only for history preselection. Normal reopen selects the requested row ID; export/assets/js/main.js:395 rebuilds this cursor from the current wizard selection. Shared record_fields retains method_export and mapping_enabled_fields; the saved cursor is regenerated UI state.",
     "Saved mapping_fields contains field-code to [label,integer-enabled] definitions; mapping_selected_fields supplies backend CSV headers. Exact field-label declarations preserve these maps without a column-wide privacy exception. Selected users use strict login bindings and native string IDs.",
