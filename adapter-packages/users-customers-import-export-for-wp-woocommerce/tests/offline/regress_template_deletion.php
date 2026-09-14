@@ -22,6 +22,7 @@ require_once $root . '/agent/src/Repository/Ledger.php';
 require_once $root . '/agent/src/Repository/IdentityNotes.php';
 require_once $root . '/agent/src/Repository/Snapshot.php';
 require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
+require_once $capsule . '/fixtures/template-deletion-evidence.php';
 
 use WPrism\Canon;
 use WPrism\Db;
@@ -56,7 +57,7 @@ $draft['method_import_form_data']['wt_iew_local_file'] = '';
 $foreign = [['id' => 4, 'template_type' => 'import', 'item_type' => 'product', 'name' => 'Selected users', 'data' => '{broken'],
     ['id' => 5, 'template_type' => 'Import', 'item_type' => 'user', 'name' => 'Selected users', 'data' => '{broken']];
 $rows = [['id' => 1, 'template_type' => 'import', 'item_type' => 'user', 'name' => 'Selected users', 'data' => $native],
-    ['id' => 2, 'template_type' => 'import', 'item_type' => 'user', 'name' => 'Draft', 'data' => json_encode($draft)],
+    ['id' => 2, 'template_type' => 'import', 'item_type' => 'user', 'name' => 'Draft input mapping', 'data' => json_encode($draft)],
     ['id' => 3, 'template_type' => 'export', 'item_type' => 'user', 'name' => 'Selected users', 'data' => json_encode($export['form'])]];
 $db->seedTable($table, [...$rows, ...$foreign]);
 WpStore::reset()->seedOptions(['home' => 'http://localhost:9244']);
@@ -143,5 +144,28 @@ foreach ([4, 5] as $outside) {
     wprism_check_throws(static fn() => $transaction(static fn() => Snapshot::delete_local_row($policy, $table, $outside)),
         RuntimeException::class, 'generic row ownership refuses excluded local template ' . $outside);
     wprism_check_same($baseline, $census(), 'refused excluded deletion preserves the complete fixture');
+}
+// The live oracle consumes actual compiler IR, whose table entry has `type`
+// but no synthetic `kind`. Exercise that boundary before allocating a host.
+$db->seedTable($table, $foreign);
+$live = $capture($sourceTokens);
+$publish([...$live, ...WPrism\Deletion::capture_tombstones($compiled, $live, $policy)]);
+$deleted = RepositoryCompiler::compile($repo, $policy);
+$beforeRepository = ['revision' => $compiled->revision_hash(), 'tree' => $tree, 'deletions' => []];
+$afterRepository = ['revision' => $deleted->revision_hash(), 'tree' => $deleted->tree(), 'deletions' => $deleted->deletions()];
+ImporterTemplateDeletionEvidence::tombstones($beforeRepository, $afterRepository);
+wprism_check(true, 'live tombstone oracle accepts actual compiler entries for three disappearances');
+foreach (['missing-intent', 'wrong-preimage', 'wrong-revision', 'wrong-source', 'extra-survivor'] as $fault) {
+    $bad = $afterRepository;
+    $uuid = array_key_first($bad['deletions']);
+    switch ($fault) {
+        case 'missing-intent': unset($bad['deletions'][$uuid]); break;
+        case 'wrong-preimage': $bad['deletions'][$uuid]['data']['expected_hash'] = str_repeat('a', 64); break;
+        case 'wrong-revision': $bad['deletions'][$uuid]['data']['expected_revision'] = str_repeat('b', 64); break;
+        case 'wrong-source': $bad['deletions'][$uuid]['data']['source_path'] = 'tables/other/row.json'; break;
+        case 'extra-survivor': $bad['tree'][$uuid] = $tree[$uuid]; break;
+    }
+    wprism_check_throws(static fn() => ImporterTemplateDeletionEvidence::tombstones($beforeRepository, $bad), RuntimeException::class,
+        'live tombstone oracle rejects ' . $fault);
 }
 wprism_check_summary('Importer template deletion');
