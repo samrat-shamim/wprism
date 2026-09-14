@@ -103,7 +103,10 @@ definition and term; baseline Apply must materialize them on an unprovisioned
 target. Native stock updates then establish target quantities 37 and 41, distinct
 from the source's 19 and 23. Fresh native getters and three bound product lookup
 rows must agree before/after the measured Apply, replay, and final native CSV
-consumers. Missing, aliased, empty or changed witnesses fail independently of the
+consumers. These read observations run without admin bootstrap: Action Scheduler
+renews its async-runner lock on admin shutdown, even when dispatch does not run.
+The observer refuses admin context; no scheduler mutation is exempted from the
+complete database comparison. Missing, aliased, empty or changed witnesses fail independently of the
 complete database comparison. This is representative catalog evidence, not a
 claim about every WooCommerce product type.
 

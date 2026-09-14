@@ -473,4 +473,27 @@ $changedCatalog = $catalog; $changedCatalog['products']['combo-variable']['extra
 wprism_check_throws(static fn() => ImporterWooCatalogEvidence::preserved($catalog, $changedCatalog), RuntimeException::class,
     'complete native observation is preserved beyond asserted premise fields');
 
+$nativeSource = file_get_contents(dirname(__DIR__, 2) . '/fixtures/catalog-native.php');
+$guard = substr($nativeSource, 0, strpos($nativeSource, '$skus ='));
+$guard = preg_replace('/^<\?php\s*declare\(strict_types=1\);/', '', $guard);
+foreach ([
+    ['observe', false, true], ['observe', true, false],
+    ['seed-source', true, true], ['seed-source', false, false],
+] as [$phase, $admin, $accepted]) {
+    // Execute the native fixture's actual entry guard; only WordPress context
+    // functions are supplied here, before any product getter can be reached.
+    $code = 'declare(strict_types=1); function is_admin(){return ' . ($admin ? 'true' : 'false') . ';}'
+        . 'function current_user_can($cap){return $cap === "manage_options";}'
+        . 'define("WC_VERSION","11.0.1");'
+        . ($admin ? 'define("WT_U_IEW_VERSION","2.7.5");' : '')
+        . '$args=[' . var_export($phase, true) . ']; try {' . $guard
+        . '} catch (RuntimeException $e) {exit(9);} echo "accepted";';
+    $process = proc_open([PHP_BINARY, '-r', $code], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (!is_resource($process)) throw new RuntimeException('cannot exercise native observation context');
+    fclose($pipes[0]); $output = stream_get_contents($pipes[1]); $error = stream_get_contents($pipes[2]);
+    fclose($pipes[1]); fclose($pipes[2]); $exit = proc_close($process);
+    wprism_check($error === '' && $exit === ($accepted ? 0 : 9) && $output === ($accepted ? 'accepted' : ''),
+        'actual catalog guard ' . ($accepted ? 'admits ' : 'refuses ') . $phase . ' in ' . ($admin ? 'admin' : 'ordinary') . ' context');
+}
+
 wprism_check_summary('Importer/Woo exact Apply database transition');

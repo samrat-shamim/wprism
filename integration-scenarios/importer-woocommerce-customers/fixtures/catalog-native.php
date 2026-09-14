@@ -5,8 +5,12 @@ $phase = $args[0] ?? '';
 $check = static function (bool $ok, string $why): void {
     if (!$ok) throw new RuntimeException('Importer/Woo catalog fixture: ' . $why);
 };
-$check(is_admin() && current_user_can('manage_options') && defined('WC_VERSION') && WC_VERSION === '11.0.1'
-    && defined('WT_U_IEW_VERSION') && WT_U_IEW_VERSION === '2.7.5', 'locked native administrator context');
+$check(current_user_can('manage_options') && defined('WC_VERSION') && WC_VERSION === '11.0.1', 'locked Woo authority');
+// ActionScheduler_QueueRunner::maybe_dispatch_async_request() writes its lock
+// on admin shutdown (locked Woo source:138-145), even before dispatch is allowed.
+$check($phase === 'observe' ? !is_admin() : (is_admin()
+    && defined('WT_U_IEW_VERSION') && WT_U_IEW_VERSION === '2.7.5'),
+    'read observations exclude admin shutdown writers; native setup retains both plugins');
 $skus = ['combo-simple', 'combo-variable', 'combo-variation'];
 if ($phase === 'attribute-source') {
     $check(wc_attribute_taxonomy_id_by_name('combosize') === 0, 'new global attribute');
