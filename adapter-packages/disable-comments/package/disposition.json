@@ -1,0 +1,59 @@
+{
+  "capabilities": {
+    "deletion_semantics": {
+      "supported": [],
+      "unsupported": [
+        "plugin-specific comment deletion"
+      ]
+    },
+    "entity_sections": [],
+    "field_sections": [
+      "options"
+    ],
+    "lifecycle_phases": [],
+    "operations": [
+      "capture",
+      "compile",
+      "recapture"
+    ]
+  },
+  "default_authored_keyspaces": [],
+  "evidence": {
+    "bundle_schema": "wprism-subject-certification-bundle/v1",
+    "tests": [
+      "regress-classification-boundary",
+      "regress-package-contract"
+    ]
+  },
+  "reason": "Experimental source-read declaration for the exact Disable Comments 2.9.0 artifact. It carries five scalar settings toggles from the shared site options blob and deliberately withholds entity, reference, network, telemetry, deletion, lifecycle, native behavior, and apply claims until capsule-owned evidence exists.",
+  "status": "experimental",
+  "supported_versions": {
+    "plugin": "disable-comments/disable-comments.php",
+    "range": {
+      "max": "2.9.1",
+      "min": "2.9.0"
+    }
+  },
+  "unsupported": [
+    {
+      "operation": "all",
+      "surface": "multisite",
+      "reason": "WPrism's single-site boundary excludes network option and per-site network activation behavior."
+    },
+    {
+      "operation": "apply",
+      "surface": "native-settings-side-effects",
+      "reason": "The plugin's native settings writer also purges page caches and reconciles comment filters; no native round-trip or bounded apply postcondition has been exercised."
+    },
+    {
+      "operation": "capture",
+      "surface": "unlisted-disable-comments-options-subkeys",
+      "reason": "Only five scalar toggles have been reviewed. Post-type, taxonomy, template, comment-type, role-list, and network-shaped siblings remain target-local until their storage and identity contracts are evidenced."
+    },
+    {
+      "operation": "delete",
+      "surface": "deletions.*",
+      "reason": "The plugin deletes core comment rows through its own destructive tool; no adapter deletion selector or reverse-reference proof is declared."
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "plugins": {
+    "disable-comments": {
+      "2.9.0": {
+        "url": "https://downloads.wordpress.org/plugin/disable-comments.2.9.0.zip",
+        "sha256": "17bc60cc872d77f36a88fa27638bb2e15774bdd15418d966559c32cbbfe3e2c5",
+        "role": "exercise-fixture"
+      }
+    }
+  },
+  "themes": {}
+}

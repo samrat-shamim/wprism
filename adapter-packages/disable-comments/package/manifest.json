@@ -1,0 +1,47 @@
+{
+  "spec_version": 2,
+  "name": "disable-comments",
+  "option_autoload": "preserve",
+  "plugin": "disable-comments/disable-comments.php",
+  "version_range": {"min": "2.9.0", "max": "2.9.1"},
+  "notes": [
+    "Adapter-authoring probe 2026-09-14: inspected the official WordPress.org Disable Comments 2.9.0 artifact (SHA-256 17bc60cc872d77f36a88fa27638bb2e15774bdd15418d966559c32cbbfe3e2c5). The range is intentionally limited to the observed release; widening it requires another artifact probe.",
+    "disable-comments.php loads the site option disable_comments_options and its settings writer persists one shared array. This capsule narrows that blob to five reviewed toggles: remove_everywhere, remove_xmlrpc_comments, remove_rest_API_comments, show_existing_comments, and enable_exclude_by_role.",
+    "The five selected values are consumed as boolean or integer toggles by Disable_Comments filters. They are authored site policy, not entity references, credentials, counters, version markers, or cache state; lint_ok records that these numeric toggle values must not be mistaken for local IDs.",
+    "disabled_post_types, extra_post_types, conditional_rules, allowed_comment_types, and blocked_comment_types remain unclaimed because they carry post-type, taxonomy-term, template, or comment-type semantics that need separate native and reference evidence. Network settings, counters, review state, user metadata, and uninstall behavior are also outside this experimental slice.",
+    "The plugin's network option path and sitewide settings are excluded by WPrism's single-site boundary. No interpreter, provider, regenerator, entity declaration, or engine feature is needed for this source-read slice."
+  ],
+  "options": {
+    "disable_comments_options": {
+      "class": "env",
+      "required": false,
+      "sub_keys": {
+        "enable_exclude_by_role": {
+          "class": "authored",
+          "lint_ok": true,
+          "note": "Disable_Comments::is_exclude_by_role() treats this as a boolean feature toggle."
+        },
+        "remove_everywhere": {
+          "class": "authored",
+          "lint_ok": true,
+          "note": "Disable_Comments::is_remove_everywhere() consumes this as a site-wide boolean toggle."
+        },
+        "remove_rest_API_comments": {
+          "class": "authored",
+          "lint_ok": true,
+          "note": "Disable_Comments::get_endpoint_blocking_state() integer-casts this endpoint toggle."
+        },
+        "remove_xmlrpc_comments": {
+          "class": "authored",
+          "lint_ok": true,
+          "note": "Disable_Comments::get_endpoint_blocking_state() integer-casts this endpoint toggle."
+        },
+        "show_existing_comments": {
+          "class": "authored",
+          "lint_ok": true,
+          "note": "Disable_Comments uses this boolean presentation choice when existing comments remain stored."
+        }
+      }
+    }
+  }
+}

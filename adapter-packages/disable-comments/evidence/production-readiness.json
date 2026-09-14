@@ -1,0 +1,22 @@
+{
+  "format": "wprism-adapter-production-readiness-record/v1",
+  "adapter": "disable-comments",
+  "readiness": "unready",
+  "covered": {},
+  "gaps": {
+    "contract-dependency": "The exact 2.9.0 source and artifact are pinned, but installation, adjacent-version refusal, and upgrade evidence are not complete.",
+    "clean-target": "No native source-to-target setup and target observation has been exercised.",
+    "dirty-target": "Hostile shared-option siblings and target-owned settings preservation need native before-and-after evidence.",
+    "identity-references": "Post-type selections, conditional taxonomy terms, template rules, and comment-type semantics remain outside this slice.",
+    "native-behavior": "The five toggles have source-level consumers, but native settings authoring and frontend/API behavior are unproven.",
+    "derived-state": "Page-cache purging, blocked-attempt counters, review state, and upgrade markers need separate derived-state evidence.",
+    "deletion": "The plugin owns destructive core comment deletion, but no safe adapter deletion contract is declared.",
+    "failure-recovery": "No native write failure, rollback, or retry evidence exists.",
+    "concurrency-idempotence": "No concurrent settings save or complete target recapture fixed-point evidence exists.",
+    "lifecycle": "Activation, deactivation, uninstall, and reinstall behavior have not been exercised through the capsule.",
+    "data-boundary": "Network settings, counters, role lists, comment types, and plugin telemetry remain intentionally unclaimed.",
+    "scope-platform": "Single-site scope is declared, but supported WordPress versions, plugin combinations, and native scope behavior remain unproven."
+  },
+  "blocked": {},
+  "not_applicable": {}
+}
