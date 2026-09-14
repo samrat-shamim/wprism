@@ -28,7 +28,7 @@ SITE="$PAIR_LIVE_OWNERSHIP_SITE1"
 printf '%s\n' '{"manifests":["core"],"policy":{"options":{},"post_meta":{},"post_types":["post","page"],"taxonomies":["category","post_tag"]},"spec_version":2}' > "$SITE/site.wprism.json"
 cp site-repo.gitignore.template "$SITE/.gitignore"
 git -C "$SITE" init -q -b main
-establish_core_environment_bindings wp1 /siterepo admin@example.test "http://localhost:$PORT1" "http://localhost:$PORT1"
+establish_core_environment_bindings wp1 /siterepo admin@example.test "http://${PAIR}1.invalid" "http://${PAIR}1.invalid"
 OBSERVATIONS="$ROOT/sandbox/tmp/capture-receipt-$PAIR"
 (umask 077; mkdir "$OBSERVATIONS") || fail 'fresh private observation directory required'
 for stage in invocation observed repeated; do
