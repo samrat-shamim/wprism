@@ -70,6 +70,10 @@ $start = strpos($source, 'read -r -a PAIR_COMPOSE');
 if ($start === false) throw new RuntimeException('missing real lifecycle acceptance block');
 $end = strpos($source, 'WOO_SHA=', $start);
 $block = substr($source, $start, $end - $start);
+// The shared capture allocates below an existing parent; a fresh checkout
+// need not have run another suite or a live fixture to create that parent.
+if (!is_dir($root . '/sandbox/tmp') && !@mkdir($root . '/sandbox/tmp', 0700, true)
+    && !is_dir($root . '/sandbox/tmp')) throw new RuntimeException('cannot create test capture parent');
 $dir = sys_get_temp_dir() . '/woo-shell-' . bin2hex(random_bytes(5));
 mkdir($dir, 0700);
 $pair = 'wooshell' . bin2hex(random_bytes(5));
