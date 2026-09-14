@@ -76,6 +76,32 @@ identity rebinding and incomplete refusal preservation. Source observations use
 the shared owned cron window while retaining every cron row in comparisons.
 Signed deletion, failure/recovery and concurrency remain separate open families.
 
+## Transaction failure and retry
+
+The [recovery lane](../tests/live/regress_recovery.sh) uses the exact 2.7.5
+artifact and existing shared database fault switches. Native source Save and
+Capture change the settings option plus the original import/export templates.
+Read-only Plan binds those three updates and preserves the complete database.
+Failure at the authored commit rolls back all native changes. A second attempt
+fails at ledger commit: the three native values persist while baseline hashes
+and the applied revision remain stale. Ordinary retry settles them and removes
+the marker; repeated Apply preserves the settled result.
+
+The [oracle](../fixtures/recovery-evidence.php) compares complete rows, independent
+column inventories and opaque schemas for all eighteen tables, canonical files,
+policy and the native file/row census. Only exact fresh promotion sessions and
+the phase-specific marker/ledger transitions are allowed. An incomplete retry
+replays unchanged entities, so its next marker contains the complete baseline
+roster, even though only three values differ. The [offline controls](../tests/offline/regress_recovery_evidence.php)
+check this against the product planner and reject stale narrower markers,
+changed surrounding state, malformed revisions and incomplete observations.
+Both failures require their exact public refusal and fresh private injected cause.
+
+Five native template reopens, four CSV consumers and exact canonical recapture
+pass after retry. This qualifies the two transaction boundaries, not crash-after-intent
+or tamper handling. Signed deletion and the remaining recovery cases retain gaps;
+overall readiness and shipped package identity are unchanged.
+
 ## Derived state
 
 There is no authored cache, index, CSS, rewrite, lookup, occurrence or generated
@@ -97,6 +123,6 @@ The required derived-state repair family is therefore structurally
 
 Eight families remain gaps in [the readiness record](production-readiness.json).
 The existing positive and refusal evidence stays useful, but it does not establish
-every dependency/lifecycle/platform boundary, the omitted-password native case, signed deletion and recovery,
+every dependency/lifecycle/platform boundary, the omitted-password native case, signed deletion and remaining recovery cases,
 concurrency, or all difficult-value/data boundaries. Those require their own
 concrete evidence before promotion.

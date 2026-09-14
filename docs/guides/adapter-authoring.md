@@ -3863,6 +3863,17 @@ library.
    bodies into a plugin-specific value walker. Decode serialized plain values
    with the engine's `PlainData` codec, never an executable unserializer.
 
+   A complete-row recovery comparison requires `SqlDumpEvidence::fullRows()`
+   with an independently observed `SHOW FULL COLUMNS` roster; a selected
+   projection cannot prove that omitted fields survived. Retain and compare
+   the opaque schema sections too. Predict the exact allowed retry-marker and
+   promotion-session transitions instead of excluding their tables. An authored
+   commit failure must preserve native data; a later ledger-finalization failure
+   may leave committed data with a stale baseline. Prove both states separately,
+   then require retry to settle the baseline and repeat to leave it settled.
+   Derive each marker from that attempt's planned work: an incomplete retry can
+   replay unchanged entities and record a larger write set than the first attempt.
+
    Complete uninstall and isolated missing-widget history are different
    premises. Full Plan/Apply checks retained canonical maps before dead-map
    pruning; missing backing data must reach `canonical_identity_recovery_required`,
