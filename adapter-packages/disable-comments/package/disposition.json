@@ -3,18 +3,28 @@
     "deletion_semantics": {
       "supported": [],
       "unsupported": [
-        "plugin-specific comment deletion"
+        "plugin-specific comment deletion",
+        "removal of endpoint settings"
       ]
     },
     "entity_sections": [],
     "field_sections": [
-      "options"
+      "options",
+      "user_meta"
     ],
-    "lifecycle_phases": [],
+    "lifecycle_phases": [
+      "retire",
+      "activate",
+      "verify"
+    ],
     "operations": [
       "capture",
       "compile",
-      "recapture"
+      "plan",
+      "deploy",
+      "apply",
+      "recapture",
+      "render-api"
     ]
   },
   "default_authored_keyspaces": [],
@@ -22,11 +32,13 @@
     "bundle_schema": "wprism-subject-certification-bundle/v1",
     "tests": [
       "regress-classification-boundary",
-      "regress-package-contract"
+      "regress-package-contract",
+      "conformance-disable-comments",
+      "exact-artifact-version-matrix"
     ]
   },
-  "reason": "Experimental source-read declaration for the exact Disable Comments 2.9.0 artifact. It carries five scalar settings toggles from the shared site options blob and deliberately withholds entity, reference, network, telemetry, deletion, lifecycle, native behavior, and apply claims until capsule-owned evidence exists.",
-  "status": "experimental",
+  "reason": "Certified for exact Disable Comments 2.9.0 on single-site WordPress. The adapter carries only the REST and XML-RPC endpoint switches, proves each independently through unauthenticated native requests after divergent-ID Apply, preserves runtime and target-only option/user rows, exercises lifecycle recovery, conflict, retry, malformed and out-of-range artifact refusal, and deliberately withholds frontend, role, post-type, conditional-rule, arbitrary comment-type, network, and destructive comment behavior.",
+  "status": "certified",
   "supported_versions": {
     "plugin": "disable-comments/disable-comments.php",
     "range": {
@@ -41,19 +53,14 @@
       "reason": "WPrism's single-site boundary excludes network option and per-site network activation behavior."
     },
     {
-      "operation": "apply",
-      "surface": "native-settings-side-effects",
-      "reason": "The plugin's native settings writer also purges page caches and reconciles comment filters; no native round-trip or bounded apply postcondition has been exercised."
-    },
-    {
       "operation": "capture",
       "surface": "unlisted-disable-comments-options-subkeys",
-      "reason": "Only five scalar toggles have been reviewed. Post-type, taxonomy, template, comment-type, role-list, and network-shaped siblings remain target-local until their storage and identity contracts are evidenced."
+      "reason": "Only the two endpoint toggles are portable in this certified boundary. Frontend, post-type, taxonomy, template, role-list, comment-type, and network-shaped siblings remain target-local."
     },
     {
       "operation": "delete",
       "surface": "deletions.*",
-      "reason": "The plugin deletes core comment rows through its own destructive tool; no adapter deletion selector or reverse-reference proof is declared."
+      "reason": "The plugin deletes core comment rows through its own destructive tool; no adapter deletion selector or reverse-reference proof is declared. Endpoint settings use false, not authored-row deletion, as their off state."
     }
   ]
 }

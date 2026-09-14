@@ -1,22 +1,54 @@
 {
   "format": "wprism-adapter-production-readiness-record/v1",
   "adapter": "disable-comments",
-  "readiness": "unready",
-  "covered": {},
-  "gaps": {
-    "contract-dependency": "The exact 2.9.0 source and artifact are pinned, but installation, adjacent-version refusal, and upgrade evidence are not complete.",
-    "clean-target": "No native source-to-target setup and target observation has been exercised.",
-    "dirty-target": "Hostile shared-option siblings and target-owned settings preservation need native before-and-after evidence.",
-    "identity-references": "Post-type selections, conditional taxonomy terms, template rules, and comment-type semantics remain outside this slice.",
-    "native-behavior": "The five toggles have source-level consumers, but native settings authoring and frontend/API behavior are unproven.",
-    "derived-state": "Page-cache purging, blocked-attempt counters, review state, and upgrade markers need separate derived-state evidence.",
-    "deletion": "The plugin owns destructive core comment deletion, but no safe adapter deletion contract is declared.",
-    "failure-recovery": "No native write failure, rollback, or retry evidence exists.",
-    "concurrency-idempotence": "No concurrent settings save or complete target recapture fixed-point evidence exists.",
-    "lifecycle": "Activation, deactivation, uninstall, and reinstall behavior have not been exercised through the capsule.",
-    "data-boundary": "Network settings, counters, role lists, comment types, and plugin telemetry remain intentionally unclaimed.",
-    "scope-platform": "Single-site scope is declared, but supported WordPress versions, plugin combinations, and native scope behavior remain unproven."
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/disable-comments/package/manifest.json",
+      "adapter-packages/disable-comments/evidence/artifacts.lock.json",
+      "adapter-packages/disable-comments/tests/certify/version-matrix.sh"
+    ],
+    "clean-target": [
+      "adapter-packages/disable-comments/tests/conformance/entry.json",
+      "adapter-packages/disable-comments/tests/conformance/seed.sh",
+      "adapter-packages/disable-comments/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/disable-comments/tests/conformance/postdeploy.sh",
+      "adapter-packages/disable-comments/tests/conformance/check.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/disable-comments/tests/conformance/check.sh",
+      "adapter-packages/disable-comments/tests/certify/version-matrix.sh"
+    ],
+    "failure-recovery": [
+      "adapter-packages/disable-comments/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_fatal_mutations.php",
+      "sandbox/tests/offline/apply/regress_options_materializer.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/disable-comments/tests/conformance/check.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"
+    ],
+    "lifecycle": [
+      "adapter-packages/disable-comments/tests/conformance/check.sh",
+      "adapter-packages/disable-comments/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/disable-comments/tests/conformance/seed.sh",
+      "adapter-packages/disable-comments/tests/conformance/check.sh",
+      "adapter-packages/disable-comments/tests/certify/version-matrix.sh"
+    ],
+    "scope-platform": [
+      "adapter-packages/disable-comments/package/disposition.json",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
   },
+  "gaps": {},
   "blocked": {},
-  "not_applicable": {}
+  "not_applicable": {
+    "identity-references": "The certified boundary contains only two scalar endpoint switches and declares no post, term, user, table, shortcode, block, serialized, or composite identity reference.",
+    "derived-state": "The certified switches affect REST/XML-RPC request dispatch only. They persist no plugin-derived cache, index, rewrite, lookup, or page-render state; blocked-attempt counters and review state are runtime rows explicitly excluded from authored state.",
+    "deletion": "The capsule declares no plugin-owned entity section. Endpoint settings use false as their reversible off state, while the plugin's destructive core-comment tool is explicitly unsupported and the lifecycle matrix proves uninstall residue without claiming comment deletion."
+  }
 }

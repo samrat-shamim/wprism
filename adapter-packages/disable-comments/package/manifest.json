@@ -6,26 +6,16 @@
   "version_range": {"min": "2.9.0", "max": "2.9.1"},
   "notes": [
     "Adapter-authoring probe 2026-09-14: inspected the official WordPress.org Disable Comments 2.9.0 artifact (SHA-256 17bc60cc872d77f36a88fa27638bb2e15774bdd15418d966559c32cbbfe3e2c5). The range is intentionally limited to the observed release; widening it requires another artifact probe.",
-    "disable-comments.php loads the site option disable_comments_options and its settings writer persists one shared array. This capsule narrows that blob to five reviewed toggles: remove_everywhere, remove_xmlrpc_comments, remove_rest_API_comments, show_existing_comments, and enable_exclude_by_role.",
-    "The five selected values are consumed as boolean or integer toggles by Disable_Comments filters. They are authored site policy, not entity references, credentials, counters, version markers, or cache state; lint_ok records that these numeric toggle values must not be mistaken for local IDs.",
-    "disabled_post_types, extra_post_types, conditional_rules, allowed_comment_types, and blocked_comment_types remain unclaimed because they carry post-type, taxonomy-term, template, or comment-type semantics that need separate native and reference evidence. Network settings, counters, review state, user metadata, and uninstall behavior are also outside this experimental slice.",
-    "The plugin's network option path and sitewide settings are excluded by WPrism's single-site boundary. No interpreter, provider, regenerator, entity declaration, or engine feature is needed for this source-read slice."
+    "disable-comments.php loads the site option disable_comments_options and its settings writer persists one shared array. This capsule narrows that blob to the two endpoint toggles remove_xmlrpc_comments and remove_rest_API_comments, which the plugin consumes directly on XML-RPC and REST request paths.",
+    "The two selected values are boolean or integer endpoint switches, not entity references, credentials, counters, version markers, or page-rendered state; lint_ok records that their numeric storage must not be mistaken for local IDs. Native conformance proves each switch independently with unauthenticated request probes.",
+    "remove_everywhere, show_existing_comments, enable_exclude_by_role, disabled_post_types, extra_post_types, conditional_rules, allowed_comment_types, and blocked_comment_types remain unclaimed because they affect frontend rendering, role or post-type scope, taxonomy/template rules, or arbitrary comment types. Network settings, counters, review state, user metadata, and uninstall residue remain target-local except for the explicitly classified runtime rows.",
+    "The plugin's network option path and sitewide settings are excluded by WPrism's single-site boundary. Runtime version, blocked-attempt, review-trigger, and review-dismissal rows are named so uninstall residue remains visible without entering canonical authored state. No interpreter, provider, regenerator, or engine feature is needed."
   ],
   "options": {
     "disable_comments_options": {
       "class": "env",
       "required": false,
       "sub_keys": {
-        "enable_exclude_by_role": {
-          "class": "authored",
-          "lint_ok": true,
-          "note": "Disable_Comments::is_exclude_by_role() treats this as a boolean feature toggle."
-        },
-        "remove_everywhere": {
-          "class": "authored",
-          "lint_ok": true,
-          "note": "Disable_Comments::is_remove_everywhere() consumes this as a site-wide boolean toggle."
-        },
         "remove_rest_API_comments": {
           "class": "authored",
           "lint_ok": true,
@@ -35,13 +25,17 @@
           "class": "authored",
           "lint_ok": true,
           "note": "Disable_Comments::get_endpoint_blocking_state() integer-casts this endpoint toggle."
-        },
-        "show_existing_comments": {
-          "class": "authored",
-          "lint_ok": true,
-          "note": "Disable_Comments uses this boolean presentation choice when existing comments remain stored."
         }
       }
-    }
+    },
+    "disable_comment_version": {"class": "runtime"},
+    "disable_comments_blocked_since": {"class": "runtime"},
+    "disable_comments_blocked_stats_comment": {"class": "runtime"},
+    "disable_comments_blocked_stats_rest": {"class": "runtime"},
+    "disable_comments_blocked_stats_trackback": {"class": "runtime"},
+    "disable_comments_review_trigger": {"class": "runtime"}
+  },
+  "user_meta": {
+    "disable_comments_review_dismissed": {"class": "runtime"}
   }
 }

@@ -1,10 +1,15 @@
 {
   "plugins": {
     "disable-comments": {
+      "2.8.0": {
+        "url": "https://downloads.wordpress.org/plugin/disable-comments.2.8.0.zip",
+        "sha256": "c2285f8e429420cc74311ea4ce2735843d1793e8a1f7ab28de2bba41f27febe1",
+        "role": "refusal-fixture"
+      },
       "2.9.0": {
         "url": "https://downloads.wordpress.org/plugin/disable-comments.2.9.0.zip",
         "sha256": "17bc60cc872d77f36a88fa27638bb2e15774bdd15418d966559c32cbbfe3e2c5",
-        "role": "exercise-fixture"
+        "role": "certified-boundary"
       }
     }
   },
