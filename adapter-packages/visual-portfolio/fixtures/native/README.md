@@ -3,6 +3,9 @@
 The capsule conformance profile exercises the exact free 3.8.1 artifact through
 experimental agent deployment and Apply. The shared harness still requires the
 host production-deployment refusal; this profile does not promote readiness.
+The experimental disposition explicitly declares `deploy` as well as `apply`.
+This shipped claim changes adapter identity, so existing deployments must
+recompile and re-pin; the conformance guard is never bypassed.
 
 The retained native gallery and legacy archive bodies, settings and images are
 written on source through the existing fixture's WordPress/REST paths. Four
