@@ -271,6 +271,14 @@ certify-version-matrix:
 regress-capture-publish:
 	php sandbox/tests/offline/capture/regress_capture_publish.php
 
+.PHONY: regress-capture-receipt-diagnostics
+regress-capture-receipt-diagnostics:
+	php sandbox/tests/offline/capture/regress_capture_receipt_diagnostics.php
+
+.PHONY: regress-capture-receipt-diagnostics-live
+regress-capture-receipt-diagnostics-live:
+	bash sandbox/tests/live/regress_capture_receipt_diagnostics_live.sh
+
 # issue #3231: code_drift detection (Deploy::code_drift(), a narrower question
 # than code_mismatch — did an installed plugin/theme version change since
 # the last successful 'wprism deploy'/'wprism capture', regardless of whether the

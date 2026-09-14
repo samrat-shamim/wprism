@@ -457,7 +457,7 @@ establish_core_environment_bindings wp_conf1 /siterepo admin@example.test \
   "http://localhost:$CONF1_PORT" "http://localhost:$CONF1_PORT"
 
 say "capture conf1 into the site repo"
-wp_conf1 wprism capture --repo=/siterepo
+conformance_private_command cli1 capture wp_conf1 wprism capture --repo=/siterepo
 git -C "$R1" add -A
 git -C "$R1" -c user.name=wprism -c user.email=wprism@example.test commit -qm "capture: seeded $MANIFEST content on conf1"
 git -C "$R1" push -qu origin main
@@ -504,7 +504,7 @@ echo "lint: clean, 0 findings"
 # --- end lint gate -----------------------------------------------------------
 
 say "acceptance: capture is deterministic (capture twice, zero diff)"
-wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
+conformance_private_command cli1 capture wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
 diff -r "$R1"/state "$R1"/.tmp-state2 || fail "capture is not deterministic"
 rm -rf "$R1"/.tmp-state2
 pass "capture-twice diff is empty"
@@ -662,7 +662,7 @@ if [ -f "$POSTAPPLY" ]; then
 fi
 
 say "acceptance: canonical(conf2) == canonical(conf1), byte for byte"
-wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-conf2state >/dev/null
+conformance_private_command cli2 capture wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-conf2state >/dev/null
 diff -r "$R1"/state "$R2"/.tmp-conf2state || fail "round-trip mismatch between conf1 and conf2 for manifest '$MANIFEST'"
 pass "canonical state identical across environments"
 

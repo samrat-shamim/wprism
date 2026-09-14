@@ -169,6 +169,7 @@ $block = substr($source, $start, $end - $start);
 $nativeProbe = <<<'SH'
 set -euo pipefail
 ROOT="$1" PROBE_ROOT="$2" PROBE_CASE="$3"
+PROBE_SERVICE="${4:-cli2}" PROBE_COMMAND="${5:-apply}"
 WPRISM_ARTIFACT_LIBRARY_ROOT="$PROBE_ROOT" CONF_PAIR=conformanceprobe
 ADOPT_BY_SLUG=terms,posts,menus REV=fixture-revision
 fail() { printf '%s\n' "$*" >&2; exit 1; }
@@ -181,8 +182,8 @@ compose_fixture() {
     && [ "$5" = "$PROBE_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro" ] \
     && [ "$6" = --volume ] \
     && [ "$7" = "$PROBE_ROOT/sandbox/tests/lib/conformance_private_command.php:/wprism-test/conformance_private_command.php:ro" ] \
-    && [ "$8 $9 ${10} ${11}" = '--entrypoint php cli2 /wprism-test/conformance_private_command.php' ] \
-    && [ "${13} ${14}" = 'apply /siterepo/.wprism/refusals' ] || return 81
+    && [ "$8 $9 ${10} ${11}" = "--entrypoint php $PROBE_SERVICE /wprism-test/conformance_private_command.php" ] \
+    && [ "${13} ${14}" = "$PROBE_COMMAND /siterepo/.wprism/refusals" ] || return 81
   local mode="${12}" status=0
   printf '%s\n' "$mode" >>"$PROBE_ROOT/trace"
   case "$PROBE_CASE:$mode" in
@@ -192,9 +193,9 @@ compose_fixture() {
     baseline-failed:snapshot|collector-failed:collect) printf 'private-reader-canary\n' >&2; return 7 ;;
     baseline-noisy:snapshot|collector-noisy:collect) printf 'PHP Warning: private-reader-canary\n' >&2 ;;
     wrong-site:collect) printf ' Container wprism-foreign-cli2-run-0123456789ab Created \n' >&2 ;;
-    *) printf ' Container wprism-conformanceprobe-cli2-run-0123456789ab Creating \n Container wprism-conformanceprobe-cli2-run-0123456789ab Created \n' >&2 ;;
+    *) printf ' Container wprism-conformanceprobe-%s-run-0123456789ab Creating \n Container wprism-conformanceprobe-%s-run-0123456789ab Created \n' "$PROBE_SERVICE" "$PROBE_SERVICE" >&2 ;;
   esac
-  php "$ROOT/sandbox/tests/lib/conformance_private_command.php" "$mode" apply "$PROBE_ROOT/refusals" || status=$?
+  php "$ROOT/sandbox/tests/lib/conformance_private_command.php" "$mode" "$PROBE_COMMAND" "$PROBE_ROOT/refusals" || status=$?
   if [ "$PROBE_CASE:$mode" = collector-extra-json:collect ]; then printf '{}\n'; fi
   return "$status"
 }
@@ -279,5 +280,71 @@ foreach ($nativeCases as $case) {
     foreach (glob($directory . '/*') ?: [] as $file) unlink($file);
     rmdir($directory);
 }
+
+// Execute all three real Capture sites with the same transport/collector as
+// initial Apply. The trap removes native records before the host checks them.
+$captureProbe = $nativeProbe . <<<'SH'
+
+wp_capture_probe() {
+  [ "$1 $2 $3" = 'wprism capture --repo=/siterepo' ] || return 82
+  [ "$#" -eq 3 ] || { [ "$#" -eq 4 ] && { [ "$4" = --out=/siterepo/.tmp-state2 ] || [ "$4" = --out=/siterepo/.tmp-conf2state ]; }; } || return 83
+  printf 'command\n' >>"$PROBE_ROOT/trace"
+  if [ "$PROBE_CASE" = refusal ]; then
+    cp "$PROBE_ROOT/new-record" "$PROBE_ROOT/refusals/20260907-120001-capture-bbbbbbbbbbbbbbbbbbbbbbbb.json"
+    chmod 600 "$PROBE_ROOT/refusals/20260907-120001-capture-bbbbbbbbbbbbbbbbbbbbbbbb.json"
+    printf 'Error: capture recovery refused\n' >&2
+    return 1
+  fi
+  printf 'Captured fixture state\n'
+}
+wp_conf1() { [ "$PROBE_SERVICE" = cli1 ] && wp_capture_probe "$@"; }
+wp_conf2() { [ "$PROBE_SERVICE" = cli2 ] && wp_capture_probe "$@"; }
+trap 'rm -f "$PROBE_ROOT/refusals/"*; rmdir "$PROBE_ROOT/refusals"' EXIT
+SH;
+preg_match_all('/^(?:conformance_private_command cli[12] capture )?wp_conf([12]) wprism capture --repo=\/siterepo[^\n]*$/m', $source, $captures, PREG_SET_ORDER);
+wprism_check_same(3, count($captures), 'initial/source-repeat/target-recapture all have a concrete shared call site');
+foreach ($captures as $index => $match) {
+    foreach (['ready', 'refusal'] as $case) {
+        $directory = $scratch . '/capture-' . $index . '-' . $case;
+        mkdir($directory . '/sandbox/tests', 0700, true);
+        mkdir($directory . '/sandbox/tmp', 0700);
+        symlink($root . '/sandbox/tests/lib', $directory . '/sandbox/tests/lib');
+        mkdir($directory . '/refusals', 0700);
+        $record = json_decode($nativeRecord, true);
+        $record['command'] = 'capture';
+        $record['reason_code'] = 'capture_recovery_ambiguous';
+        $bytes = json_encode($record, JSON_THROW_ON_ERROR);
+        file_put_contents($directory . '/new-record', $bytes);
+        file_put_contents($directory . '/refusals/20260907-120000-capture-aaaaaaaaaaaaaaaaaaaaaaaa.json', $bytes);
+        chmod($directory . '/refusals/20260907-120000-capture-aaaaaaaaaaaaaaaaaaaaaaaa.json', 0600);
+        $service = 'cli' . $match[1];
+        [$status, $stdout, $stderr] = ShellProbe::run($captureProbe . "\n" . $match[0] . "\nprintf 'CAPTURE_ACCEPTED\\n'\n",
+            [$root, $directory, $case, $service, 'capture'], $root);
+        wprism_check($case === 'ready' ? $status === 0 && str_contains($stdout, 'CAPTURE_ACCEPTED')
+            : $status === 1 && !str_contains($stdout, 'CAPTURE_ACCEPTED'), "$index/$case: actual Capture call preserves success/refusal status");
+        wprism_check(!str_contains($stdout . $stderr, 'private canary') && !is_dir($directory . '/refusals'),
+            "$index/$case: private native bytes are not replayed and disposable source is gone");
+        $sinks = glob($directory . '/sandbox/tmp/wprism-conformance-capture.conformanceprobe.*') ?: [];
+        wprism_check(count($sinks) === 1 && file_get_contents($directory . '/trace') === "snapshot\ncommand\ncollect\n",
+            "$index/$case: Capture collects its own fresh diagnostic delta before teardown");
+        if (count($sinks) === 1) {
+            $diagnostic = json_decode(WPrismTest\PrivateCommandOutput::readObject($sinks[0] . '/private',
+                '/\A Container wprism-conformanceprobe-' . $service . '-run-[a-f0-9]{12} (?:Creating|Created) \z/',
+                WPrismTest\EvidenceSizeProfile::CONFORMANCE_TREE), true, 32, JSON_THROW_ON_ERROR);
+            WPrismTest\PrivateRefusalReceipt::assertDiagnostic($diagnostic, 'capture');
+            wprism_check_same($case === 'ready' ? [] : [$bytes], array_map(static fn(array $row): string => base64_decode($row['contents_base64'], true), $diagnostic['records']),
+                "$index/$case: only this invocation's exact private evidence survives source cleanup");
+            foreach (glob($sinks[0] . '/*') as $file) unlink($file);
+            rmdir($sinks[0]);
+        }
+        unlink($directory . '/sandbox/tests/lib');
+        rmdir($directory . '/sandbox/tests');
+        rmdir($directory . '/sandbox/tmp');
+        rmdir($directory . '/sandbox');
+        foreach (glob($directory . '/*') as $file) unlink($file);
+        rmdir($directory);
+    }
+}
+
 rmdir($scratch);
 wprism_check_summary('regress_private_command_capture');

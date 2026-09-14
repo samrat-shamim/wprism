@@ -9,6 +9,7 @@ if (!class_exists(InitialStateBoundaryException::class, false)) {
 }
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/PrivateEvidenceException.php';
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/DurableFilesystem.php';
@@ -1607,13 +1608,17 @@ PHP;
             'write-receipt-intent'
         );
         if ($onDisk === null || ($onDisk['id'] ?? null) !== ($intent['id'] ?? null)) {
-            throw self::ambiguous_recovery('capture cannot write its receipt because its durable intent is missing or changed');
+            throw self::receipt_intent_refusal($stateDir, $expectedCommitting, $onDisk,
+                $onDisk === null ? 'missing_intent' : 'intent_id_mismatch',
+                'capture cannot write its receipt because its durable intent is missing or changed');
         }
         if (($onDisk['phase'] ?? null) !== 'committing') {
-            throw self::ambiguous_recovery('capture cannot write its receipt before the durable COMMIT-attempt marker');
+            throw self::receipt_intent_refusal($stateDir, $expectedCommitting, $onDisk, 'intent_phase_mismatch',
+                'capture cannot write its receipt before the durable COMMIT-attempt marker');
         }
         if (Canon::encode($onDisk) !== Canon::encode($expectedCommitting)) {
-            throw self::ambiguous_recovery('capture cannot write its receipt because its durable intent is missing or changed');
+            throw self::receipt_intent_refusal($stateDir, $expectedCommitting, $onDisk, 'intent_record_mismatch',
+                'capture cannot write its receipt because its durable intent is missing or changed');
         }
         $intent = $onDisk;
         $actual = self::tree_digest($stateDir);
@@ -2417,6 +2422,75 @@ PHP;
             self::rrmdir($stateDir);
         }
         self::restore_backup($stateDir, $backup);
+    }
+
+    /**
+     * A native source Capture refused at this boundary in PR #651, but its
+     * identical operator sentences could not distinguish absent readback from
+     * a changed sealed record after ephemeral teardown. Retain the exact read
+     * decision and bounded metadata privately; never reread into a new choice,
+     * inspect content trees, or change the refusal/recovery contract.
+     *
+     * @param array<string,mixed> $expected
+     * @param array<string,mixed>|null $observed
+     */
+    private static function receipt_intent_refusal(
+        string $stateDir,
+        array $expected,
+        ?array $observed,
+        string $decision,
+        string $reason
+    ): CommandRefusalException {
+        $private = null;
+        try {
+            $summary = static function (?array $record): ?array {
+                if ($record === null) {
+                    return null;
+                }
+                $fields = ['canonical_sha256' => hash('sha256', Canon::encode($record))];
+                foreach (['format', 'id', 'phase', 'candidate_sha256', 'previous_sha256', 'created_at', 'record_sha256'] as $key) {
+                    $value = $record[$key] ?? null;
+                    $fields[$key] = is_string($value) && strlen($value) <= 128
+                        ? $value : ['value_sha256' => hash('sha256', Canon::encode($value))];
+                }
+                return $fields;
+            };
+            $context = Canon::encode([
+                'format' => 'wprism-publication-receipt-intent-diagnostic/v1',
+                'decision' => $decision,
+                'expected' => $summary($expected),
+                'observed' => $summary($observed),
+            ]);
+            $paths = ['intent' => self::intent_path($stateDir), 'receipt' => self::receipt_path($stateDir)];
+            foreach ($paths as $name => $path) {
+                $paths[$name . '_previous'] = self::record_previous_path($path);
+                $paths[$name . '_next'] = self::record_next_path($path);
+            }
+            $paths += ['lock' => self::lock_path($stateDir), 'state' => $stateDir,
+                'staging' => self::stage_dir($stateDir), 'backup' => self::backup_dir($stateDir)];
+            $metadata = [];
+            set_error_handler(static fn(): bool => true);
+            try {
+                foreach ($paths as $name => $path) {
+                    clearstatcache(true, $path);
+                    $stat = lstat($path);
+                    $metadata[$name] = is_array($stat)
+                        ? array_intersect_key($stat, array_fill_keys(['dev', 'ino', 'mode', 'nlink', 'size', 'mtime', 'ctime'], true))
+                        : null;
+                }
+            } finally {
+                restore_error_handler();
+            }
+            $private = new PrivateEvidenceException('publication receipt intent diagnostics retained privately',
+                new \RuntimeException($context),
+                new \RuntimeException(Canon::encode([
+                    'format' => 'wprism-publication-path-metadata-diagnostic/v1',
+                    'paths' => $metadata,
+                ])));
+        } catch (\Throwable) {
+            // Diagnostic failure cannot replace or weaken the original refusal.
+        }
+        return self::ambiguous_recovery($reason, $private);
     }
 
     private static function ambiguous_recovery(
