@@ -79,7 +79,7 @@ pass "Loginizer deactivation preserves the authored state and deploy reactivatio
 # loginizer_disable_brute, which survive as source-equal residue. Missing-code
 # refusal must preserve those bytes; exact reinstall + deploy + apply must
 # converge everything again, including re-creating the dropped runtime table.
-wp_conf2 plugin uninstall loginizer --deactivate >/dev/null
+wp_conf2 plugin uninstall loginizer --deactivate
 if wp_conf2 plugin is-installed loginizer >/dev/null 2>&1; then
   fail "Loginizer uninstall left plugin code installed"
 fi
@@ -119,7 +119,7 @@ OBSERVED_SHA=$(wp_conf2 eval "echo hash_file('sha256', '$LOGINIZER_ARTIFACT');")
 require_observed_nonempty "Loginizer cached artifact digest" "$OBSERVED_SHA"
 [ "$OBSERVED_SHA" = "$LOGINIZER_SHA" ] \
   || fail "Loginizer reinstall artifact digest moved (expected=$LOGINIZER_SHA actual=$OBSERVED_SHA)"
-wp_conf2 plugin install "$LOGINIZER_ARTIFACT" --force >/dev/null
+wp_conf2 plugin install "$LOGINIZER_ARTIFACT" --force
 [ "$(wp_conf2 plugin get loginizer --field=version)" = "2.1.0" ] \
   || fail "Loginizer exact reinstall reported the wrong version"
 REINSTALL_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
