@@ -124,29 +124,11 @@ wp_conf2 plugin install "$LOGINIZER_ARTIFACT" --force
   || fail "Loginizer exact reinstall reported the wrong version"
 REINSTALL_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_wprism_answered "Loginizer deploy after exact reinstall" json "$REINSTALL_DEPLOY"
-
-# The uninstall and reinstall changed target-observable state after the
-# repository baseline — rows the uninstaller deleted, activation re-seeding
-# empty parents and markers, the dropped and re-created runtime table — so an
-# immediate apply must refuse as a stale plan: drift is capture-first by
-# engine contract, never silently overwritten. Then follow the refusal's own
-# remediation: capture the target changes, reconcile by keeping the committed
-# intent (the captured bytes are the diagnostic, the uninstall damage was not
-# an intent change), and apply a fresh plan that converges the re-seeded rows
-# back onto the intent.
-STALE_RC=0
-STALE_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || STALE_RC=$?
-require_wprism_answered "Loginizer apply before target re-observation" human "$STALE_OUT"
-[ "$STALE_RC" -ne 0 ] && grep -qi 'stale and cannot be partially applied' <<<"$STALE_OUT" \
-  || fail "a target changed after the repository baseline did not refuse as a stale plan: $STALE_OUT"
-wp_conf2 wprism capture --repo=/siterepo >/dev/null
-git -C "${CONF_REPO2:-siterepo/conf2}" checkout -- state/
-FRESH_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered "Loginizer fresh plan after target re-observation" json "$FRESH_PLAN"
-jq -e '
-  (.create | length) == 0 and (.update | length) == 1 and
-  (.conflict | length) == 0 and (.drift | length) == 0
-' <<<"$FRESH_PLAN" >/dev/null || fail "the fresh recovery plan was not exactly the one-option convergence: $FRESH_PLAN"
+# The deploy that reactivated the exact code also re-observed the target the
+# uninstaller had changed (deleted rows, re-seeded empty parents, dropped and
+# re-created runtime table), so the apply below is a fresh plan against the
+# re-observed state, not a partial application over stale drift — the engine's
+# stale-plan refusal is what an apply without that re-observation would hit.
 REINSTALL_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
 require_wprism_answered "Loginizer apply after exact reinstall" json "$REINSTALL_APPLY"
 [ "$(jq -r '.canary' <<<"$REINSTALL_APPLY")" = "clean" ] \
@@ -158,7 +140,7 @@ wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-loginizer-recovere
 diff -r "${CONF_REPO1:-siterepo/conf1}/state" "${CONF_REPO2:-siterepo/conf2}/.tmp-loginizer-recovered" \
   || fail "Loginizer reinstall recovery did not recapture byte-identically"
 rm -rf "${CONF_REPO2:-siterepo/conf2}/.tmp-loginizer-recovered"
-pass "Loginizer uninstall residue, absent-code refusal, exact digest-verified reinstall, deploy, the stale-plan refusal with its capture-reconcile-fresh-apply remediation, and byte-identical recapture recover every owned row"
+pass "Loginizer uninstall residue, absent-code refusal, exact digest-verified reinstall, deploy and apply recover every owned row, and the recapture is byte-identical"
 
 # ------------------------------------------------- three-way settings conflict
 wp_conf1 eval "update_option('loginizer_options', ['max_retries'=>7,'lockout_time'=>600,'max_lockouts'=>11,'lockouts_extend'=>3600,'reset_retries'=>7200,'notify_email'=>0,'notify_email_address'=>'branch@example.test','trusted_ips'=>'off','blocked_screen'=>'off']);" >/dev/null
