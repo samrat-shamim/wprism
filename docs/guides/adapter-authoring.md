@@ -4784,3 +4784,15 @@ repair it through an independently justified native recovery path. Whole-option
 SQL strings, dynamic/pattern rules and executable classification require their
 own representation evidence and are outside this feature. Re-pin any capsule
 whose manifest gains this declaration; the predicate is part of its identity.
+
+### Lifecycle observations must precede native self-repair
+
+Observe lifecycle postconditions through raw database reads or an ordinary CLI
+process before opening the plugin's admin/API surface. Some plugins both skip
+hook registration outside `is_admin()` and run activation again on the next
+admin bootstrap when an option is absent (Importer 2.7.5, main file lines 20 and
+119). An admin observer can therefore create the very tables or marker it
+claims deployment created. Record the target before that bootstrap, then test
+the native admin behavior separately. Observe deactivation through an actual
+admin-context native request when testing the plugin's own UI-equivalent path;
+plain CLI deactivation may never have registered its callbacks.

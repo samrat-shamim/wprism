@@ -12,6 +12,11 @@ if (!defined('ABSPATH') && !(defined('WP_CLI') && WP_CLI)) {
 define('WPRISM_AGENT_VERSION', '0.7.0');
 define('WPRISM_SPEC_VERSION', 3);
 
+if (defined('WP_CLI') && WP_CLI) {
+    require_once __DIR__ . '/src/Command/LifecycleCommandContext.php';
+    \WPrism\LifecycleCommandContext::bootstrap(\WP_CLI::get_runner()->arguments);
+}
+
 require_once __DIR__ . '/src/Kernel/Uuid.php';
 require_once __DIR__ . '/src/Kernel/OrderPreserved.php';
 require_once __DIR__ . '/src/Kernel/Canon.php';

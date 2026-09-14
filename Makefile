@@ -742,6 +742,13 @@ regress-lifecycle-options-snapshot:
 regress-lifecycle-identity-preservation:
 	php sandbox/tests/offline/capture/regress_lifecycle_identity_preservation.php
 
+.PHONY: regress-lifecycle-command-context regress-lifecycle-command-context-native
+regress-lifecycle-command-context-native:
+	bash sandbox/tests/live/regress_lifecycle_command_context_native.sh
+
+regress-lifecycle-command-context:
+	php sandbox/tests/offline/code-half/regress_lifecycle_command_context.php
+
 # Fatal-safe control-plane bootstrap: WPRISM_JOURNAL must not call WordPress
 # option/filter APIs before after_wp_config_load has loaded the normal runtime.
 regress-journal-bootstrap:

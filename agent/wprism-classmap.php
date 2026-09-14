@@ -180,6 +180,7 @@ return [
     'WPrism\\LedgerScopedApplySessionStorage' => 'src/Scope/ScopedApply.php',
     'WPrism\\LegacyRuntimeExecutionDebt' => 'src/Policy/LegacyRuntimeExecutionDebt.php',
     'WPrism\\LifecycleAttemptRecord' => 'src/Promotion/LifecycleJournal.php',
+    'WPrism\\LifecycleCommandContext' => 'src/Command/LifecycleCommandContext.php',
     'WPrism\\LifecycleExecutor' => 'src/Promotion/LifecycleExecutor.php',
     'WPrism\\LifecycleJournal' => 'src/Promotion/LifecycleJournal.php',
     'WPrism\\LifecyclePlanner' => 'src/Promotion/LifecyclePlanner.php',

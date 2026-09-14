@@ -11,6 +11,14 @@ The commands are documented in
 [cli/README.md](../../cli/README.md); the design reasoning is in
 [docs/code-half.md](../code-half.md).
 
+The target's `wp wprism deploy` command establishes WordPress's administrative
+context during the MU bootstrap, before network and ordinary plugins load.
+This lets admin-only plugins register their native activation and deactivation
+hooks. It does not log in an administrator or run the HTTP admin controller.
+Capture, plan and Apply keep their ordinary command context. An explicit
+`WP_ADMIN=false` override or a late agent load refuses deployment; retry from
+the installed MU loader in a fresh process.
+
 ## The lifecycle order, and why it is that order
 
 `wprism deploy <env>` runs these phases, stopping at the first non-zero one:
