@@ -3101,6 +3101,7 @@ regress-live-list:
 	@echo "  regress-promotion                         pair codexmaca3216 8920/... (also runs in CI as code-half-grind's sibling)"
 	@echo "  regress-promotion-lock                    pair codexmac3217 8900/... (runs in CI: code-half-live-lock)"
 	@echo "  regress-capture-concurrency               own disposable pair (required: CONCURRENCY_PAIR/CONCURRENCY_PORT1/CONCURRENCY_PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate)"
+	@echo "  regress-capture-receipt-diagnostics-live   own disposable pair (CAPTURE_RECEIPT_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA; retained private receipt refusal verified after teardown)"
 	@echo "  regress-acf-term-options-fields           pair asub3263 (parameterized: PAIR/PORT1/PORT2)"
 	@echo "  regress-collision                         legacy docker-compose.yml --profile fx"
 	@echo "  regress-entity-type-width                 pair amergety"
