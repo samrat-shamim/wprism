@@ -145,6 +145,49 @@ wprism_check_throws(static fn() => ImporterRecoveryEvidence::transition(
     $source, $intent, $artifact, $window, 'retry', $revision), RuntimeException::class,
     'normal retry requires the complete prior replay marker');
 
+$lease = static fn(string $owner, string $phase, int $acquired, int $expires): string => json_encode([
+    'owner' => 'direct-' . str_repeat($owner, 32), 'artifact_hash' => $artifact, 'phase' => $phase,
+    'acquired_at' => $acquired, 'expires_at' => $expires,
+], JSON_THROW_ON_ERROR);
+$crashed = $replaceKv($failed, ['promotion_lock' => $lease('2', 'apply-session-begin', 101, 121)]);
+$ledgerCrashed = $replaceKv($committed, ['promotion_session' => $session('3', 131), 'promotion_lock' => $lease('3', 'apply-rebuild', 130, 152)]);
+$crashRetried = $replaceKv($recovered, ['promotion_session' => $session('4', 161)]);
+$crashRepeated = $replaceKv($repeat, ['promotion_session' => $session('5', 181)]);
+$crashPhases = ['authored-failure' => [$base, $crashed, ['before' => 100, 'after' => 110]],
+    'ledger-failure' => [$crashed, $ledgerCrashed, ['before' => 130, 'after' => 140]],
+    'retry' => [$ledgerCrashed, $crashRetried, ['before' => 160, 'after' => 170]],
+    'repeat' => [$crashRetried, $crashRepeated, ['before' => 180, 'after' => 190]]];
+foreach ($crashPhases as $phase => [$before, $after, $crashWindow]) {
+    ImporterRecoveryEvidence::transition($before, $after, $source, $intent, $artifact, $crashWindow, $phase, $revision, 'kill');
+    wprism_check(true, 'actual process loss retains or retires its exact durable lease: ' . $phase);
+    if (str_ends_with($phase, '-failure')) {
+        foreach (['missing', 'owner', 'artifact', 'phase', 'acquired', 'expires', 'extra'] as $fault) {
+            $kv = array_column($after['database']['rows']['wp_wprism_kv'], 'v', 'k');
+            $badLease = json_decode($kv['promotion_lock'], true, flags: JSON_THROW_ON_ERROR);
+            if ($fault === 'owner') $badLease['owner'] = 'foreign';
+            if ($fault === 'artifact') $badLease['artifact_hash'] = str_repeat('f', 64);
+            if ($fault === 'phase') $badLease['phase'] = 'complete';
+            if ($fault === 'acquired') $badLease['acquired_at'] = $crashWindow['before'] - 1;
+            if ($fault === 'expires') $badLease['expires_at'] = $crashWindow['after'] + 21;
+            if ($fault === 'extra') $badLease['unobserved'] = true;
+            $bad = $replaceKv($after, ['promotion_lock' => $fault === 'missing' ? null : json_encode($badLease, JSON_THROW_ON_ERROR)]);
+            wprism_check_throws(static fn() => ImporterRecoveryEvidence::transition($before, $bad, $source, $intent,
+                $artifact, $crashWindow, $phase, $revision, 'kill'), RuntimeException::class, 'crash lease rejects ' . $phase . '/' . $fault);
+        }
+    } else {
+        $bad = $replaceKv($after, ['promotion_lock' => $lease('4', 'apply-rebuild', 161, 181)]);
+        wprism_check_throws(static fn() => ImporterRecoveryEvidence::transition($before, $bad, $source, $intent,
+            $artifact, $crashWindow, $phase, $revision, 'kill'), RuntimeException::class, 'completed crash retry/repeat releases its lease: ' . $phase);
+    }
+    if (in_array($phase, ['ledger-failure', 'retry'], true)) {
+        $kv = array_column($before['database']['rows']['wp_wprism_kv'], 'v', 'k');
+        $badLease = json_decode($kv['promotion_lock'], true, flags: JSON_THROW_ON_ERROR);
+        $badLease['expires_at'] = $crashWindow['before'] + 1;
+        $bad = $replaceKv($before, ['promotion_lock' => json_encode($badLease, JSON_THROW_ON_ERROR)]);
+        wprism_check_throws(static fn() => ImporterRecoveryEvidence::transition($bad, $after, $source, $intent,
+            $artifact, $crashWindow, $phase, $revision, 'kill'), RuntimeException::class, 'crash retry cannot skip natural expiry: ' . $phase);
+    }
+}
 foreach ($phases as $phase => [$before, $after]) {
     ImporterRecoveryEvidence::transition($before, $after, $source, $intent, $artifact, $window, $phase, $revision);
     wprism_check(true, 'complete transition admits ' . $phase);

@@ -29,6 +29,22 @@ function fatal_mutation_db(array $rows = []): FakeWpdb {
         ->enableInformationSchema();
 }
 
+// The parent observes the kernel signal, not an exit(137) imitation or a shell's status translation.
+if (($argv[1] ?? '') === '--fault-child') {
+    $witness = $argv[2];
+    register_shutdown_function(static fn() => file_put_contents($witness . '/shutdown', 'ran'));
+    $wpdb = fatal_mutation_db();
+    try {
+        Db::delete('wp_posts', ['ID' => 999], ['%d'], 'process-loss boundary');
+        echo "completed\n";
+    } catch (Throwable $failure) {
+        echo get_class($failure) . ': ' . $failure->getMessage() . "\n";
+    } finally {
+        file_put_contents($witness . '/finally', 'ran');
+    }
+    exit(0);
+}
+
 $wpdb = fatal_mutation_db();
 $failures = [];
 
@@ -169,6 +185,59 @@ $check(
     count(array_filter($widgetStatus['lines'], fn(string $line): bool => str_contains($line, 'WIDGET_DELETE'))) === 1,
     'status did not render a plan-visible scoped widget deletion'
 );
+
+$faultProbe = static function (array $variables, bool $disablePosix = false): array {
+    $witness = sys_get_temp_dir() . '/wprism-db-crash-' . bin2hex(random_bytes(8));
+    mkdir($witness, 0700);
+    $out = tmpfile(); $err = tmpfile(); $process = null; $pipes = [];
+    try {
+        $command = [PHP_BINARY];
+        if ($disablePosix) $command = array_merge($command, ['-d', 'disable_functions=posix_kill']);
+        $process = proc_open(array_merge($command, [__FILE__, '--fault-child', $witness]),
+            [0 => ['pipe', 'r'], 1 => $out, 2 => $err], $pipes, null,
+            ['PATH' => (string) getenv('PATH')] + $variables);
+        if (!is_resource($process)) throw new RuntimeException('could not start database crash probe');
+        fclose($pipes[0]);
+        $deadline = microtime(true) + 10;
+        do {
+            $status = proc_get_status($process);
+            if (!$status['running']) break;
+            if (microtime(true) >= $deadline) throw new RuntimeException('database crash probe timed out');
+            usleep(10000);
+        } while (true);
+        proc_close($process); $process = null;
+        rewind($out); rewind($err);
+        return [$status, stream_get_contents($out), stream_get_contents($err),
+            is_file($witness . '/finally'), is_file($witness . '/shutdown')];
+    } finally {
+        if (is_resource($process)) { proc_terminate($process, 9); proc_close($process); }
+        foreach ([$out, $err] as $stream) if (is_resource($stream)) fclose($stream);
+        foreach (['finally', 'shutdown'] as $file) if (is_file($witness . '/' . $file)) unlink($witness . '/' . $file);
+        rmdir($witness);
+    }
+};
+$enabled = ['WPRISM_TEST_MODE' => '1', 'WPRISM_TEST_FAIL_DB_CONTEXT' => 'process-loss boundary'];
+$exception = "WPrism\\DatabaseMutationException: wprism: database mutation failed: process-loss boundary (injected)\n";
+$cases = [
+    'ordinary exception' => [$enabled, false, $exception],
+    'explicit exception' => [$enabled + ['WPRISM_TEST_DB_FAULT_MODE' => 'throw'], false, $exception],
+    'actual SIGKILL' => [$enabled + ['WPRISM_TEST_DB_FAULT_MODE' => 'kill'], true, ''],
+    'test switch absent' => [['WPRISM_TEST_FAIL_DB_CONTEXT' => 'process-loss boundary', 'WPRISM_TEST_DB_FAULT_MODE' => 'kill'], false, "completed\n"],
+    'test switch disabled' => [array_replace($enabled, ['WPRISM_TEST_MODE' => '0', 'WPRISM_TEST_DB_FAULT_MODE' => 'kill']), false, "completed\n"],
+    'different exact context' => [array_replace($enabled, ['WPRISM_TEST_FAIL_DB_CONTEXT' => 'another boundary', 'WPRISM_TEST_DB_FAULT_MODE' => 'kill']), false, "completed\n"],
+    'invalid mode refuses' => [$enabled + ['WPRISM_TEST_DB_FAULT_MODE' => 'exit'], false, "RuntimeException: wprism: unknown database test fault mode\n"],
+];
+foreach ($cases as $label => [$variables, $killed, $expected]) {
+    [$status, $stdout, $stderr, $finally, $shutdown] = $faultProbe($variables);
+    $check($killed ? ($status['signaled'] && $status['termsig'] === 9)
+        : (!$status['signaled'] && $status['exitcode'] === 0), 'database process fault status: ' . $label);
+    $check($stdout === $expected && $stderr === '' && $finally === !$killed && $shutdown === !$killed,
+        'database process fault streams and cleanup witnesses: ' . $label);
+}
+[$status, $stdout, $stderr, $finally, $shutdown] = $faultProbe($enabled + ['WPRISM_TEST_DB_FAULT_MODE' => 'kill'], true);
+$check(!$status['signaled'] && $status['exitcode'] === 0 && $finally && $shutdown && $stderr === ''
+    && $stdout === "RuntimeException: wprism: database SIGKILL fault injection requires posix_kill\n",
+    'missing POSIX signal support refuses rather than imitating process death');
 
 if ($failures) {
     fwrite(STDERR, "FAIL\n - " . implode("\n - ", $failures) . "\n");

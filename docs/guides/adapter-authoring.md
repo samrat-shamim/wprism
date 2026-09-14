@@ -3873,6 +3873,14 @@ library.
    then require retry to settle the baseline and repeat to leave it settled.
    Derive each marker from that attempt's planned work: an incomplete retry can
    replay unchanged entities and record a larger write set than the first attempt.
+   A thrown exception does not prove process-death recovery. The shared database
+   seam supports `WPRISM_TEST_DB_FAULT_MODE=kill` with `WPRISM_TEST_MODE=1` and
+   an exact `WPRISM_TEST_FAIL_DB_CONTEXT`; the default remains `throw`. Kill mode
+   requires real POSIX `SIGKILL`, so PHP cleanup cannot run. Retain the stopped
+   container and use `ContainerProcessEvidence` to bind its exact command,
+   environment and invocation window and exclude OOM/runtime failure. Preserve
+   the durable lease left by the crash and wait for its verified natural expiry
+   before retrying; never delete it to make the test proceed.
 
    Complete uninstall and isolated missing-widget history are different
    premises. Full Plan/Apply checks retained canonical maps before dead-map
@@ -4151,18 +4159,15 @@ adapter '<name>' certification was exercised against '<axis>' cell '<cell>',
 which the agent-owned platform boundary no longer carries`. Re-sign with
 `wprism adapter certify … --pin`, which mints the current wire generation.
 
-**Be exact about what a site certificate attests.** It says two things, and the
-bundle records that rather than leaving it to be assumed: *this organization's
-key approves these exact adapter bytes*, and *the engine's own validators
-accept the manifest's grammar*. It does not attest that the adapter was
-exercised against a live site, that its deletion semantics were reviewed, or
-that WPrism endorses it. That is why the bundle carries a single named test,
-`manifest-grammar`, whose result records `exercised: false` beside the grammar
-verdict and your stated reason — `evidence.tests: ["something"]` is otherwise
-indistinguishable downstream from a reviewed conformance run, and
-`exercised: false` exists to stop exactly that collapse. `wprism adapter list`
-reads `site_signed`; the projection reads `Site-certified`, never
-`Platform-certified`. The full mechanics are in
+**Be exact about what a site certificate attests.** Without an exercised bundle,
+`certify` signs approval of the exact adapter bytes and the real loader's grammar
+verdict. Its bundle records `exercised: false` with empty tests and artifacts;
+the resulting claim is **experimental**, and certification-only gates remain
+blocked. Neither `--pin` nor an authored `--ratification-file` upgrades approval
+into evidence. To obtain a Site-certified claim, supply `--bundle=<directory>`
+and `--evidence-repo=<reviewed-checkout>` with named passing tests, artifacts and
+bound inputs. That is site-rooted exercised evidence, not WPrism endorsement.
+The full mechanics are in
 [Site-installed adapters and external certification](#site-installed-adapters-and-external-certification)
 below.
 
@@ -4543,8 +4548,8 @@ A reviewer's bundle states a passing exercise. An operator certifying their own
 adapter usually cannot produce one, so the bundle declares what it proves:
 `evidence` is `{"exercised": <bool>, "grammar": "ok", "reason": "<text>"}`.
 `exercised: false` requires empty `tests` and `artifacts`, is accepted **only**
-under a site trust root, and rides onto the resulting claim — so `certified`
-never reads as "somebody ran it". `exercised: true` is the reviewer's shape and
+under a site trust root, and yields an experimental approval-only claim. A
+Site-certified claim requires verified exercised evidence. `exercised: true` is the reviewer's shape and
 the only one an agent-owned key may sign; `sign-site` refuses an agent-owned
 key by name.
 
@@ -4606,8 +4611,8 @@ in. Narrow a claim with an `unsupported[]` row and its reason, which a reader ca
 weigh — never by leaving a surface out, which no reader can see.
 
 What does not change: the bundle still records `exercised: false`, `tests` is
-still empty, and the claim still reads `Site-certified`. An authored entry is a
-stronger *argument*, never evidence of a run. And because `wprism adapter recertify`
+still empty, and the claim remains experimental with certification-only gates
+blocked. An authored entry is a stronger *argument*, never evidence of a run. And because `wprism adapter recertify`
 DERIVES, it reports an authored certificate as a `blocked` row rather than
 replacing your claim with the floor — re-sign that one with
 `wprism adapter certify … --ratification-file=<your file>`, so keep the file beside
