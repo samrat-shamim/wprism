@@ -368,7 +368,7 @@ DELETE_OPTION_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admi
 require_wprism_answered "Yoast Duplicate Post option deletion without authorization" human "$DELETE_OPTION_OUT"
 [ "$DELETE_OPTION_RC" -ne 0 ] && grep -q 'authored option deletion intent requires --with-deletes' <<<"$DELETE_OPTION_OUT" \
   || fail "Yoast Duplicate Post option deletion did not require --with-deletes: $DELETE_OPTION_OUT"
-wp_conf2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --format=json >/dev/null
+host_wprism conf2 promote --with-deletes --default-author=admin --format=json >/dev/null
 if wp_conf2 option get duplicate_post_show_notice >/dev/null 2>&1; then
   fail "authorized Yoast Duplicate Post option deletion left the row present"
 fi
