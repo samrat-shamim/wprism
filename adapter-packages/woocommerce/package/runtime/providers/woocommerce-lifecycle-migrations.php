@@ -13,8 +13,6 @@ final class WoocommerceLifecycleMigrations extends ManifestProviderRuntime {
         'woocommerce_update_db_to_current_version',
     ];
 
-    private const UPDATE_GROUP = 'woocommerce-db-updates';
-
     /** The retired `--batch-size=25` from the WP-CLI command this replaced. */
     private const BATCH_SIZE = 25;
 
@@ -116,11 +114,27 @@ final class WoocommerceLifecycleMigrations extends ManifestProviderRuntime {
      * This capability declares manifest-provider-fresh-process/v1, so the ENGINE
      * already owns a bounded child here; launching a second one from the adapter
      * was the execution debt this migration removes. Scope is unchanged from the
-     * retired `action-scheduler run --hooks=<UPDATE_HOOKS>
-     * --group=woocommerce-db-updates --batch-size=25 --batches=0`: the same two
-     * hooks, the same group, the same batch size, claimed through Action
+     * retired `action-scheduler run --hooks=<UPDATE_HOOKS> --batch-size=25
+     * --batches=0`: the same two hooks, the same batch size, claimed through Action
      * Scheduler's own store and run through its own runner
      * (packages/action-scheduler/classes/abstracts/ActionScheduler.php:47,68).
+     *
+     * The retired command also passed --group=woocommerce-db-updates, and this does
+     * NOT. That group filter is unusable on a site whose store is the HybridStore:
+     * its stake_claim() always delegates to the legacy wp_posts store first
+     * (ActionScheduler_HybridStore.php:243-253), and that store resolves a group by
+     * TAXONOMY TERM (ActionScheduler_wpPostStore.php:713-717) -- a term that never
+     * exists on a site which began on the DBStore, where the group is a row in
+     * actionscheduler_groups instead. Measured on the woovm pair: store
+     * ActionScheduler_HybridStore, groups row present, term absent, and every claim
+     * raising 'The group "woocommerce-db-updates" does not exist.'. An empty group
+     * skips that lookup entirely ($limit_ids = ! empty($group), :637-638).
+     *
+     * Dropping it narrows nothing that was ever enforced: snapshot() has always
+     * counted this queue by hook alone, with no group predicate, so claiming by the
+     * same two hooks makes the drain and the settlement projection agree on one key
+     * instead of two. Those hooks are WooCommerce's own DB-update hooks; nothing
+     * else schedules them.
      */
     private static function drain_update_queue(): void {
         foreach (['ActionScheduler', 'ActionScheduler_ActionClaim'] as $authority) {
@@ -140,12 +154,11 @@ final class WoocommerceLifecycleMigrations extends ManifestProviderRuntime {
         }
         for ($batch = 0; $batch < self::MAX_BATCHES; $batch++) {
             try {
-                $claim = $store->stake_claim(self::BATCH_SIZE, null, self::UPDATE_HOOKS, self::UPDATE_GROUP);
+                $claim = $store->stake_claim(self::BATCH_SIZE, null, self::UPDATE_HOOKS, '');
             } catch (\Throwable $failure) {
-                // ActionScheduler_DBStore::stake_claim() raises InvalidArgumentException
-                // 'The group "%s" does not exist.' when nothing was ever scheduled in it
-                // (ActionScheduler_DBStore.php:983). Reaching that means the settlement
-                // predicate disagreed with the queue, so refuse rather than guess.
+                // A claim can still fail for reasons this provider must not paper over --
+                // a store mid-migration, a locked table, a claim-count ceiling. Refuse
+                // with the native cause retained rather than guessing.
                 throw new \RuntimeException(
                     'wprism: WooCommerce migration queue could not be claimed in the bounded fresh process; recovery_required',
                     0,

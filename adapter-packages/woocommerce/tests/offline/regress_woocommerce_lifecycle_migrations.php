@@ -59,6 +59,8 @@ namespace {
         /** @var list<string> */
         public array $pending = [];
         public ?string $stakeFailure = null;
+        /** ActionScheduler_wpPostStore::get_actions_by_group()'s refusal, reproduced. */
+        public bool $rejectNonEmptyGroup = false;
         private int $claimSequence = 0;
 
         public function stake_claim(
@@ -68,6 +70,9 @@ namespace {
             string $group = ''
         ): ActionScheduler_ActionClaim {
             $this->stakes[] = ['max' => $max_actions, 'hooks' => $hooks, 'group' => $group];
+            if ($this->rejectNonEmptyGroup && $group !== '') {
+                throw new InvalidArgumentException(sprintf('The group "%s" does not exist.', $group));
+            }
             if ($this->stakeFailure !== null) {
                 throw new InvalidArgumentException($this->stakeFailure);
             }
@@ -289,9 +294,9 @@ namespace {
     wprism_check_same(2, count($GLOBALS['woo_lifecycle_runner']->processed),
         'every claimed update action is run exactly once');
     wprism_check_same(
-        ['max' => 25, 'hooks' => ['woocommerce_run_update_callback', 'woocommerce_update_db_to_current_version'], 'group' => 'woocommerce-db-updates'],
+        ['max' => 25, 'hooks' => ['woocommerce_run_update_callback', 'woocommerce_update_db_to_current_version'], 'group' => ''],
         $GLOBALS['woo_lifecycle_store']->stakes[0],
-        'the claim carries the exact scope the retired WP-CLI command did'
+        'the claim carries the retired command scope, keyed by hook exactly as the projection is'
     );
     wprism_check_same(2, $settled['before']['queue']['pending'], 'the receipt preserves the pre-run pending count');
     wprism_check_same(0, $settled['after']['queue']['pending'], 'the receipt proves no pending update remains');
@@ -318,12 +323,30 @@ namespace {
         );
     }
 
-    // --- a group Action Scheduler never created refuses, it does not guess ---
-    // This is the exact production shape: ActionScheduler_DBStore::stake_claim()
-    // raises 'The group "%s" does not exist.' (ActionScheduler_DBStore.php:983) when
-    // nothing was ever scheduled in it.
-    woo_lifecycle_reset([woo_lifecycle_rows('pending', 1)], '11.0.0', WC_VERSION, '11.0.0', 1);
-    $GLOBALS['woo_lifecycle_store']->stakeFailure = 'The group "woocommerce-db-updates" does not exist.';
+    // --- the group filter is never passed, because it cannot be honoured ---------
+    // A HybridStore site resolves a group by TAXONOMY TERM through the legacy
+    // wp_posts store (ActionScheduler_HybridStore.php:243-253 delegating to
+    // ActionScheduler_wpPostStore.php:713-717), and that term does not exist on a
+    // site that began on the DBStore. Measured on the woovm pair: every claim raised
+    // 'The group "woocommerce-db-updates" does not exist.' while the DBStore groups
+    // row was present. A store that refuses any non-empty group must therefore still
+    // drain.
+    woo_lifecycle_reset([woo_lifecycle_rows('pending', 1)], WC_VERSION, WC_VERSION, '11.0.0', 1);
+    $GLOBALS['woo_lifecycle_store']->rejectNonEmptyGroup = true;
+    $GLOBALS['woo_lifecycle_after_drain'] = static function (): void {
+        woo_lifecycle_state([woo_lifecycle_rows('complete', 1)], WC_VERSION, WC_VERSION);
+    };
+    $hybrid = $wooLifecycleSettle();
+    wprism_check_same(true, $hybrid['verified'],
+        'a store that refuses every non-empty group still settles, because none is passed');
+    wprism_check_same([''], array_values(array_unique(array_map(
+        static fn(array $stake): string => $stake['group'],
+        $GLOBALS['woo_lifecycle_store']->stakes
+    ))), 'every claim the drain makes carries an empty group');
+
+    // --- a claim that fails for a real reason still refuses ---------------------
+    woo_lifecycle_reset([woo_lifecycle_rows('pending', 1)], WC_VERSION, WC_VERSION, '11.0.0', 1);
+    $GLOBALS['woo_lifecycle_store']->stakeFailure = 'Unable to claim actions. Database error.';
     try {
         $wooLifecycleSettle();
         wprism_check(false, 'an unclaimable queue must refuse');
@@ -412,5 +435,5 @@ namespace {
         );
     }
 
-    echo "PASS: WooCommerce lifecycle migrations (23 assertions)\n";
+    echo "PASS: WooCommerce lifecycle migrations (28 assertions)\n";
 }
