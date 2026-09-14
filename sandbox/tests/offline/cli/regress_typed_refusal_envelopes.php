@@ -590,6 +590,10 @@ namespace {
     );
 
     // ------------------------------------------------------- the promotion lease
+    // These direct handler probes begin after the real MU bootstrap would
+    // prepare deployment. Keep the native context prerequisite so each case
+    // reaches its intended PromotionLease gate and preserves that envelope.
+    \WPrism\LifecycleCommandContext::bootstrap(['wprism', 'deploy'], []);
     echo "\n== the durable promotion lease ==\n";
 
     // A FIXED, FAR-FUTURE expiry, not time()+n: the operator sentence

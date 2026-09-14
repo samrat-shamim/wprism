@@ -21,9 +21,6 @@ if (($argv[1] ?? '') === '--probe') {
         public static function add_command(string $name, string $class): void {}
         public static function error(string $message): never { throw new RuntimeException($message); }
     }
-    function is_admin(): bool {
-        return defined('WP_ADMIN') && WP_ADMIN;
-    }
     function did_action(string $hook): int {
         return ($GLOBALS['argv'][3] ?? '') === 'late' && $hook === 'muplugins_loaded' ? 1 : 0;
     }

@@ -888,6 +888,16 @@ if (!function_exists('wp_normalize_path')) {
     }
 }
 
+if (!function_exists('is_admin')) {
+    /** WordPress request context is independent of the current user's role. */
+    function is_admin(): bool {
+        if (isset($GLOBALS['current_screen'])) {
+            return $GLOBALS['current_screen']->in_admin();
+        }
+        return defined('WP_ADMIN') && WP_ADMIN;
+    }
+}
+
 if (!function_exists('is_multisite')) {
     /**
      * Always false. WPrism refuses multisite outright (see the multisite refusal
