@@ -268,4 +268,38 @@ if (is_resource($process)) {
     wprism_check_same(implode("\n", $expected) . "\n", $stdout,
         'every table is observed twice despite a child command that drains stdin');
 }
+require_once dirname(__DIR__, 2) . '/fixtures/native-evidence.php';
+$nativeBefore = ['phase' => 'seed-target', 'customers' => []];
+$billingKeys = ['first_name', 'last_name', 'company', 'address_1', 'address_2', 'city', 'postcode', 'country', 'state', 'email', 'phone'];
+$shippingKeys = ['first_name', 'last_name', 'company', 'address_1', 'address_2', 'city', 'postcode', 'country', 'state', 'phone'];
+foreach (['template-reader', 'template-editor', 'import-template-reader'] as $index => $login) {
+    $billing = array_replace(array_fill_keys($billingKeys, ''), ['city' => 'Dhaka', 'country' => 'BD']);
+    $shipping = array_replace(array_fill_keys($shippingKeys, ''), ['city' => 'Tokyo', 'country' => 'JP']);
+    $customer = ['id' => $index + 82, 'email' => $login . '-target@example.test', 'role' => 'customer',
+        'billing' => $billing, 'shipping' => $shipping, 'orders' => []];
+    foreach (['processing', 'completed', 'pending'] as $orderIndex => $status) {
+        $customer['orders'][] = ['id' => 1000 + $index * 3 + $orderIndex, 'customer_id' => $customer['id'],
+            'status' => $status, 'total' => ['12.50', '7.50', '99.00'][$orderIndex], 'currency' => 'USD',
+            'billing' => $billing, 'shipping' => $shipping];
+    }
+    $nativeBefore['customers'][$login] = $customer;
+}
+$nativeAfter = $nativeBefore; $nativeAfter['phase'] = 'observe';
+$nativeAfter['customers']['import-template-reader']['billing']['city'] = 'Chattogram';
+$nativeAfter['customers']['import-template-reader']['shipping']['city'] = 'Osaka';
+ImporterWooNativeEvidence::consumers($nativeBefore, $nativeAfter);
+wprism_check(true, 'fresh native readback allows exactly the two mapped address changes');
+foreach (['order-total', 'neighbor-address', 'missing-customer', 'extra-field'] as $fault) {
+    $bad = $nativeAfter;
+    if ($fault === 'order-total') $bad['customers']['template-reader']['orders'][0]['total'] = '12.51';
+    if ($fault === 'neighbor-address') $bad['customers']['template-editor']['billing']['city'] = 'changed';
+    if ($fault === 'missing-customer') unset($bad['customers']['template-reader']);
+    if ($fault === 'extra-field') $bad['customers']['import-template-reader']['shipping']['local'] = 'changed';
+    wprism_check_throws(static fn() => ImporterWooNativeEvidence::consumers($nativeBefore, $bad), RuntimeException::class,
+        "native consumer readback refuses $fault outside mapped fields");
+}
+$empty = $nativeBefore; $empty['customers']['template-reader']['orders'] = [];
+$emptyAfter = $nativeAfter; $emptyAfter['customers']['template-reader']['orders'] = [];
+wprism_check_throws(static fn() => ImporterWooNativeEvidence::consumers($empty, $emptyAfter), RuntimeException::class,
+    'matching empty orders cannot substantiate native preservation');
 wprism_check_summary('Importer/WooCommerce customer reference ownership');
