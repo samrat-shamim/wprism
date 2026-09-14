@@ -3871,6 +3871,8 @@ library.
    commit failure must preserve native data; a later ledger-finalization failure
    may leave committed data with a stale baseline. Prove both states separately,
    then require retry to settle the baseline and repeat to leave it settled.
+   Derive each marker from that attempt's planned work: an incomplete retry can
+   replay unchanged entities and record a larger write set than the first attempt.
 
    Complete uninstall and isolated missing-widget history are different
    premises. Full Plan/Apply checks retained canonical maps before dead-map
