@@ -131,7 +131,7 @@ EOF
     && fail "Disable Comments uninstall left plugin code installed"
   [ "$(wp2 option get disable_comments_options 2>/dev/null || true)" = "" ] \
     || fail "Disable Comments uninstall left the authored option row"
-  disable_comments_assert_runtime_absent wp2
+  disable_comments_assert_uninstall_runtime wp2
   wp2 plugin install "$DISABLE_ARTIFACT_2" --force >/dev/null
   wp2 wprism deploy --repo=/siterepo
   wp2 plugin is-active disable-comments >/dev/null \

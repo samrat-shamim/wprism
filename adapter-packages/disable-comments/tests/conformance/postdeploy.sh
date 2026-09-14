@@ -34,10 +34,13 @@ disable_comments_assert_runtime() {
     || fail 'Apply did not preserve disable_comments_review_dismissed'
 }
 
-disable_comments_assert_runtime_absent() {
+disable_comments_assert_uninstall_runtime() {
   local cli="$1" option value
+  # Native 2.9.0 uninstall retains only its version marker; the other declared
+  # runtime rows and review-dismissal metadata are removed.
+  [ "$($cli option get disable_comment_version)" = '2.9.0' ] \
+    || fail 'uninstall changed the native disable_comment_version residue'
   for option in \
-    disable_comment_version \
     disable_comments_blocked_since \
     disable_comments_blocked_stats_comment \
     disable_comments_blocked_stats_rest \
