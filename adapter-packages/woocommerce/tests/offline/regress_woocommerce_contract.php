@@ -2491,6 +2491,20 @@ foreach ([
     woo_ok(str_contains($wooCheckHarness, $wooVideoCheckWitness),
         "the target check proves both nested references resolved locally: $wooVideoCheckWitness");
 }
+// ProductMediaGallery is absent before 11.1.0, so the seed authors nothing there
+// and the target must hold no key at all. Asserting that absence is what stops a
+// silently-empty seed from reading as a passing 11.1.x run.
+foreach ([
+    'VIDEO_GALLERY_SUPPORTED=$(wp_conf1 eval',
+    "class_exists('\\\\Automattic\\\\WooCommerce\\\\Internal\\\\ProductGallery\\\\ProductMediaGallery')",
+    'if [ "$VIDEO_GALLERY_SUPPORTED" = yes ]; then',
+] as $wooVideoSeedGate) {
+    woo_ok(str_contains($wooSeedHarness, $wooVideoSeedGate),
+        "the seed decides on the class the plugin actually has: $wooVideoSeedGate");
+}
+woo_ok(str_contains($wooCheckHarness, 'predates the video gallery, so conf2 must hold no _wc_video_gallery')
+    && str_contains($wooCheckHarness, 'Woo video gallery expectation is unpinned for WooCommerce'),
+    'the target asserts video gallery absence below 11.1.0 and refuses an unpinned series');
 $wooVideoGalleryNote = (string) ($manifest['notes']['11.1.0 product video gallery references'] ?? '');
 foreach ([
     'src/Internal/ProductGallery/ProductMediaGallery.php',

@@ -460,16 +460,33 @@ echo wp_json_encode([
 ' 2>&1 | tail -1)
 require_observed_nonempty "conf2 WooCommerce video gallery observation" "$VIDEO_GALLERY_OUT"
 echo "conf2 video gallery check: $VIDEO_GALLERY_OUT"
-jq -e '
-  .items == 1 and
-  .source_type == "attachment" and
-  .position == 1 and
-  .video_local == true and
-  .video_mime_is_video == true and
-  .poster_local == true and
-  .poster_is_category_thumbnail == true
-' <<<"$VIDEO_GALLERY_OUT" >/dev/null   || fail "conf2 _wc_video_gallery did not resolve both nested attachment references to its own media: $VIDEO_GALLERY_OUT"
-pass "conf2 resolves both _wc_video_gallery attachment references to its own media, and its poster is the same target identity the category thumbnail resolved to"
+# ProductMediaGallery arrived in 11.1.0, so the seed authors a gallery only where
+# the class exists. Below that the key must be ABSENT: an adapter that
+# materialized postmeta the running plugin cannot hold would be inventing state,
+# which is its own thing to catch.
+case "$WOOCOMMERCE_EXPECTED_VERSION" in
+  11.0.*)
+    jq -e '.items == -1 and .video_local == false and .poster_local == false' <<<"$VIDEO_GALLERY_OUT" >/dev/null \
+      || fail "WooCommerce $WOOCOMMERCE_EXPECTED_VERSION predates the video gallery, so conf2 must hold no _wc_video_gallery: $VIDEO_GALLERY_OUT"
+    pass "conf2 holds no _wc_video_gallery on a version whose ProductMediaGallery does not exist"
+    ;;
+  11.1.*)
+    jq -e '
+      .items == 1 and
+      .source_type == "attachment" and
+      .position == 1 and
+      .video_local == true and
+      .video_mime_is_video == true and
+      .poster_local == true and
+      .poster_is_category_thumbnail == true
+    ' <<<"$VIDEO_GALLERY_OUT" >/dev/null \
+      || fail "conf2 _wc_video_gallery did not resolve both nested attachment references to its own media: $VIDEO_GALLERY_OUT"
+    pass "conf2 resolves both _wc_video_gallery attachment references to its own media, and its poster is the same target identity the category thumbnail resolved to"
+    ;;
+  *)
+    fail "Woo video gallery expectation is unpinned for WooCommerce $WOOCOMMERCE_EXPECTED_VERSION"
+    ;;
+esac
 
 THUMBNAIL_LAZY_RC=0
 THUMBNAIL_LAZY_RAW=$($COMPOSE run --rm -T cli2 wp eval '

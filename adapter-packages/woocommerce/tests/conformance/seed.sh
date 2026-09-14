@@ -235,45 +235,56 @@ remove_filter('woocommerce_downloadable_file_exists', '__return_true');
 # (src/Internal/ProductGallery/ProductMediaGallery.php:161-170), so this exercises
 # the transport without flipping a target-local `env` feature option.
 #
+# ProductMediaGallery does not exist before 11.1.0, and this seed runs on every
+# admitted boundary, so the class -- not a version string -- decides. On 11.0.x
+# nothing is authored and check.sh asserts the key is absent, which is its own
+# evidence that the adapter does not invent state the plugin cannot hold.
+#
 # The poster deliberately reuses the category thumbnail attachment, so one target
 # media identity has to satisfy the termmeta ref AND the nested gallery ref.
 # WordPress mime-sniffs uploads, so the video attachment is inserted directly with
 # an explicit video mime rather than sideloaded: normalize_video_gallery_item()
 # only requires get_post_mime_type() to start with "video/" (:559-562).
-VIDEO_ID=$(wp_conf1 eval "
-\$uploads = wp_upload_dir();
-\$path = trailingslashit(\$uploads['basedir']) . 'conf-woo-gallery.mp4';
-if (file_put_contents(\$path, 'conformance video fixture') === false) {
-    throw new RuntimeException('could not write the conformance video fixture');
-}
-\$id = wp_insert_attachment([
-    'post_title' => 'Conformance Gallery Video 東京',
-    'post_mime_type' => 'video/mp4',
-    'post_status' => 'inherit',
-], \$path);
-if (is_wp_error(\$id) || (int) \$id <= 0) {
-    throw new RuntimeException('could not insert the conformance video attachment');
-}
-echo (int) \$id;
+VIDEO_GALLERY_SUPPORTED=$(wp_conf1 eval "
+echo class_exists('\\Automattic\\WooCommerce\\Internal\\ProductGallery\\ProductMediaGallery') ? 'yes' : 'no';
 ")
-require_fixture_ids VIDEO_ID
-wp_conf1 eval "
-\$product = wc_get_product($PID);
-if (!\$product) { throw new RuntimeException('conformance video gallery has no product'); }
-\$stored = \Automattic\WooCommerce\Internal\ProductGallery\ProductMediaGallery::set_stored_video_gallery_items(
-    \$product,
-    [[
-        'media_type' => 'video',
-        'source_type' => 'attachment',
-        'id' => $VIDEO_ID,
-        'position' => 1,
-        'poster_id' => $THUMB_ID,
-    ]]
-);
-if (count(\$stored) !== 1 || (int) \$stored[0]['id'] !== $VIDEO_ID || (int) \$stored[0]['poster_id'] !== $THUMB_ID) {
-    throw new RuntimeException('WooCommerce did not persist the exact conformance video gallery item');
-}
-" >/dev/null
+require_fixture_values VIDEO_GALLERY_SUPPORTED
+if [ "$VIDEO_GALLERY_SUPPORTED" = yes ]; then
+  VIDEO_ID=$(wp_conf1 eval "
+  \$uploads = wp_upload_dir();
+  \$path = trailingslashit(\$uploads['basedir']) . 'conf-woo-gallery.mp4';
+  if (file_put_contents(\$path, 'conformance video fixture') === false) {
+      throw new RuntimeException('could not write the conformance video fixture');
+  }
+  \$id = wp_insert_attachment([
+      'post_title' => 'Conformance Gallery Video 東京',
+      'post_mime_type' => 'video/mp4',
+      'post_status' => 'inherit',
+  ], \$path);
+  if (is_wp_error(\$id) || (int) \$id <= 0) {
+      throw new RuntimeException('could not insert the conformance video attachment');
+  }
+  echo (int) \$id;
+  ")
+  require_fixture_ids VIDEO_ID
+  wp_conf1 eval "
+  \$product = wc_get_product($PID);
+  if (!\$product) { throw new RuntimeException('conformance video gallery has no product'); }
+  \$stored = \\Automattic\\WooCommerce\\Internal\\ProductGallery\\ProductMediaGallery::set_stored_video_gallery_items(
+      \$product,
+      [[
+          'media_type' => 'video',
+          'source_type' => 'attachment',
+          'id' => $VIDEO_ID,
+          'position' => 1,
+          'poster_id' => $THUMB_ID,
+      ]]
+  );
+  if (count(\$stored) !== 1 || (int) \$stored[0]['id'] !== $VIDEO_ID || (int) \$stored[0]['poster_id'] !== $THUMB_ID) {
+      throw new RuntimeException('WooCommerce did not persist the exact conformance video gallery item');
+  }
+  " >/dev/null
+fi
 
 # Core external products persist their merchant destination and call-to-action
 # in `_product_url`/`_button_text`. Use the source home deliberately: capture
