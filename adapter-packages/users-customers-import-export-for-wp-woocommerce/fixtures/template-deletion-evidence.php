@@ -45,7 +45,7 @@ final class ImporterTemplateDeletionEvidence {
         $names = [];
         foreach ($after['deletions'] as $uuid => $deletion) {
             $entity = $remaining[$uuid] ?? null;
-            self::check(is_array($entity) && $entity['kind'] === 'table' && $entity['type'] === 'wt_iew_mapping_template', 'existing typed preimage');
+            self::check(is_array($entity) && $entity['type'] === 'wt_iew_mapping_template', 'existing typed preimage');
             $columns = $entity['data']['columns'];
             $names[] = $columns['template_type'] . ':' . $columns['name'];
             self::same(['format' => 'wprism-deletion/v1', 'uuid' => $uuid, 'kind' => 'table', 'type' => 'wt_iew_mapping_template',

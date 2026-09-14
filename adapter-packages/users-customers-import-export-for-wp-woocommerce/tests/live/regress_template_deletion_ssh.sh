@@ -80,7 +80,7 @@ wprism_ssh_adopt_extension() {
   for label in export-original import-original import-draft; do
     importer_delete_capture "native-$label" json importer_delete_native template-deletion-native delete "$label"
     jq -e --arg label "$label" --slurpfile seed "$DIAG_DIR/importer-delete-seed.stdout" \
-      '.status == true and (.id | tostring) == $seed[0].selected[$label].id' \
+      '.status == true and (.template_id | tostring) == $seed[0].selected[$label].id' \
       "$DIAG_DIR/importer-delete-native-$label.stdout" >/dev/null || fail 'native Delete returned the wrong identity'
   done
   importer_delete_capture native-deleted json importer_delete_observe
