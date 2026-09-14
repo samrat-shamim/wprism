@@ -396,7 +396,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'change-wp-admin-login' => 'd40c6a95254de737ac2c42080a5f79daf4c5d75901df2f5f436669b88e43a415',
     'classic-editor' => '908c6cd00f9cd389b40105bbb1f906ae5271ad13dfafcbc65d4face4ff2156ea',
     'code-snippets' => 'f3c1dd976c6fee9ab0d3287053dadf8a38f1976c180121439481ee9a7602402e',
-    'contact-form-7' => 'b3240e4dfd6ed59ea73898adfaf1bbad1c850159b8fea964c6c018711443f963',
+    'contact-form-7' => 'd8eaad6a6914c60058a7081cc1e0f66de2cff0d0edf2000a58a2b225f9184651',
     'core' => '9f9a23cfb2be0b8dd693cecd1df6adb4e9082ca8d589675ce95bfae85c185b63',
     'elementor' => '5383779c98b51bb94e2aab363d72729fd55003798656f7d025f8773ae5793d64',
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
@@ -420,8 +420,8 @@ const WPRISM_CURRENT_DIGESTS = [
 // WPRISM_CURRENT_DIGESTS and every 'moves only <subject>' assertion still hold, so
 // woocommerce is measurably the only identity that moved. The same five numbers are
 // independently re-pinned in regress_spec_v3_digest_neutrality.php and agree there.
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '525a979f01a2bcfd1c63b26e5a6b16c55c8abac28d9b12fbd1fe2f241b414da0';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '1f8720b6c187872e42a3c8924e2622ce1ac3f09092d870ca548fdb8f71bb311d';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = 'b1848ac01e7a79e385ce71772ed4d5cbdaa189c81cf34d32870dc03d88fe5f1a';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'bbdf5d265644c07f65a498eab671483c9f3ecabb6f3721a9bab00e648ae7afda';
 const WPRISM_CURRENT_REGISTRY_SHA = '6448cabb56ddb12ffc0a4beb3ecd2bb0d15e33807eed91c4b465dcea1478cb4a';
 const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = 'c435e2acfbd44c395693af057824295661e174c3edc6f404513aa040c083c8c6';
 const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '7c1d3925bb3ba7fbf487d71494070216e07164974d1e3823e98c6dc5240ac301';

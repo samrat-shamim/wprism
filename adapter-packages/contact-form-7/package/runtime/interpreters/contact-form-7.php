@@ -58,12 +58,18 @@ final class ContactForm7 {
             return null;
         }
         if (isset(self::PROPERTY_RULES[$key])) {
-            if (array_key_exists('_' . $key, $allMeta)) {
-                throw new \RuntimeException(
-                    "wprism: Contact Form 7 form has both '$key' and '_$key'; current CF7 prefers the underscored "
-                    . 'property, so the legacy duplicate must be removed before capture'
-                );
-            }
+            // Both storage generations on one form is a repository SHAPE fault,
+            // and repository_diagnostics() owns that refusal ("has both current
+            // '_<p>' and legacy '<p>' properties"); capture compiles its staged
+            // candidate before publishing, so such a source form still never
+            // publishes. This hook only classifies, and apply asks it about a
+            // union that no row holds: the locked target context keeps rows the
+            // reconciliation is about to delete (ApplyFieldMaterializer::
+            // reconcileMetaTable, #562). A legacy-storage form adopted over a
+            // same-slug current-storage target row therefore meets both spellings
+            // for one transition, and a refusal here was the CF7 conformance
+            // apply's "has both 'additional_settings' and '_additional_settings'"
+            // (tests/offline/regress_contact_form_7_storage_generation_apply.php).
             $rule = ['class' => 'authored'];
             if (self::PROPERTY_RULES[$key]['plain_data']) {
                 $rule['plain_data'] = true;

@@ -348,14 +348,26 @@ wp_conf1 eval '
   update_post_meta($p->ID,"_mail",$b["mail"]);
 ' >/dev/null
 
+# Both property generations on one form is a repository-shape fault, refused by
+# the compiler (runtime/interpreters/contact-form-7.php repository_diagnostics)
+# rather than at classification: apply's locked target context legitimately
+# meets both spellings once while converging a target to the other generation
+# (tests/offline/regress_contact_form_7_storage_generation_apply.php). Capture
+# compiles its staged candidate before publishing, so the refusal is still
+# capture's, names the exact property, and must publish nothing.
 wp_conf1 eval '
   $p=get_page_by_path("conformance-legacy-storage", OBJECT, "wpcf7_contact_form");
   update_post_meta($p->ID,"_form",get_post_meta($p->ID,"form",true));
 ' >/dev/null
+DUAL_STATUS=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 DUAL_RC=0
 DUAL_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || DUAL_RC=$?
-[ "$DUAL_RC" -ne 0 ] && grep -q "both 'form' and '_form'" <<<"$DUAL_OUT" \
+[ "$DUAL_RC" -ne 0 ] \
+  && grep -q "conformance-legacy-storage.md:meta._form" <<<"$DUAL_OUT" \
+  && grep -q "Contact Form 7 form has both current '_form' and legacy 'form' properties" <<<"$DUAL_OUT" \
   || fail "CF7 dual legacy/current storage did not refuse: $DUAL_OUT"
+[ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$DUAL_STATUS" ] \
+  || fail "CF7 dual-storage refusal partially published canonical state"
 wp_conf1 eval '$p=get_page_by_path("conformance-legacy-storage",OBJECT,"wpcf7_contact_form"); delete_post_meta($p->ID,"_form");' >/dev/null
 
 wp_conf1 eval '
