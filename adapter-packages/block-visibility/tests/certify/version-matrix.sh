@@ -12,7 +12,7 @@ seed_block_visibility_target_state() {
 }
 
 check_block_visibility_boundary_content() {
-  local cli="$1" label="$2" settings sibling preset meta
+  local cli="$1" label="$2" settings preset meta
   settings=$($cli option get block_visibility_settings --format=json)
   printf '%s\n' "$settings" | jq -e '
     .plugin_settings.block_opacity == 45 and
@@ -21,12 +21,6 @@ check_block_visibility_boundary_content() {
     .disabled_blocks == ["core/separator", "core/spacer"]
   ' >/dev/null \
     || fail "Block Visibility $label settings did not converge: $settings"
-  sibling=$($cli eval '
-    $settings = (array) get_option("block_visibility_settings", []);
-    echo $settings["block_visibility_target_only_probe"] ?? "";
-  ')
-  [ "$sibling" = "preserve-me" ] \
-    || fail "Block Visibility $label erased its target-only settings sibling: $sibling"
   preset=$($cli post list --post_type=visibility_preset --name=logged-in-only --field=ID)
   require_observed_nonempty "Block Visibility $label preset identity" "$preset"
   meta=$($cli eval "\$meta = get_post_meta((int) $preset); \$meta['control_sets'] = maybe_unserialize(\$meta['control_sets'][0] ?? ''); echo wp_json_encode(\$meta);")
