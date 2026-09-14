@@ -118,6 +118,10 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 # it refuses instead of silently choosing one copy.
 PACKAGE_CONFORMANCE="../adapter-packages/$MANIFEST/tests/conformance"
 conformance_hook() { # conformance_hook <package-basename> <legacy-path>
+  if [ "${CONFORMANCE_HOOKS:-null}" != null ]; then
+    jq -r --arg phase "${1%.sh}" '.[$phase] // empty' <<<"$CONFORMANCE_HOOKS"
+    return
+  fi
   local package_path="$PACKAGE_CONFORMANCE/$1" legacy_path="$2"
   if [ -e "$package_path" ] && [ -e "$legacy_path" ]; then
     fail "duplicate conformance hook for '$MANIFEST': $package_path and $legacy_path"
@@ -159,6 +163,8 @@ elif [ -f "$PLATFORM_ENTRY" ]; then
 else
   fail "unknown manifest '$MANIFEST': no package or platform conformance entry"
 fi
+CONFORMANCE_HOOKS=$(php ../tools/conformance-hooks.php "$ENTRY" "${PACKAGE_CONFORMANCE%/tests/conformance}") \
+  || fail "manifest '$MANIFEST' has invalid declared conformance hooks"
 # Package-owned conformance resolves only that capsule's artifact fragment.
 # Core/FSE consume no adapter plugin artifacts, so their child pair and check
 # hooks inherit explicit platform-only authority. Named integration scenarios
@@ -181,6 +187,10 @@ jq -e '
 mapfile -t PLUGINS < <(echo "$ENTRY" | jq -c '.plugins[]')
 mapfile -t THEMES < <(echo "$ENTRY" | jq -c '.themes[]?')
 SETUP=$(echo "$ENTRY" | jq -r '.setup // ""')
+ADOPT_BY_SLUG=$(conformance_adopt_by_slug "$ENTRY") \
+  || fail "manifest '$MANIFEST' has malformed fixture adoption policy"
+DISABLE_TARGET_CRON=$(conformance_disable_target_cron "$ENTRY") \
+  || fail "manifest '$MANIFEST' has malformed target cron fixture policy"
 MODE=$(echo "$ENTRY" | jq -r '.mode // "roundtrip"')
 case "$MODE" in
   roundtrip|capture-plan|agent-roundtrip) ;;
@@ -248,7 +258,31 @@ wp_conf2() { wp_env conf2 "$@"; }
 . lib/host_orchestrator.sh
 WPRISM_HOST_CLI="$(cd .. && pwd)/cli/wprism"
 WPRISM_HOST_REGISTRY=$(mktemp "${TMPDIR:-/tmp}/wprism-conformance-host.${CONF_PAIR}.XXXXXX")
-trap 'rm -f -- "$WPRISM_HOST_REGISTRY"' EXIT
+CONFORMANCE_CRON_WINDOW_STARTED=0
+conformance_cleanup() {
+  local status="$1"
+  trap - EXIT INT TERM
+  rm -f -- "$WPRISM_HOST_REGISTRY" || { [ "$status" -ne 0 ] || status=1; }
+  if [ "$CONFORMANCE_CRON_WINDOW_STARTED" = 1 ]; then
+    wordpress_cron_window_exit "$status"
+  fi
+  exit "$status"
+}
+conformance_target_cron_transport() { wordpress_cron_window_compose_transport cli2 "$@"; }
+conformance_target_cron_begin() {
+  [ "$DISABLE_TARGET_CRON" = true ] || return 0
+  . tests/lib/wordpress_cron_window.sh
+  CONFORMANCE_CRON_WINDOW_STARTED=1
+  trap 'exit 130' INT TERM
+  wordpress_cron_window_begin wp_conf2 conformance_target_cron_transport \
+    || fail 'conformance could not establish its owned target cron window'
+}
+conformance_target_cron_end() {
+  [ "$CONFORMANCE_CRON_WINDOW_STARTED" = 1 ] || return 0
+  wordpress_cron_window_release || fail 'conformance target cron window cleanup failed'
+  CONFORMANCE_CRON_WINDOW_STARTED=0
+}
+trap 'conformance_cleanup "$?"' EXIT
 wprism_host_registry_create "$WPRISM_HOST_REGISTRY" "$(pwd)/pair.yml" "$CONF_PAIR"
 # pair.sh set these for ITS OWN compose invocations while bringing the pair
 # up, but that was a separate process — its exports die with it. Every one
@@ -309,6 +343,7 @@ bash bin/pair.sh reset "$CONF_PAIR"
 
 say "pair.sh up: boot conf1 (:$CONF1_PORT) / conf2 (:$CONF2_PORT), DB-level readiness, generic WordPress bootstrap"
 bash bin/pair.sh up "$CONF_PAIR" "$CONF1_PORT" "$CONF2_PORT" "${PAIR_UP_FLAGS[@]}"
+conformance_target_cron_begin
 
 normalize_archive_root() { # normalize_archive_root <env> <plugin|theme> <slug> <archive-root>
   local env="$1" kind="$2" slug="$3" archive_root="$4" side="${1#conf}" base
@@ -422,7 +457,7 @@ establish_core_environment_bindings wp_conf1 /siterepo admin@example.test \
   "http://localhost:$CONF1_PORT" "http://localhost:$CONF1_PORT"
 
 say "capture conf1 into the site repo"
-wp_conf1 wprism capture --repo=/siterepo
+conformance_private_command cli1 capture wp_conf1 wprism capture --repo=/siterepo
 git -C "$R1" add -A
 git -C "$R1" -c user.name=wprism -c user.email=wprism@example.test commit -qm "capture: seeded $MANIFEST content on conf1"
 git -C "$R1" push -qu origin main
@@ -469,7 +504,7 @@ echo "lint: clean, 0 findings"
 # --- end lint gate -----------------------------------------------------------
 
 say "acceptance: capture is deterministic (capture twice, zero diff)"
-wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
+conformance_private_command cli1 capture wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
 diff -r "$R1"/state "$R1"/.tmp-state2 || fail "capture is not deterministic"
 rm -rf "$R1"/.tmp-state2
 pass "capture-twice diff is empty"
@@ -488,6 +523,7 @@ if [ "$MODE" = "capture-plan" ]; then
   say "capture-plan acceptance: reviewed operations are reachable without claiming apply"
   run_wprism_capture_plan "$CAPTURE_PLAN_CLAIMS" wp_conf1 /siterepo
   pass "capture, compile, plan, and recapture paths are exercised; deploy/apply remain explicitly outside this profile"
+  conformance_target_cron_end
   printf '\n\033[1;32m✔ CONFORMANCE PASSED (%s; capture-plan)\033[0m\n' "$MANIFEST"
   exit 0
 fi
@@ -600,17 +636,8 @@ case "$SETUP" in
 esac
 
 say "apply conf2 (content only — activation/theme were deploy's job, above)"
-# adopt both terms (the default "Uncategorized" category every fresh install
-# has) and posts (plugins like WooCommerce auto-create their own default
-# pages — Shop/Cart/Checkout/... — on activation, independently on conf1 and
-# conf2, so first apply always meets an unmanaged same-slug row for those).
-# Core's dirty-target matrix and Polylang's per-language menu matrix each
-# manufacture an exact nav-menu collision. Menu adoption is explicit only for
-# those adapters so unrelated entries do not gain broader collision authority.
-ADOPT_BY_SLUG=terms,posts
-if [ "$MANIFEST" = core ] || [ "$MANIFEST" = polylang ]; then
-  ADOPT_BY_SLUG=terms,posts,menus
-fi
+# The entry's validated fixture policy selects adoption. Plugin names do not
+# grant collision authority; a dirty typed-table fixture opts in explicitly.
 capture_wprism_json_checked \
   APPLY_JSON \
   "conf2 wprism apply" \
@@ -635,7 +662,7 @@ if [ -f "$POSTAPPLY" ]; then
 fi
 
 say "acceptance: canonical(conf2) == canonical(conf1), byte for byte"
-wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-conf2state >/dev/null
+conformance_private_command cli2 capture wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-conf2state >/dev/null
 diff -r "$R1"/state "$R2"/.tmp-conf2state || fail "round-trip mismatch between conf1 and conf2 for manifest '$MANIFEST'"
 pass "canonical state identical across environments"
 
@@ -670,6 +697,7 @@ if [ -f "$CHECK" ]; then
   bash "$CHECK"
 fi
 
+conformance_target_cron_end
 if [ "$MODE" = agent-roundtrip ]; then
   printf '\n\033[1;32m✔ AGENT ROUNDTRIP PASSED (%s; production promotion withheld)\033[0m\n' "$MANIFEST"
 else

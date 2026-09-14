@@ -69,6 +69,25 @@ entry uses `mode: "capture-plan"`, puts its source assertions in
 `capture-check.sh`, and makes `check.sh` explicitly refuse accidental target
 promotion. A bounded native Apply suite can qualify individual settings while
 the broader deployment entry remains source-only.
+
+Once the experimental disposition declares both `deploy` and `apply`, use
+`mode: "agent-roundtrip"` to exercise target activation, Apply, plugin consumers
+and byte-identical recapture. The harness first proves that host deployment
+still refuses the experimental claim, then runs the public agent verbs. This
+mode cannot emit a certified conformance vector and does not grant production
+promotion. Certification also requires the owned version matrix and ready
+evidence across all twelve scenario families; see the package validator.
+
+An entry may declare `adopt_by_slug` as a unique array drawn from `terms`,
+`posts`, `menus`, and `tables`. The default is `["terms", "posts"]`; an empty
+array explicitly selects no adoption. This is fixture intent for an existing
+target, validated before pair mutation, not a shipped adapter permission.
+For example, a template roundtrip that seeds existing target rows declares
+`["terms", "posts", "tables"]`. Keep target-local preservation assertions in
+the capsule's post-Apply check. Reusable shell helpers belong under `fixtures/`;
+premise contracts may name active statements there as well as under `tests/`.
+Both roots are scanned for required evidence contracts.
+
 `platform.json` is the object a site-adapter certificate reads its bound
 compatibility cells out of (§ v3.6), so it has exactly one on-disk
 representation; the agent refuses at load time if its
@@ -2516,12 +2535,21 @@ plugin faithfully.
    Apply failure. Use `sandbox/tests/lib/private_command_capture.sh` to collect
    the bounded fresh delta before caller assertions or disposable teardown,
    with the owner binding its exact native transport and command inventory.
-   The shared conformance driver's initial Apply already uses
+   The shared conformance driver's initial Apply and all three driver-owned
+   Captures use
    `conformance_private_command` (`sandbox/tests/lib/conformance_private_command.sh`):
    its native reader runs outside WordPress as the site's CLI uid, and its
    host decoder retains complete records in a private, non-disposable sink.
    This closes the `ee27e3b9` Polylang run's lost-cause gap: successful source
    Capture and target deploy did not explain the later redacted Apply refusal.
+   The receipt-intent boundary also retains the original missing/ID/phase/record
+   decision, bounded intent fingerprints and filesystem metadata in that private
+   graph. These are observations, not recovery authority or proof of a database
+   rollback. The native `regress_capture_receipt_diagnostics_live.sh` probe forces
+   a missing read while retaining the actual committed inode, independently
+   checks its commit proof and tree, then verifies retained diagnostics after
+   owned teardown. This does not establish the cause of the intermittent PR #651
+   refusal; it closes the evidence-loss gap needed to investigate another one.
    Reuse that binding for driver-owned native commands; do not wrap every
    `wp_env` invocation and interfere with capsule-owned exact-cause collectors.
    A diagnostic-only record remains unverified; expected-cause acceptance
@@ -3895,6 +3923,30 @@ library.
    retain negative controls for an actual cron-row write through the guard and
    a durable option change. Do not add transient exclusions, cache warm-ups or
    production special cases to make a read-only assertion pass.
+
+   For observations spanning conformance child hooks and Apply, set
+   `entry.disable_target_cron` to `true`. The shared runner establishes the
+   same owned target guard after pair bootstrap and removes it on success,
+   failure or signal; child hooks need no independent transport or cleanup.
+   Omission or `false` preserves ordinary fixture cron behavior. The entry
+   accepts only a JSON boolean and is validated before pair mutation. This
+   controls new fixture cron launches, not existing workers or other writers;
+   complete-row comparisons must still retain cron rows. A version-matrix
+   parent opens its own window for observations after the conformance child
+   has returned and released its guard.
+
+   A package can select a different complete fixture workflow through
+   `CONFORMANCE_ENTRY_FILE` and an explicit `entry.hooks` map. Name all five
+   phases: `seed`, `capture-check`, `postdeploy`, `postapply`, and `check`.
+   Values are ordinary `.sh` files under that capsule's `fixtures/` or
+   `tests/conformance/`; symlink paths and escapes refuse. `seed` and `check`
+   are required files; the other three may explicitly be `null`. An explicit
+   map never falls back to convention hooks. Omit `hooks` to retain the existing
+   package/platform convention. Package validation and the runner use the same
+   resolver, before pair mutation. The Importer clean-target entry reuses its
+   source seed and capture checks while selecting target setup that creates no
+   templates or jobs. Keep native consumer assertions and complete empty-table
+   premises in the selected workflow; an alternate entry is not weaker evidence.
 
    The source-SHA binding is part of the evidence. A green run against another
    checkout is not evidence for the candidate. The package validator requires

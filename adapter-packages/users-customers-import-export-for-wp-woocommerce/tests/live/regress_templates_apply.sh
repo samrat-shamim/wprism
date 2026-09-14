@@ -63,7 +63,7 @@ for side in 1 2; do
   role=source; [ "$side" = 1 ] || role=target
   capture "setup$side" native_side "$side" "setup-$role"
 done
-. "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/settings-seed.sh"
 pair_live_ownership_repo_host
 R1="$PAIR_LIVE_OWNERSHIP_SITE1" R2="$PAIR_LIVE_OWNERSHIP_SITE2"
 cp site-repo.gitignore.template "$R1/.gitignore"
@@ -71,7 +71,7 @@ git -C "$R1" init -q -b evidence
 git -C "$R2" init -q -b evidence
 capture binding1 establish_core_environment_bindings wp_side /siterepo admin@example.test "http://localhost:$PORT1" "http://localhost:$PORT1" 1
 capture baseline-capture candidate 1 capture --repo=/siterepo --format=json
-. "$(dirname "${BASH_SOURCE[0]}")/../conformance/capture-check.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/settings-capture-check.sh"
 git -C "$R1" add site.wprism.json .gitignore state
 git -C "$R1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'Importer native settings baseline'
 git -C "$R2" fetch -q "$R1" evidence

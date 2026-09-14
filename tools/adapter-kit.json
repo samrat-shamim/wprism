@@ -25,6 +25,16 @@
             "member": "conformance/run.sh",
             "target": "bin/fetch-artifact.sh",
             "note": "run.sh is the estate-bound member: it cd's to its own parent and drives a disposable env pair through docker (run.sh:70, :172-173). It is shipped as the reference round-trip harness — the one file that states what an adapter has to survive — not as something a kit user runs unmodified."
+        },
+        {
+            "member": "conformance/run.sh",
+            "target": "tests/lib/wordpress_cron_window.sh",
+            "note": "The estate-bound runner owns an optional entry-declared target cron window across child hooks and Apply, with exact guard cleanup on every exit."
+        },
+        {
+            "member": "conformance/run.sh",
+            "target": "../tools/conformance-hooks.php",
+            "note": "The estate-bound runner and package validator share the owned hook-map resolver; alternate entries choose explicit phases without copying the deployment driver."
         }
     ],
     "members": [
@@ -57,8 +67,8 @@
             "origin": "copied",
             "source": "sandbox/tests/lib/FakeWpdb.php",
             "role": "WPrismTest\\FakeWpdb — a $wpdb that holds ROWS and interprets SQL against them",
-            "bytes": 241690,
-            "sha256": "552d7f6bd556e2ea83b9c16ae921a1ab4d1542840d20ecadb3391ef35e1646b6"
+            "bytes": 244958,
+            "sha256": "7015ea882569d3e029f3ee70568cabc987f522c4ccbc64ca108f829364e260e7"
         },
         {
             "path": "lib/frozen_policy.php",
@@ -105,16 +115,16 @@
             "origin": "copied",
             "source": "sandbox/conformance/run.sh",
             "role": "the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate",
-            "bytes": 38784,
-            "sha256": "f3faa94c38680f02b1aa4a26273a95784b0bbb57db56d5817f8eebe23c4ab14d"
+            "bytes": 40009,
+            "sha256": "7e1ff0c7b3f74916f30376ea3c2ae3c2fce5bce646602a95b268ac9ccfc87ba5"
         },
         {
             "path": "conformance/asserts.sh",
             "origin": "copied",
             "source": "sandbox/conformance/asserts.sh",
             "role": "premise assertions every seed/postdeploy hook calls before its engine assertion",
-            "bytes": 31963,
-            "sha256": "bea8dfc878be82c4531158e1eee675d9b12cfbee664b8f6a94407711e8c36d4e"
+            "bytes": 33076,
+            "sha256": "431a73079a4c26054751ca91b9fef30f922f9bb386f933654d43f39f8c5323ef"
         },
         {
             "path": "skeleton/example-adapter.php",
@@ -137,8 +147,8 @@
             "origin": "generated",
             "source": null,
             "role": "what the kit is, how to run it, and what it deliberately omits",
-            "bytes": 5315,
-            "sha256": "e303366844f7f491ffc391265b373a15dde1de74d2513a66703649881592bc21"
+            "bytes": 5767,
+            "sha256": "7775ae21d06a71b18196b087c2e2a9d2d57d2f074ff6884bd311bd4488d9ab93"
         }
     ]
 }

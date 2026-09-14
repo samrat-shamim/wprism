@@ -21,6 +21,7 @@
       "capture",
       "compile",
       "plan",
+      "deploy",
       "apply",
       "delete",
       "recapture"
@@ -40,6 +41,9 @@
   "evidence": {
     "bundle_schema": "wprism-subject-certification-bundle/v1",
     "tests": [
+      "conformance-users-customers-import-export-for-wp-woocommerce",
+      "exact-artifact-version-matrix",
+      "regress-dependency-apply",
       "regress-package-contract",
       "regress-native-settings",
       "regress-native-harness",
@@ -59,8 +63,8 @@
     },
     {
       "operation": "deploy",
-      "surface": "adapter",
-      "reason": "Lifecycle, adjacent-version and participant-declared combination evidence remain pending."
+      "surface": "host-production",
+      "reason": "The experimental agent roundtrip exercises activation and state reconciliation; host production deployment remains withheld pending complete readiness and participant-declared combination evidence."
     },
     {
       "operation": "capture",

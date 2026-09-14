@@ -156,4 +156,62 @@ foreach (['cli1', 'cli2'] as $service) {
         }
     }
 }
+// The conformance parent, unlike a single check hook, must retain its guard
+// across child processes and remove its host registry on every exit as well.
+$runner = file_get_contents($root . '/sandbox/conformance/run.sh');
+$start = strpos($runner, "CONFORMANCE_CRON_WINDOW_STARTED=0\n");
+$end = strpos($runner, 'wprism_host_registry_create "$WPRISM_HOST_REGISTRY"', $start === false ? 0 : $start);
+if ($start === false || $end === false) throw new RuntimeException('conformance cron ownership block is missing');
+$ownership = substr($runner, $start, $end - $start);
+$conformanceBody = <<<'SH'
+conformance_target_cron_begin
+touch "$scratch/body"
+[ "$mutation" != body-fail ] || exit 7
+[ "$mutation" != body-signal ] || sh -c 'kill -TERM "$PPID"'
+conformance_target_cron_end
+touch "$scratch/terminal"
+)
+status=$?
+set -e
+[ ! -e "$WPRISM_HOST_REGISTRY" ] || exit 79
+present=0 body=0
+[ ! -e "$scratch/mu/wprism-native-read-window.php" ] || present=1
+[ ! -e "$scratch/body" ] || body=1
+printf 'RESULT status=%s present=%s body=%s\n' "$status" "$present" "$body"
+if [ "$status" = 0 ]; then [ -f "$scratch/terminal" ]; else [ ! -e "$scratch/terminal" ]; fi
+if [ "$mutation" = disabled ]; then
+  [ ! -e "$scratch/transport" ] || exit 80
+elif [ "$mutation" = release-fail ]; then
+  [ "$(cat "$scratch/transport")" = $'prepare\nwp-native\nrelease\nrelease' ] || exit 81
+else
+  [ "$(cat "$scratch/transport")" = $'prepare\nwp-native\nrelease' ] || exit 81
+fi
+SH;
+foreach (['ready' => [0, 0, 1], 'disabled' => [0, 0, 1], 'body-fail' => [7, 0, 1],
+    'body-signal' => [130, 0, 1], 'wp-fail' => [1, 0, 0], 'release-fail' => [1, 1, 1]] as $mutation => [$expected, $present, $body]) {
+    $probe = str_replace('  (cd "$scratch/mu" && sh "$@")',
+        '  [ "$mutation:$3" != release-fail:release ] || return 72' . "\n" . '  (cd "$scratch/mu" && sh "$@")', $composeProbe);
+    $probe = str_replace("  printf 'wp-native\\n' >>\"\$scratch/transport\"", "  printf 'wp-native\\n' >>\"\$scratch/transport\"\n  [ \"\$mutation\" != wp-fail ] || return 74", $probe);
+    $script = $probe . <<<'SH'
+
+WPRISM_HOST_REGISTRY="$scratch/registry"
+touch "$WPRISM_HOST_REGISTRY"
+DISABLE_TARGET_CRON=true
+[ "$mutation" != disabled ] || DISABLE_TARGET_CRON=false
+wp_conf2() { wp_runner "$@"; }
+set +e
+(
+set -e
+cd "$root/sandbox"
+SH;
+    $script .= "\n" . $ownership . $conformanceBody;
+    foreach (['path', 'system'] as $shell) {
+        [$status, $stdout, $stderr] = $shell === 'path'
+            ? ShellProbe::run($script, [$root, 'cli2', $mutation], $root)
+            : ShellProbe::run('exec /bin/bash -c "$1" shell-probe "${@:2}"', [$script, $root, 'cli2', $mutation], $root);
+        wprism_check($status === 0 && str_contains($stdout, "RESULT status=$expected present=$present body=$body"),
+            "actual conformance parent owns target guard and registry across $shell/$mutation");
+        if ($status !== 0) fwrite(STDERR, substr($stdout . $stderr, 0, 2048) . "\n");
+    }
+}
 wprism_check_summary('WordPress cron window');

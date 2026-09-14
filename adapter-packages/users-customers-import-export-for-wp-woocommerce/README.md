@@ -18,7 +18,14 @@ WordPress 7.1, PHP 8.3.33 and MariaDB 11.8.8. Three real native exports provide
 populated history/file witnesses: applying retention one preserves all three;
 a native Settings Save afterward removes the two older records and files.
 Users, usermeta, other options and target-local nested settings survive Apply.
-The source-only conformance entry retains an explicit deployment refusal.
+The conformance entry uses `agent-roundtrip`: it first proves the host
+production gate refuses this experimental adapter, then exercises public agent
+deployment and full Apply. Five native saved templates and all nine settings
+converge on a separately prepared target. The fixture explicitly adopts typed
+tables, provisions both CSV inputs through `env-set --stdin`, and checks all
+eleven native tables plus operational files immediately after Apply. Both export
+copies and both nonempty imports consume target-local data; the blank draft
+reopens, and the complete canonical state remains exact after native jobs.
 
 The native lane also rejects an invalid repository value through public
 compile/plan/Apply and an invalid raw native value through Capture. It checks
@@ -96,10 +103,23 @@ omitted from mappings; the mapped-password control does not qualify that case.
 Remote-adapter extensions and broader import-job behavior remain unqualified.
 Successful signed template-deletion promotion, native post-write recovery,
 remaining lifecycle boundaries and plugin combinations remain open. The production-readiness record remains
-unready in all twelve families.
+unready: clean-target and identity/references are covered, derived-state repair is structurally
+inapplicable to the declared surface, and nine families retain gaps. The
+[readiness scope audit](evidence/readiness-scope.md) maps these decisions to the
+manifest and native/offline evidence.
 
 Run the capsule offline gate with
 `php tools/adapter-package-tests.php --adapter=users-customers-import-export-for-wp-woocommerce`.
+The clean-target lane uses `fixtures/clean-target-entry.json` with explicit
+shared-runner hooks. It checks empty native template/history tables before
+provisioning three target users and their local CSV with the native directory
+protection files, creates all five
+templates without table adoption, then exercises native consumers, a native
+source rename, target update, repeated Apply and exact recapture. The separate
+dirty-target conformance continues to require its populated local witnesses.
+Run `tests/live/regress_clean_target.sh` with a unique `CONF_PAIR`, even
+`CONF1_PORT`, successor `CONF2_PORT`, and the clean checkout's exact
+`WPRISM_EXPECTED_SOURCE_SHA`; the runner owns its pair and verified teardown.
 For the owned native lane, supply `IMPORTER_SETTINGS_PAIR`, even
 `IMPORTER_SETTINGS_PORT1` and successor `IMPORTER_SETTINGS_PORT2`, an absolute
 `IMPORTER_SETTINGS_ZIP` matching the artifact lock, and
@@ -150,3 +170,20 @@ uses the documented agent deployment command with explicit drift consent and
 requires clean subsequent Capture. It does not authorize host promotion.
 Signed deletion success, external-exclusion loss, verified restoration and
 retry must be qualified after the remaining certification prerequisites.
+
+The exact-artifact version matrix reuses the complete 2.7.5 agent roundtrip,
+then replaces the active target plugin with official locked 2.7.4 bytes.
+Public deployment and Apply must each refuse with the exact version cause,
+preserving the full native database (including engine ledgers and cron rows), canonical
+state, policy, all eleven observed native tables and operational files.
+The supported pin remains an exercise fixture and the adapter remains
+experimental. Its conformance entry declares `disable_target_cron: true`; the
+shared runner owns that window across child hooks and Apply. The version
+matrix opens a new shared window around its subsequent refusals. Both prevent
+new fixture cron launches and remove their guard on every exit; no observed
+rows are filtered.
+This interval contains one supported release; no in-range
+upgrade is claimed. From a clean exact candidate, set `VMATRIX_MANIFEST` to
+this capsule's slug, `VMATRIX_EXPECTED_SOURCE_SHA`, and a private `VMATRIX_PAIR`
+with even/successor `VMATRIX_PORT1`/`VMATRIX_PORT2`, then run
+`bash sandbox/tests/certify/certify_version_matrix.sh` under an owned pair lease.

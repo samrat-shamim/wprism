@@ -18,6 +18,7 @@ require_once __DIR__ . '/../Kernel/TableSchema.php';
 require_once __DIR__ . '/SnapshotIdentity.php';
 require_once __DIR__ . '/SnapshotPruner.php';
 require_once __DIR__ . '/../Capture/TypedTableCapture.php';
+require_once __DIR__ . '/ObservedTableIdentities.php';
 require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';
 
 /**
@@ -138,9 +139,10 @@ require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';
  *   after first capture, the existing ledger mapping is consulted first and
  *   provides rename continuity. Consequently a mapped row whose natural key
  *   changes keeps its uuid, even though UUIDv5 of the current key differs.
- *   A fresh environment independently capturing that renamed row without
- *   ledger/repository history derives from the new key instead; table adopt
- *   is the reconciliation path. Contradictory mappings still block and
+ *   Planning keeps fresh derivations in its observation-local identity view.
+ *   Apply binds matching UUIDs through adoption; a retained different UUID
+ *   needs explicit table adoption. A previously captured target already has
+ *   durable continuity and cannot be rebound by adoption. Contradictions block;
  *   ordinary Ledger::set() never deletes or rebinds identity implicitly.
  *
  *   `"columns": ["<col>", ...]` (issue #3318) is the PARENT-SCOPED form of the
@@ -797,8 +799,12 @@ final class Snapshot {
         Tokens $tokens,
         bool $mint,
         bool $strictReadOnly = false,
-        ?DatabaseWorkAuthority $workAuthority = null
+        ?DatabaseWorkAuthority $workAuthority = null,
+        ?ObservedTableIdentities $observation = null
     ): array {
+        if ($observation !== null && ($mint || $strictReadOnly)) {
+            throw new \LogicException('wprism: derived observation cannot mint or replace strict identity proof');
+        }
         $rowTables = self::row_tables($policy); // throws on duplicate id_kind
         if (!$rowTables) {
             return [];
@@ -849,7 +855,8 @@ final class Snapshot {
                 // WP-6.1: the table's own `column_codecs` projection, read here
                 // because this is the last frame that still holds a Policy —
                 // TypedTableCapture is deliberately Policy-free.
-                $policy->column_codec_rules($table)
+                $policy->column_codec_rules($table),
+                $observation
             )));
         }
         return $entities;
@@ -951,9 +958,10 @@ final class Snapshot {
         Tokens $tokens,
         bool $mint,
         bool $strictReadOnly = false,
-        array $columnCodecs = []
+        array $columnCodecs = [],
+        ?ObservedTableIdentities $observation = null
     ): array {
-        return self::typed_table_capture()->capture_table(
+        return self::typed_table_capture($observation)->capture_table(
             $table,
             $decl,
             $metaDecls,
@@ -965,9 +973,9 @@ final class Snapshot {
     }
 
     /** Bind Snapshot's runtime collaborators to the extracted capture seam. */
-    private static function typed_table_capture(): TypedTableCapture {
+    private static function typed_table_capture(?ObservedTableIdentities $observation = null): TypedTableCapture {
         return new TypedTableCapture(
-            self::snapshot_identity(),
+            self::snapshot_identity(observation: $observation),
             static function (
                 string $uuid,
                 string $table,
@@ -975,9 +983,11 @@ final class Snapshot {
                 int $packed,
                 bool $strictReadOnly,
                 string $context
-            ): void {
+            ) use ($observation): void {
                 if ($strictReadOnly) {
                     Ledger::require_read_only_mapping($uuid, $table, $idKind, $packed, $context);
+                } elseif ($observation !== null) {
+                    $observation->record($uuid, $table, $idKind, $packed);
                 } else {
                     Ledger::set($uuid, $table, $idKind, $packed);
                 }
@@ -989,13 +999,18 @@ final class Snapshot {
     }
 
     /** Bind Snapshot's runtime collaborators to the extracted identity seam. */
-    private static function snapshot_identity(?Policy $policy = null): SnapshotIdentity {
+    private static function snapshot_identity(?Policy $policy = null, ?ObservedTableIdentities $observation = null): SnapshotIdentity {
         return new SnapshotIdentity(
             static fn(array $decl): array => Policy::natural_key_columns($decl),
             static fn(): array => $policy === null ? [] : self::row_tables($policy),
-            static fn(int $localId, string $kind): ?string => Ledger::uuid_for($localId, $kind),
+            static fn(int $localId, string $kind): ?string => $observation === null
+                ? Ledger::uuid_for($localId, $kind) : $observation->uuidFor($localId, $kind),
             static fn(string $uuid, string $kind): ?int => Ledger::id_for($uuid, Tokens::ledger_kind($kind)),
-            static function (string $uuid, string $table, string $kind, int $localId): void {
+            static function (string $uuid, string $table, string $kind, int $localId) use ($observation): void {
+                if ($observation !== null) {
+                    $observation->record($uuid, $table, $kind, $localId);
+                    return;
+                }
                 Ledger::set($uuid, $table, $kind, $localId);
             },
             static function (string $uuid, string $table, string $kind, int $localId, string $context): void {
@@ -1175,7 +1190,7 @@ final class Snapshot {
      *   this on a real site needs to see the WHOLE tuple to know which row
      *   is unrepresentable and why, not decode a bare number.
      */
-    private static function pack_composite_id(string $table, array $colVals): int {
+    public static function pack_composite_id(string $table, array $colVals): int {
         return self::snapshot_identity()->packCompositeId($table, $colVals);
     }
 

@@ -271,6 +271,14 @@ certify-version-matrix:
 regress-capture-publish:
 	php sandbox/tests/offline/capture/regress_capture_publish.php
 
+.PHONY: regress-capture-receipt-diagnostics
+regress-capture-receipt-diagnostics:
+	php sandbox/tests/offline/capture/regress_capture_receipt_diagnostics.php
+
+.PHONY: regress-capture-receipt-diagnostics-live
+regress-capture-receipt-diagnostics-live:
+	bash sandbox/tests/live/regress_capture_receipt_diagnostics_live.sh
+
 # issue #3231: code_drift detection (Deploy::code_drift(), a narrower question
 # than code_mismatch — did an installed plugin/theme version change since
 # the last successful 'wprism deploy'/'wprism capture', regardless of whether the
@@ -1322,6 +1330,10 @@ regress-delete-authorization-receipt:
 # existing reflection-based coverage of the same methods through Apply.
 regress-apply-planner:
 	php sandbox/tests/offline/apply/regress_apply_planner.php
+
+.PHONY: regress-typed-identity-observation
+regress-typed-identity-observation:
+	php sandbox/tests/offline/apply/regress_typed_identity_observation.php
 
 .PHONY: regress-plan-reference-adoption
 regress-plan-reference-adoption:
@@ -3093,6 +3105,7 @@ regress-live-list:
 	@echo "  regress-promotion                         pair codexmaca3216 8920/... (also runs in CI as code-half-grind's sibling)"
 	@echo "  regress-promotion-lock                    pair codexmac3217 8900/... (runs in CI: code-half-live-lock)"
 	@echo "  regress-capture-concurrency               own disposable pair (required: CONCURRENCY_PAIR/CONCURRENCY_PORT1/CONCURRENCY_PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate)"
+	@echo "  regress-capture-receipt-diagnostics-live   own disposable pair (CAPTURE_RECEIPT_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA; retained private receipt refusal verified after teardown)"
 	@echo "  regress-acf-term-options-fields           pair asub3263 (parameterized: PAIR/PORT1/PORT2)"
 	@echo "  regress-collision                         legacy docker-compose.yml --profile fx"
 	@echo "  regress-entity-type-width                 pair amergety"

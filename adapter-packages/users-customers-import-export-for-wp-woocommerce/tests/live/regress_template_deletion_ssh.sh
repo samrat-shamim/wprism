@@ -124,7 +124,7 @@ wprism_ssh_adopt_extension() {
     .create == [] and .update == [] and .adopt == [] and .drift == [] and .conflict == [] and .delete_conflict == []
     and .code_mismatch == [] and .code_drift == [] and .provider_problems == [] and .warnings == []
     and .collision == [] and .incomplete_apply == [] and .incomplete_lifecycle == [] and .missing_user == []
-    and ([.adapter_dispositions[].code] | sort) == ["authored_state_not_certified", "operation_not_certified"]
+    and ([.adapter_dispositions[].code] | sort) == ["authored_state_not_certified"]
     and all(.adapter_dispositions[]; .name == "users-customers-import-export-for-wp-woocommerce"
       and .status == "blocked" and .source == "shipped" and .trust_tier == "declarative_manifest" and .certification == "registry")
     and ([.delete[].uuid] | sort) == ($repo[0].deletions | keys | sort)

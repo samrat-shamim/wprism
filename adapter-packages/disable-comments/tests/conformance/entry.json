@@ -1,0 +1,10 @@
+{
+  "entry": {
+    "mode": "roundtrip",
+    "pin": ["core", "disable-comments"],
+    "plugins": [{"slug": "disable-comments", "version": "2.9.0"}],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "manifest": "disable-comments"
+}

@@ -251,6 +251,18 @@ final class AdapterKitTest extends TestCase
         );
     }
 
+    public function testLiteralPhpToolCommandsAreDeclaredDependencies(): void
+    {
+        self::assertSame(['../tools/entry.php', 'tools/check.php'], AdapterKit::dependencyTargets('conformance/run.sh',
+            "answer=\$(php ../tools/entry.php \"\$ENTRY\")\nphp tools/check.php\n"
+                . "# php comments.php\necho 'php quoted.php'\ncat <<'PHP'\nphp heredoc.php\nPHP\n"));
+        $root = $this->fixtureRoot(['sandbox/conformance/run.sh' =>
+            file_get_contents(self::repoRoot() . '/sandbox/conformance/run.sh') . "\nphp ../tools/undeclared.php\n"]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('../tools/undeclared.php');
+        AdapterKit::manifest($root);
+    }
+
     /**
      * .php members resolve against their own directory, .sh members against
      * the kit root (run.sh cd's there). Getting that backwards would classify

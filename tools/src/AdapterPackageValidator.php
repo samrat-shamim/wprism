@@ -20,6 +20,7 @@ require_once __DIR__ . '/ActiveShellSource.php';
 require_once __DIR__ . '/AdapterProductionReadiness.php';
 require_once __DIR__ . '/AdapterPackageTestDiscovery.php';
 require_once __DIR__ . '/ArtifactLibrary.php';
+require_once __DIR__ . '/ConformanceHooks.php';
 
 /** Validate one adapter capsule without reading or executing a sibling adapter. */
 final class AdapterPackageValidator
@@ -195,9 +196,11 @@ final class AdapterPackageValidator
             $entry = Canon::decode(Canon::read_file($conformance . '/entry.json'));
             if (!is_array($entry)
                 || ($entry['manifest'] ?? null) !== $slug
-                || !is_array($entry['entry'] ?? null)
-                || !is_file($conformance . '/seed.sh')
-                || !is_file($conformance . '/check.sh')) {
+                || !is_array($entry['entry'] ?? null)) {
+                throw new RuntimeException("Adapter package '$slug' conformance fixture is incomplete or misnamed");
+            }
+            if (ConformanceHooks::resolve($entry['entry'], $capsule) === null
+                && (!is_file($conformance . '/seed.sh') || !is_file($conformance . '/check.sh'))) {
                 throw new RuntimeException("Adapter package '$slug' conformance fixture is incomplete or misnamed");
             }
             $available['conformance-' . $slug] = true;
@@ -2831,9 +2834,14 @@ final class AdapterPackageValidator
     {
         $testsRoot = $capsule . '/tests';
         $needsContract = false;
-        if (is_dir($testsRoot)) {
+        // Reusable capsule fixtures carry the same evidence obligations as
+        // entry-point tests; moving a helper cannot hide its premise contract.
+        foreach ([$testsRoot, $capsule . '/fixtures'] as $premiseRoot) {
+            if (!is_dir($premiseRoot)) {
+                continue;
+            }
             $iterator = new \RecursiveIteratorIterator(
-                new \RecursiveDirectoryIterator($testsRoot, \FilesystemIterator::SKIP_DOTS)
+                new \RecursiveDirectoryIterator($premiseRoot, \FilesystemIterator::SKIP_DOTS)
             );
             foreach ($iterator as $entry) {
                 if (!$entry->isFile() || $entry->isLink() || $entry->getExtension() !== 'sh') {
@@ -2944,7 +2952,7 @@ final class AdapterPackageValidator
             $seen[$line] = true;
 
             $source = null;
-            if (preg_match('~^tests/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.sh$~D', $relative) === 1) {
+            if (preg_match('~^(?:tests|fixtures)/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.sh$~D', $relative) === 1) {
                 $source = $capsule . '/' . $relative;
             } elseif (preg_match(
                 '~^@repo/sandbox/tests/certify/[A-Za-z0-9_.-]+\.sh$~D',

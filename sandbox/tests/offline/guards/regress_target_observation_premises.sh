@@ -13,7 +13,7 @@
 #   observation<TAB>tests/conformance/check.sh<TAB>literal assertion prefix
 #   fixture<TAB>tests/certify/version-matrix.sh<TAB>literal assertion prefix
 #
-# A package-relative tests/*.sh path stays inside its package. Cross-adapter
+# Package-relative tests/*.sh and fixtures/*.sh paths stay inside the capsule. Cross-adapter
 # certification scenarios may use @repo/sandbox/tests/certify/*.sh; ownership
 # of the premise contract still stays with the adapter. Blank lines and lines
 # beginning with # are ignored. This is an offline source contract: it never
@@ -136,14 +136,14 @@ validate_contract_file() { # <contract> <package-root> [repository-root]
 
     logical="$relative"
     case "$relative" in
-      tests/*.sh) source="$package/$relative" ;;
+      tests/*.sh|fixtures/*.sh) source="$package/$relative" ;;
       @repo/sandbox/tests/certify/*.sh)
         logical="${relative#@repo/}"
         source="$repo_root/$logical"
         ;;
       *)
         contract_error "$contract" "$line_no" \
-          'path must be package-relative tests/*.sh or @repo/sandbox/tests/certify/*.sh'
+          'path must be package-relative tests/*.sh, fixtures/*.sh or @repo/sandbox/tests/certify/*.sh'
         return 1
         ;;
     esac
@@ -211,8 +211,19 @@ validate_version_matrix_premises() { # <package version-matrix.sh>
   done
 }
 
+package_uses_premise_helpers() { # <capsule>; reuse the actual scanner in its mutation checks
+  local root='' source=''
+  for root in "$1/tests" "$1/fixtures"; do
+    [ -d "$root" ] || continue
+    while IFS= read -r source; do
+      source_uses_premise_helpers "$source" && return 0
+    done < <(find "$root" -type f -name '*.sh' -print | LC_ALL=C sort)
+  done
+  return 1
+}
+
 run_contract_mutation_checks() {
-  local scratch='' package='' contract='' source='' result=''
+  local scratch='' package='' contract='' source='' result='' invalid=''
   scratch="$(mktemp -d "${TMPDIR:-/tmp}/wprism-premise-contract.XXXXXX")"
   package="$scratch/package"
   contract="$package/evidence/$CONTRACT_NAME"
@@ -229,6 +240,28 @@ run_contract_mutation_checks() {
     || { rm -rf "$scratch"; fail "valid package premise contract returned wrong counts: $result"; }
   source_uses_premise_helpers "$source" \
     || { rm -rf "$scratch"; fail 'active premise helper was not discovered'; }
+  # A helper can be shared by conformance and direct native tests without
+  # becoming a second suite or escaping the premise-contract obligation.
+  mkdir -p "$package/fixtures"
+  mv "$source" "$package/fixtures/check.sh"
+  sed 's@tests/conformance/check.sh@fixtures/check.sh@' "$contract" > "$contract.moved"
+  mv "$contract.moved" "$contract"
+  clear_active_shell_cache
+  package_uses_premise_helpers "$package" \
+    || { rm -rf "$scratch"; fail 'fixture-only premise obligation was lost'; }
+  [ "$(validate_contract_file "$contract" "$package")" = '1 0' ] \
+    || { rm -rf "$scratch"; fail 'active reusable fixture premise was refused'; }
+  for invalid in fixtures/../tests/conformance/check.sh fixtures/check.txt; do
+    sed "s@fixtures/check.sh@$invalid@" "$contract" > "$contract.invalid"
+    if validate_contract_file "$contract.invalid" "$package" >/dev/null 2>&1; then
+      rm -rf "$scratch"
+      fail 'fixture premise accepted traversal or a non-shell source'
+    fi
+  done
+  mv "$package/fixtures/check.sh" "$source"
+  sed 's@fixtures/check.sh@tests/conformance/check.sh@' "$contract" > "$contract.moved"
+  mv "$contract.moved" "$contract"
+  clear_active_shell_cache
   local capture_helper=''
   for capture_helper in capture_wprism_json_success capture_wprism_json_refusal; do
     printf '%s\n' "$capture_helper OUT \"probe answered\" fake_wprism" > "$source"
@@ -441,16 +474,7 @@ pass 'package premise contract schema rejects deleted rows, stale assertions, pa
 # Derive the obligation from the package's own helper calls, not from a central
 # adapter list: any package with premise-bearing shell tests owns a contract.
 while IFS= read -r package; do
-  needs_contract=0
-  if [ -d "$package/tests" ]; then
-    while IFS= read -r source; do
-      if source_uses_premise_helpers "$source"; then
-        needs_contract=1
-        break
-      fi
-    done < <(find "$package/tests" -type f -name '*.sh' -print | LC_ALL=C sort)
-  fi
-  if [ "$needs_contract" -eq 1 ]; then
+  if package_uses_premise_helpers "$package"; then
     [ -f "$package/evidence/$CONTRACT_NAME" ] && [ ! -L "$package/evidence/$CONTRACT_NAME" ] \
       || fail "adapter package $(basename "$package") uses premise helpers but owns no $CONTRACT_NAME"
   fi

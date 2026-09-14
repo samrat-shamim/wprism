@@ -53,7 +53,13 @@ sink=$(umask 077; mktemp -d)
 trap 'rm -rf -- "$sink"' EXIT
 SH;
 $capture .= "\n" . $captureFunctions . "\ncapture probe fixture_command\n";
-$seed = $common . "\n. \"\$PACKAGE_ROOT/tests/conformance/seed.sh\"\n";
+$seed = $common . <<<'SH'
+
+CONF_PAIR="importerprobe$(php -r 'echo bin2hex(random_bytes(8));')"
+trap 'rm -rf -- "$REPO_ROOT/sandbox/tmp/importer-roundtrip-$CONF_PAIR"' EXIT
+cd "$REPO_ROOT/sandbox"
+. "$PACKAGE_ROOT/tests/conformance/seed.sh"
+SH;
 foreach (['seed' => $seed, 'capture' => $capture] as $owner => $script) {
     foreach (['ready', 'php-stdout', 'php-stderr', 'nonzero'] as $fault) {
         $stdout = '{"status":true}';

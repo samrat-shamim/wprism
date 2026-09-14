@@ -1,7 +1,9 @@
 {
   "manifest": "users-customers-import-export-for-wp-woocommerce",
   "entry": {
-    "mode": "capture-plan",
+    "mode": "agent-roundtrip",
+    "disable_target_cron": true,
+    "adopt_by_slug": ["terms", "posts", "tables"],
     "pin": ["core", "users-customers-import-export-for-wp-woocommerce"],
     "plugins": [{"slug": "users-customers-import-export-for-wp-woocommerce", "version": "2.7.5"}],
     "post_types": ["post", "page", "attachment"],

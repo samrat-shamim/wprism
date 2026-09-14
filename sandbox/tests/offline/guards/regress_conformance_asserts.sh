@@ -215,6 +215,8 @@ CAPTURE_PLAN_RESULT=$(jq -nc --argjson report "$CAPTURE_PLAN_REPORT" '
 ')
 CAPTURE_PLAN_READY_RESULT='{"create":[],"update":[],"conflict":[],"adapter_dispositions":[]}'
 CAPTURE_PLAN_PROBES=0
+CONFORMANCE_CRON_END=$(sed -n '/^conformance_target_cron_end() {$/,/^}$/p' conformance/run.sh)
+[ -n "$CONFORMANCE_CRON_END" ] || fail 'actual conformance cron completion boundary is missing'
 capture_plan_probe() { # <claims> <report> <report rc> <plan> <plan rc> [report prefix] [plan prefix]
   bash -c '
     set -euo pipefail
@@ -224,7 +226,8 @@ capture_plan_probe() { # <claims> <report> <report rc> <plan> <plan rc> [report 
     . "$1"
     block=$2 CAPTURE_PLAN_CLAIMS=$3 report=$4 report_rc=$5 plan=$6 plan_rc=$7
     report_prefix=$8 plan_prefix=$9
-    MODE=capture-plan MANIFEST=profile-probe
+    MODE=capture-plan MANIFEST=profile-probe CONFORMANCE_CRON_WINDOW_STARTED=0
+    eval "${10}"
     wp_conf1() {
       case "$*" in
         "wprism capabilities --repo=/siterepo --operation=capture --format=json")
@@ -243,7 +246,7 @@ capture_plan_probe() { # <claims> <report> <report rc> <plan> <plan rc> [report 
     }
     eval "$block"
     fail "capture-plan fell through to target execution"
-  ' -- "$FRAGMENT" "$CAPTURE_PLAN_BLOCK" "$1" "$2" "$3" "$4" "$5" "${6:-}" "${7:-}" 2>&1
+  ' -- "$FRAGMENT" "$CAPTURE_PLAN_BLOCK" "$1" "$2" "$3" "$4" "$5" "${6:-}" "${7:-}" "$CONFORMANCE_CRON_END" 2>&1
 }
 capture_plan_expect_pass() {
   local output rc=0
@@ -1404,5 +1407,41 @@ for planted_mutation in zero-exit wrong-envelope dead; do
     || fail "the actual planted-row block accepted $planted_mutation: $PLANTED_PROBE_OUT"
 done
 pass 'the actual planted-row block requires a nonzero product refusal and retains the complete transport prefix separately from its JSON'
+
+. conformance/asserts.sh
+[ "$(conformance_adopt_by_slug '{}')" = 'terms,posts' ] || fail 'default adoption changed'
+[ "$(conformance_adopt_by_slug '{"adopt_by_slug":[]}')" = '' ] || fail 'explicit empty adoption changed'
+[ "$(conformance_adopt_by_slug '{"adopt_by_slug":["terms","posts","tables"]}')" = 'terms,posts,tables' ] || fail 'declared typed-table adoption was ignored'
+for entry in conformance/entries/core.json ../adapter-packages/polylang/tests/conformance/entry.json; do
+  [ "$(conformance_adopt_by_slug "$(jq -c .entry "$entry")")" = 'terms,posts,menus' ] || fail 'existing explicit menu adoption changed'
+done
+for invalid in 'null' '[]' '{} {}' '{"adopt_by_slug":null}' '{"adopt_by_slug":"tables"}' \
+  '{"adopt_by_slug":["tables","tables"]}' '{"adopt_by_slug":["unknown"]}' '{"adopt_by_slug":[7]}' \
+  '{"adopt_by_slug":["tables,--force-theirs"]}'; do
+  if conformance_adopt_by_slug "$invalid" >/dev/null 2>&1; then
+    fail "malformed fixture adoption was admitted: $invalid"
+  fi
+done
+ADOPT_DECLARATION_LINE=$(grep -n '^ADOPT_BY_SLUG=$(conformance_adopt_by_slug' conformance/run.sh | cut -d: -f1)
+PAIR_RESET_LINE=$(grep -n '^bash bin/pair.sh reset' conformance/run.sh | cut -d: -f1)
+[ -n "$ADOPT_DECLARATION_LINE" ] && [ "$ADOPT_DECLARATION_LINE" -lt "$PAIR_RESET_LINE" ] || fail 'fixture adoption validation must precede pair reset'
+[ "$(grep -c '^ADOPT_BY_SLUG=' conformance/run.sh)" = 1 ] || fail 'fixture adoption has a second authority'
+pass 'entry-declared adoption preserves existing kinds, supports typed tables and rejects malformed authority before pair mutation'
+
+[ "$(conformance_disable_target_cron '{}')" = false ] || fail 'ordinary fixture cron default changed'
+[ "$(conformance_disable_target_cron '{"disable_target_cron":false}')" = false ] || fail 'explicit ordinary cron changed'
+[ "$(conformance_disable_target_cron '{"disable_target_cron":true}')" = true ] || fail 'declared target cron window was ignored'
+for invalid in 'null' '[]' '{} {}' '{"disable_target_cron":null}' '{"disable_target_cron":"true"}' \
+  '{"disable_target_cron":0}' '{"disable_target_cron":[]}' '{"disable_target_cron":{}}'; do
+  if conformance_disable_target_cron "$invalid" >/dev/null 2>&1; then
+    fail "malformed target cron fixture policy was admitted: $invalid"
+  fi
+done
+CRON_DECLARATION_LINE=$(grep -n '^DISABLE_TARGET_CRON=$(conformance_disable_target_cron' conformance/run.sh | cut -d: -f1)
+PAIR_UP_LINE=$(grep -n '^bash bin/pair.sh up ' conformance/run.sh | cut -d: -f1)
+CRON_BEGIN_LINE=$(grep -n '^conformance_target_cron_begin$' conformance/run.sh | cut -d: -f1)
+[ -n "$CRON_DECLARATION_LINE" ] && [ "$CRON_DECLARATION_LINE" -lt "$PAIR_RESET_LINE" ] \
+  && [ "$CRON_BEGIN_LINE" -eq $((PAIR_UP_LINE + 1)) ] || fail 'cron authority must validate before mutation and open immediately after bootstrap'
+pass 'entry-declared target cron window is typed, optional and established before fixture work'
 
 printf '\033[1;32m✔ REGRESS_CONFORMANCE_ASSERTS PASSED\033[0m\n'

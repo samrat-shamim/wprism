@@ -1747,12 +1747,12 @@ SH
     }
 
     #[DataProvider('jsonCapturePremiseHelpers')]
-    public function testValidatorTreatsJsonCaptureHelpersAsPremiseHelpers(string $helper): void
+    public function testValidatorTreatsJsonCaptureHelpersAsPremiseHelpers(string $helper, string $directory): void
     {
         $package = $this->package('probe', false);
-        self::makeDirectory($package . '/tests/conformance');
+        self::makeDirectory($package . '/' . $directory);
         self::write(
-            $package . '/tests/conformance/check.sh',
+            $package . '/' . $directory . '/check.sh',
             "#!/usr/bin/env bash\n$helper OUT 'probe answered' fake_wprism\n"
         );
         $checks = [];
@@ -1766,11 +1766,35 @@ SH
         $premiseEvidence->invokeArgs(null, $arguments);
     }
 
-    /** @return iterable<string,array{0:string}> */
+    /** @return iterable<string,array{0:string,1:string}> */
     public static function jsonCapturePremiseHelpers(): iterable
     {
-        yield 'successful JSON answer' => ['capture_wprism_json_success'];
-        yield 'JSON refusal' => ['capture_wprism_json_refusal'];
+        foreach (['tests/conformance', 'fixtures'] as $directory) {
+            yield $directory . ' successful JSON answer' => ['capture_wprism_json_success', $directory];
+            yield $directory . ' JSON refusal' => ['capture_wprism_json_refusal', $directory];
+        }
+    }
+
+    public function testValidatorAcceptsPremisesMovedIntoReusableCapsuleFixtures(): void
+    {
+        $root = $this->validatorFixture();
+        $capsule = $root . '/adapter-packages/acf';
+        $contract = $capsule . '/evidence/target-observation-premises.tsv';
+        $bytes = (string) file_get_contents($contract);
+        foreach (['seed', 'check'] as $hook) {
+            self::write($capsule . '/fixtures/' . $hook . '.sh', (string) file_get_contents($capsule . '/tests/conformance/' . $hook . '.sh'));
+            self::write($capsule . '/tests/conformance/' . $hook . '.sh',
+                '#!/usr/bin/env bash' . "\n" . '. "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/' . $hook . '.sh"' . "\n");
+            $bytes = str_replace('tests/conformance/' . $hook . '.sh', 'fixtures/' . $hook . '.sh', $bytes);
+        }
+        self::write($contract, $bytes);
+        $result = AdapterPackageValidator::validate($root, 'acf');
+        self::assertContains('premise-evidence:2', $result['checks']);
+
+        self::write($capsule . '/fixtures/check.sh', "#!/usr/bin/env bash\n# Removed active assertion\n");
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('source is missing active premise');
+        AdapterPackageValidator::validate($root, 'acf');
     }
 
     public function testValidatorRejectsAStalePackagePremiseAssertion(): void
@@ -1809,7 +1833,8 @@ SH
         AdapterPackageValidator::validate($root, 'acf');
     }
 
-    public function testValidatorRejectsAPackagePremisePathEscape(): void
+    #[DataProvider('invalidPremisePaths')]
+    public function testValidatorRejectsAPackagePremisePathEscape(string $invalid): void
     {
         $root = $this->validatorFixture();
         $path = $root . '/adapter-packages/acf/evidence/target-observation-premises.tsv';
@@ -1817,14 +1842,22 @@ SH
             $path,
             str_replace(
                 'tests/conformance/check.sh',
-                '../outside.sh',
+                $invalid,
                 (string) file_get_contents($path)
             )
         );
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage("names invalid premise source '../outside.sh'");
+        $this->expectExceptionMessage("names invalid premise source '$invalid'");
         AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    /** @return iterable<string,array{0:string}> */
+    public static function invalidPremisePaths(): iterable
+    {
+        yield 'outside capsule' => ['../outside.sh'];
+        yield 'fixture traversal' => ['fixtures/../tests/conformance/check.sh'];
+        yield 'non-shell fixture' => ['fixtures/check.txt'];
     }
 
     public function testValidatorRejectsACertificationPremiseOwnedByAnotherParticipant(): void

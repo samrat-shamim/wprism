@@ -21,6 +21,7 @@ final class ShippedIdentityInventory
         'code-snippets',
         'contact-form-7',
         'core',
+        'disable-comments',
         'download-manager',
         'elementor',
         'loginizer',

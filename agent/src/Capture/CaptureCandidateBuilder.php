@@ -7,6 +7,8 @@ require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 require_once __DIR__ . '/../Kernel/BlockAttributeReader.php';
 require_once __DIR__ . '/../Kernel/Uuid.php';
 require_once __DIR__ . '/CaptureIdentity.php';
+require_once __DIR__ . '/../Repository/Ledger.php';
+require_once __DIR__ . '/../Repository/ObservedTableIdentities.php';
 require_once __DIR__ . '/CaptureSafetyGates.php';
 require_once __DIR__ . '/CaptureTransaction.php';
 require_once __DIR__ . '/EntityMetaCapture.php';
@@ -48,6 +50,7 @@ final class CaptureCandidateBuilder {
     private TermCapture $termCapture;
     private MenuCapture $menuCapture;
     private OptionsCapture $optionsCapture;
+    private ?ObservedTableIdentities $observedTableIdentities = null;
 
     /** @var string[] */
     private array $unclassified = [];
@@ -82,9 +85,13 @@ final class CaptureCandidateBuilder {
         ?\Closure $prepareCaptureReferences = null
     ) {
         $this->repo = rtrim($repo, '/');
+        $captureLookup = function (int $id, string $kind) use ($captureIdentityLookup): ?string {
+            if ($this->observedTableIdentities !== null) return $this->observedTableIdentities->uuidFor($id, $kind);
+            return $captureIdentityLookup === null ? Ledger::uuid_for($id, $kind) : $captureIdentityLookup($id, $kind);
+        };
         $this->tokens = $binding === null
-            ? new Tokens(captureIdentityLookup: $captureIdentityLookup)
-            : new Tokens((string) $binding['home'], (string) $binding['uploads'], $captureIdentityLookup);
+            ? new Tokens(captureIdentityLookup: $captureLookup)
+            : new Tokens((string) $binding['home'], (string) $binding['uploads'], $captureLookup);
         $this->tokens->policy = $policy;
         $this->safetyGates = new CaptureSafetyGates($this->repo);
         $this->captureIdentity = new CaptureIdentity();
@@ -303,6 +310,9 @@ final class CaptureCandidateBuilder {
             throw new \LogicException('wprism: planned references cannot mint identity or replace strict export observation');
         }
         $this->reset($forceUnresolvedRefs);
+        $this->observedTableIdentities = !$mint && !$strictReadOnly ? new ObservedTableIdentities(
+            Ledger::uuid_for(...), Ledger::id_for(...), Ledger::require_read_only_mapping(...)
+        ) : null;
         $entities = [];
         $media = [];
         $mediaBytes = 0;
@@ -358,7 +368,8 @@ final class CaptureCandidateBuilder {
         }
 
         // Table identities must exist before post/sidebar tokenization.
-        $tableEntities = Snapshot::capture($this->policy, $this->tokens, $mint, $strictReadOnly, $workAuthority);
+        $tableEntities = Snapshot::capture($this->policy, $this->tokens, $mint, $strictReadOnly, $workAuthority, $this->observedTableIdentities);
+        $this->planObservations['table_identities'] = $this->observedTableIdentities?->derived() ?? [];
         CaptureTransaction::check_transient_db_error('Snapshot::capture()');
         $portableWidgetScan = $this->portableWidgetReferenceScan($posts, $postUuids, $selectedIdentities, $workAuthority);
         $portableWidgetReferences = $portableWidgetScan['references'];
@@ -527,6 +538,7 @@ final class CaptureCandidateBuilder {
     }
 
     private function reset(bool $forceUnresolvedRefs): void {
+        $this->observedTableIdentities = null;
         $this->unclassified = [];
         $this->unscopedRefs = [];
         $this->unscopedOptionNameRefs = [];

@@ -1552,7 +1552,7 @@ class FakeWpdb {
             . "AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = '{$payload['artifact_hash']}'";
     }
 
-    /** @return null|array{map:string,table:string,column:string,kind:string,connection:?string,nonce:?string,keep:list<int>} */
+    /** @return null|array{map:string,table:string,column:string,kind:string,connection:?string,nonce:?string,keep:list<int>,composite_column?:string} */
     private function fullApplyPruneQuery(string $query): ?array {
         $map = $this->tableName('wprism_map');
         $normalized = $this->fullApplySql($query);
@@ -1595,14 +1595,23 @@ class FakeWpdb {
             return ['map' => $map, 'table' => $match[5], 'column' => $match[6], 'kind' => $match[3],
                 'connection' => $match[1], 'nonce' => $match[2], 'keep' => $keep];
         }
+        $composite = '/\A' . preg_quote("DELETE FROM `$map` WHERE CONNECTION_ID() = '", '/')
+            . "([1-9][0-9]*)' AND BINARY @wprism_tx_session = BINARY '([a-f0-9]{64})' AND \\("
+            . "id_kind = '([a-z][a-z0-9_]{0,63})' AND NOT EXISTS \\(SELECT 1 FROM `(" . preg_quote($this->prefix, '/') . '[A-Za-z0-9_]+)` src'
+            . ' WHERE src.`([A-Za-z0-9_]{1,64})` = \\(' . preg_quote("`$map`.`local_id`", '/') . ' >> 31\\)'
+            . ' AND src.`([A-Za-z0-9_]{1,64})` = \\(' . preg_quote("`$map`.`local_id`", '/') . ' % 2147483648\\)\\)\\)\\z/';
+        if (preg_match($composite, $normalized, $match) === 1 && strlen($match[4]) <= 64 && $match[5] !== $match[6]) {
+            return ['map' => $map, 'table' => $match[4], 'column' => $match[5], 'composite_column' => $match[6],
+                'kind' => $match[3], 'connection' => $match[1], 'nonce' => $match[2], 'keep' => []];
+        }
         return null;
     }
 
-    /** @param array{map:string,table:string,column:string,kind:string,connection:?string,nonce:?string,keep:list<int>} $intent */
+    /** @param array{map:string,table:string,column:string,kind:string,connection:?string,nonce:?string,keep:list<int>,composite_column?:string} $intent */
     private function executeFullApplyPrune(array $intent): array {
         $map = $this->requireTable($intent['map']);
         $table = $this->requireTable($intent['table']);
-        foreach ([$map => ['id_kind', 'local_id'], $table => [$intent['column']]] as $name => $columns) {
+        foreach ([$map => ['id_kind', 'local_id'], $table => array_filter([$intent['column'], $intent['composite_column'] ?? null])] as $name => $columns) {
             if (array_diff($columns, $this->knownColumns($name)) !== []) {
                 throw $this->unsupported('ledger prune requires the exact seeded map and backing columns');
             }
@@ -1632,7 +1641,11 @@ class FakeWpdb {
                     continue;
                 }
                 foreach ($this->store[$table] as $physical) {
-                    if (self::compare($physical[$intent['column']] ?? null, $localId) === 0) {
+                    $matches = isset($intent['composite_column'])
+                        ? $localId !== null && self::compare($physical[$intent['column']] ?? null, (int) $localId >> 31) === 0
+                            && self::compare($physical[$intent['composite_column']] ?? null, (int) $localId % 2147483648) === 0
+                        : self::compare($physical[$intent['column']] ?? null, $localId) === 0;
+                    if ($matches) {
                         $backed = true;
                         break;
                     }
@@ -1999,6 +2012,11 @@ class FakeWpdb {
             $result = ['kind' => 'ok'];
         } else {
             $result = $this->execute($sql);
+        }
+        if (($result['kind'] ?? null) === 'error') {
+            $this->driverErrno = (int) $result['errno'];
+            $this->fail($method, $sql, (string) $result['error']);
+            return null;
         }
         if (in_array($transactionOutcome, [
             'success_probe_error',
@@ -2913,6 +2931,9 @@ class FakeWpdb {
                     // Attachment recovery's exact bounded metadata roster is
                     // separately interpreted below; it has no shared-write
                     // seam, so a synthetic range lock would only reject it.
+                } elseif ($this->isBoundedIdentityLockRead($trimmed, $table)) {
+                    // Grammar admission only; the SELECT interpreter evaluates
+                    // exact native predicates and the two-row ambiguity bound.
                 } elseif ($this->isBoundedIndexedLockRead($trimmed, $table)) {
                     // Only grammar admission: the ordinary SELECT below
                     // computes rows, ordering and limits. The caller's real
@@ -4846,6 +4867,7 @@ class FakeWpdb {
         $this->expectEnd();
 
         $affected = 0;
+        $before = $this->store;
         foreach ($tuples as $data) {
             if ($replace) {
                 $affected += $this->removeUniqueConflicts($table, $data) + 1;
@@ -4867,6 +4889,10 @@ class FakeWpdb {
                     $affected++;
                     continue;
                 }
+            }
+            if (($this->uniqueKeys[$table] ?? []) !== [] && $this->findUniqueConflict($table, $data) !== null) {
+                $this->store = $before;
+                return ['kind' => 'error', 'error' => 'Duplicate entry for declared unique key', 'errno' => 1062];
             }
             $this->applyInsert($table, $data);
             $affected++;
@@ -5187,6 +5213,27 @@ class FakeWpdb {
             $this->setConnectionId($this->connectionId + 1);
         }
         return ['kind' => 'ok'];
+    }
+
+    /** Typed identity adoption's exact conjunction; no generic FOR UPDATE escape. */
+    private function isBoundedIdentityLockRead(string $sql, string $table): bool {
+        if (!$this->fullApplySqlExtensionsEnabled || preg_match(
+            '/^SELECT \* FROM `[A-Za-z0-9_]{1,64}` WHERE (.+) LIMIT 2 FOR UPDATE$/Ds',
+            $sql,
+            $match
+        ) !== 1) return false;
+        $literal = "'(?:[^'\\\\]|\\\\.)*'";
+        $equality = '(?:BINARY `[A-Za-z0-9_]{1,64}` = BINARY ' . $literal
+            . '|`[A-Za-z0-9_]{1,64}` = [1-9][0-9]*)';
+        if (preg_match('/^' . $equality . '(?: AND ' . $equality . ')*$/Ds', $match[1]) !== 1) return false;
+        // Strip values before extracting identifiers: a key value can contain
+        // backticks and must not manufacture a schema coordinate.
+        $predicates = preg_replace('/' . $literal . '/s', "''", $match[1]);
+        preg_match_all('/`([^`]+)`/', (string) $predicates, $columns);
+        foreach ($columns[1] as $column) {
+            if (!array_key_exists($column, $this->columnTypes[$table] ?? [])) return false;
+        }
+        return true;
     }
 
     private function isBoundedIndexedLockRead(string $sql, string $table): bool {

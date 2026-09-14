@@ -1181,6 +1181,49 @@ final class HarnessLibTest extends TestCase
         self::assertSame([$before[0], $before[2], $before[3]], $db->rows('wp_wprism_map'));
     }
 
+    public function testCompositePruningRetainsExactTupleAndSessionFences(): void
+    {
+        [$db, $before, $sql] = $this->pruningFixture('fixture_join', 'fixture_rows', 'row_id', 'src', true, 'wp_');
+        foreach ($before as &$row) $row['local_id'] = ((int) $row['local_id'] << 31) | 8;
+        unset($row);
+        $db->seedTable('wprism_map', $before);
+        $sql = str_replace('src.`row_id` = `wp_wprism_map`.`local_id`',
+            'src.`row_id` = (`wp_wprism_map`.`local_id` >> 31) AND src.`unrelated_id` = (`wp_wprism_map`.`local_id` % 2147483648)', $sql);
+        foreach ([str_replace(' >> 31', ' >> 32', $sql), str_replace(' % 2147483648', ' % 2147483647', $sql),
+            $sql . ' OR 1=1', str_replace('`wp_fixture_rows`', '`foreign_rows`', $sql)] as $invalid) {
+            try {
+                $db->query($invalid);
+                self::fail('broadened composite pruning was accepted');
+            } catch (LogicException $failure) {
+                self::assertStringContainsString('FakeWpdb:', $failure->getMessage());
+            }
+            self::assertSame($before, $db->rows('wprism_map'));
+        }
+        $db->query('START TRANSACTION');
+        self::assertSame(1, $db->query($sql));
+        self::assertSame([$before[0], $before[2], $before[3]], $db->rows('wprism_map'));
+        $db->query('ROLLBACK');
+        self::assertSame($before, $db->rows('wprism_map'));
+        $db->setConnectionId(2);
+        self::assertSame(0, $db->query($sql));
+        self::assertSame($before, $db->rows('wprism_map'));
+    }
+
+    public function testPlainInsertEnforcesDeclaredUniqueCoordinatesAtomically(): void
+    {
+        $original = [['uuid' => 'a', 'kind' => 'row', 'local_id' => 7]];
+        $db = FakeWpdb::install()->seedTable('claims', $original)
+            ->setUniqueKey('claims', ['uuid', 'kind'])->setUniqueKey('claims', ['kind', 'local_id']);
+        foreach (["SELECT 'b', 'row', 7", "SELECT 'a', 'row', 8",
+            "VALUES ('c', 'row', 9), ('b', 'row', 7)"] as $values) {
+            self::assertFalse($db->query('INSERT INTO wp_claims (uuid, kind, local_id) ' . $values));
+            self::assertSame('Duplicate entry for declared unique key', $db->last_error);
+            self::assertSame($original, $db->rows('claims'), 'a failed multi-row insert cannot keep its preceding tuple');
+        }
+        self::assertSame(1, $db->query("INSERT INTO wp_claims (uuid, kind, local_id) SELECT 'b', 'row', 8"));
+        self::assertCount(2, $db->rows('claims'));
+    }
+
     public function testTypedPruningRefusesBroadenedOrUnfencedPredicates(): void
     {
         foreach (['unfenced', 'extra-predicate', 'wrong-join', 'noncanonical-keep', 'foreign-prefix', 'no-opt-in'] as $fault) {
