@@ -139,6 +139,6 @@ copies the reserved key, and its bounded fixture clones only before first
 Capture. Its [managed-clone boundary record](../../adapter-packages/yoast-duplicate-post/evidence/managed-clone-gap.md)
 records the exact-artifact native reproduction and independently verified
 repeated refusal. The capsule is now certified only for its settings,
-reference, provider, lifecycle, recovery and ordinary deletion surface; the
+reference, provider, lifecycle, recovery and deletion-refusal surface; the
 managed-clone workflow remains explicitly unsupported. A catalog target is not
 grounds to invent an identity repair.

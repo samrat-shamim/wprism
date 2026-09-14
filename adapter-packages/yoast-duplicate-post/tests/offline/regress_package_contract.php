@@ -38,6 +38,10 @@ wprism_check(
     in_array('native-managed-duplication', array_column($disposition['unsupported'], 'surface'), true),
     'managed native duplication remains an explicit unsupported boundary'
 );
+wprism_check(
+    in_array('duplicated-post entity deletion', array_column($disposition['unsupported'], 'surface'), true),
+    'duplicated-post entity deletion remains an explicit unsigned-authority boundary'
+);
 wprism_check_same('certified-boundary', $artifacts['plugins']['duplicate-post']['4.7']['role'], '4.7 is the certified artifact boundary');
 wprism_check_same('refusal-fixture', $artifacts['plugins']['duplicate-post']['4.6']['role'], '4.6 is the adjacent refusal fixture');
 wprism_check_summary('regress_yoast_duplicate_post_package_contract');

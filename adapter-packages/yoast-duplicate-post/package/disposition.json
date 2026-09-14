@@ -3,7 +3,8 @@
         "deletion_semantics": {
             "supported": [],
             "unsupported": [
-                "Rewrite & Republish workflow orchestration"
+                "Rewrite & Republish workflow orchestration",
+                "duplicated-post entity deletion"
             ]
         },
         "entity_sections": [],
@@ -58,6 +59,11 @@
             "operation": "delete",
             "reason": "WPrism can remove authored provenance and ordinary duplicated-post entities, but it does not invoke the plugin's republish/delete-copy workflow or synthesize cleanup for an active Rewrite & Republish session.",
             "surface": "rewrite-and-republish"
+        },
+        {
+            "operation": "delete",
+            "reason": "This capsule declares no signed automatic rollback authority for deleting a duplicated post entity. Direct Apply refuses with deletion_writer_exclusion_required before mutation, so the bounded production claim preserves the entity rather than treating an unsigned destructive path as supported.",
+            "surface": "duplicated-post entity deletion"
         },
         {
             "operation": "all",

@@ -407,8 +407,8 @@ printf '%s\n' "$AFTER_REF_DELETE" | jq -e '
 pass "plugin-native REST provenance removal converges without delete authorization and preserves target runtime workflow bytes"
 
 # Deleting the duplicated post itself is ordinary core entity deletion: it
-# requires --with-deletes, removes the mapped copy only, and deliberately does
-# not invent cleanup for target-sovereign workflow residue.
+# requires --with-deletes, but this capsule deliberately withholds the signed
+# automatic rollback authority needed to remove it.
 wp_conf1 eval '$copy=get_page_by_path("wprism-duplicate-copy", OBJECT, "post"); if (!$copy || !wp_delete_post($copy->ID, true)) throw new RuntimeException("copy delete failed");' >/dev/null
 wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
@@ -429,15 +429,19 @@ require_wprism_answered "Yoast Duplicate Post entity deletion without authorizat
   || fail "duplicated post deletion no-op did not require --with-deletes: $DELETE_POST_OUT"
 wp_conf2 post get "$TARGET_COPY" >/dev/null 2>&1 \
   || fail "unauthorized duplicated-post deletion no-op removed the target copy"
-wp_conf2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --format=json >/dev/null
-if wp_conf2 post get "$TARGET_COPY" >/dev/null 2>&1; then
-  fail "authorized duplicated-post deletion left the target copy present"
-fi
+DELETE_POST_AUTH_RC=0
+DELETE_POST_AUTH_OUT=$(wp_conf2 wprism apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || DELETE_POST_AUTH_RC=$?
+require_wprism_answered "Yoast Duplicate Post signed deletion refusal" human "$DELETE_POST_AUTH_OUT"
+[ "$DELETE_POST_AUTH_RC" -ne 0 ] \
+  && grep -q 'deletion_writer_exclusion_required' <<<"$DELETE_POST_AUTH_OUT" \
+  || fail "duplicated-post deletion crossed the unsigned writer-exclusion boundary: $DELETE_POST_AUTH_OUT"
+wp_conf2 post get "$TARGET_COPY" >/dev/null 2>&1 \
+  || fail "duplicated-post deletion refusal removed the target copy"
 [ "$(wp_conf2 post get "$TARGET_ORIGINAL" --field=post_name)" = wprism-duplicate-original ] \
-  || fail "duplicated-post deletion removed or changed the original"
+  || fail "duplicated-post deletion refusal removed or changed the original"
 [ "$(wp_conf2 post meta get "$TARGET_ORIGINAL" _dp_has_rewrite_republish_copy)" = "$TARGET_COPY" ] \
-  || fail "core post deletion invented cleanup for target-sovereign Rewrite & Republish state"
-pass "duplicated-post entity deletion requires authorization, removes only the copy, and leaves explicit runtime residue target-owned"
+  || fail "deletion refusal disturbed target-sovereign Rewrite & Republish state"
+pass "duplicated-post entity deletion remains explicitly unsupported without signed automatic rollback authority and preserves both posts"
 
 # Credential-shaped authored settings must refuse atomically and redact the
 # value. Restore the local probe afterward; canonical bytes never move.
