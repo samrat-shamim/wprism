@@ -2017,6 +2017,11 @@ wp_conf2 plugin is-installed woocommerce >/dev/null 2>&1 && fail 'WooCommerce un
 # The host's JSON lifecycle preflight redacts unclassified causes. The
 # shared wrapper binds fresh private evidence; the capsule checks exact intent
 # before that wrapper publishes the command's public streams.
+# check.sh is a child shell: indexed arrays and unexported helpers from
+# run.sh do not cross that boundary. Recreate the exact exported Compose argv.
+read -r -a PAIR_COMPOSE <<<"${COMPOSE:?}"
+. "$WPRISM_ARTIFACT_LIBRARY_ROOT/sandbox/tests/lib/conformance_private_command.sh"
+. "$WPRISM_ARTIFACT_LIBRARY_ROOT/sandbox/tests/lib/private_command_capture.sh"
 woocommerce_missing_code_validate() {
   local stem="$1" root="${WPRISM_ARTIFACT_LIBRARY_ROOT:?}"
   php "$root/sandbox/tests/lib/conformance_private_command.php" validate lifecycle-status "$CONF_PAIR" cli2 "$stem" || return 1
