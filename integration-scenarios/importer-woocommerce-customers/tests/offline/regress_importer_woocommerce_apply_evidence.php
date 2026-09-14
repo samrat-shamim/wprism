@@ -30,7 +30,7 @@ $before = [
 ];
 $neighbors = ['wp_options', 'wp_posts', 'wp_postmeta', 'wp_users', 'wp_usermeta', 'wp_wt_iew_action_history',
     'wp_wc_customer_lookup', 'wp_wc_orders', 'wp_wc_orders_meta', 'wp_wc_order_addresses', 'wp_wc_order_operational_data',
-    'wp_unrecognized_extension', 'wp_wprism_journal'];
+    'wp_unrecognized_extension', 'wp_wprism_journal', 'wp_wc_product_meta_lookup', 'wp_wc_product_attributes_lookup', 'wp_terms', 'wp_term_taxonomy', 'wp_term_relationships'];
 foreach ($neighbors as $name) $before[$name] = [['id' => 11, 'local_value' => 'keep-local']];
 ksort($before, SORT_STRING);
 // The fixture's SQL emitter is deliberately independent of the production
@@ -428,5 +428,44 @@ try {
     foreach ($entries as $entry) { $entry->isDir() ? rmdir($entry->getPathname()) : unlink($entry->getPathname()); }
     rmdir($transportRoot);
 }
+
+require_once dirname(__DIR__, 2) . '/fixtures/catalog-evidence.php';
+$catalog = ['products' => [], 'lookup' => []];
+foreach (['simple', 'variable', 'variation'] as $i => $type) {
+    $sku = 'combo-' . $type;
+    $catalog['products'][$sku] = ['id' => 501 + $i, 'type' => $type, 'parent' => $type === 'variation' ? 502 : 0,
+        'sku' => $sku, 'name' => 'Combined ' . $type, 'status' => 'publish',
+        'regular_price' => $type === 'simple' ? '19.95' : '29.95', 'price' => $type === 'simple' ? '19.95' : '29.95',
+        'manage_stock' => $type !== 'variable', 'stock' => $type === 'simple' ? 37 : ($type === 'variation' ? 41 : null),
+        'stock_status' => 'instock', 'categories' => [23],
+        'attributes' => $type === 'variable' ? ['size' => ['options' => ['Small'], 'variation' => true]] : ($type === 'variation' ? ['size' => 'Small'] : []),
+        'defaults' => $type === 'variable' ? ['size' => 'Small'] : []];
+    $catalog['lookup'][] = ['product_id' => (string) (501 + $i), 'sku' => $sku, 'stock_status' => 'instock',
+        'stock_quantity' => $type === 'simple' ? '37' : ($type === 'variation' ? '41' : null)];
+}
+ImporterWooCatalogEvidence::preserved($catalog, $catalog);
+wprism_check(true, 'populated native catalog with target-local stock and bound lookup rows');
+foreach (['empty', 'missing', 'alias', 'stock', 'source-stock', 'price', 'parent', 'attribute', 'category', 'lookup-empty', 'lookup-alias', 'lookup-stock'] as $fault) {
+    $bad = $catalog;
+    if ($fault === 'empty') $bad['products'] = [];
+    if ($fault === 'missing') unset($bad['products']['combo-simple']);
+    if ($fault === 'alias') $bad['products']['combo-simple']['id'] = 502;
+    if ($fault === 'stock') $bad['products']['combo-variation']['stock'] = 0;
+    if ($fault === 'source-stock') $bad['products']['combo-simple']['stock'] = 19;
+    if ($fault === 'price') $bad['products']['combo-simple']['price'] = '19.96';
+    if ($fault === 'parent') $bad['products']['combo-variation']['parent'] = 501;
+    if ($fault === 'attribute') $bad['products']['combo-variable']['attributes'] = [];
+    if ($fault === 'category') $bad['products']['combo-simple']['categories'] = [];
+    if ($fault === 'lookup-empty') $bad['lookup'] = [];
+    if ($fault === 'lookup-alias') $bad['lookup'][0]['product_id'] = '502';
+    if ($fault === 'lookup-stock') $bad['lookup'][0]['stock_quantity'] = '19';
+    wprism_check_throws(static fn() => ImporterWooCatalogEvidence::preserved($bad, $bad), RuntimeException::class,
+        "catalog premise rejects $fault even when both images agree");
+    wprism_check_throws(static fn() => ImporterWooCatalogEvidence::preserved($catalog, $bad), RuntimeException::class,
+        "native catalog transition rejects $fault");
+}
+$changedCatalog = $catalog; $changedCatalog['products']['combo-variable']['extra'] = 'changed';
+wprism_check_throws(static fn() => ImporterWooCatalogEvidence::preserved($catalog, $changedCatalog), RuntimeException::class,
+    'complete native observation is preserved beyond asserted premise fields');
 
 wprism_check_summary('Importer/Woo exact Apply database transition');
