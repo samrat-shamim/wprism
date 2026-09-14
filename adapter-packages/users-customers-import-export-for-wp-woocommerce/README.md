@@ -103,7 +103,10 @@ omitted from mappings; the mapped-password control does not qualify that case.
 Remote-adapter extensions and broader import-job behavior remain unqualified.
 Successful signed template-deletion promotion, native post-write recovery,
 remaining lifecycle boundaries and plugin combinations remain open. The production-readiness record remains
-unready in all twelve families.
+unready: identity/references are covered, derived-state repair is structurally
+inapplicable to the declared surface, and ten families retain gaps. The
+[readiness scope audit](evidence/readiness-scope.md) maps these decisions to the
+manifest and native/offline evidence.
 
 Run the capsule offline gate with
 `php tools/adapter-package-tests.php --adapter=users-customers-import-export-for-wp-woocommerce`.

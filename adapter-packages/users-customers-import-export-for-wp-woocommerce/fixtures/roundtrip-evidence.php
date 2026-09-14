@@ -86,6 +86,17 @@ final class ImporterRoundtripEvidence {
                 self::same(self::portable($from, $source['tables']['users']), self::portable($to, $after['tables']['users']), 'complete authored template form');
                 $form = json_decode($to['data'], true, 32, JSON_THROW_ON_ERROR);
                 $check(!isset($form['method_' . $type . '_form_data']['selected_template']), 'source wizard cursor is excluded');
+                if ($type === 'export') {
+                    // Login normalization alone also admits coincident IDs and
+                    // integer references; neither proves the declared string user[] transport.
+                    $sourceIds = json_decode($from['data'], true, 32, JSON_THROW_ON_ERROR)['filter_form_data']['wt_iew_email'];
+                    $targetIds = $form['filter_form_data']['wt_iew_email'];
+                    foreach ([$sourceIds, $targetIds] as $references) $check(is_array($references) && array_is_list($references)
+                        && count($references) === 2 && count(array_unique($references)) === 2
+                        && count(array_filter($references, static fn($id): bool => is_string($id) && preg_match('/^[1-9][0-9]*$/D', $id) === 1)) === 2,
+                        'two distinct native string user references');
+                    $check(array_intersect($sourceIds, $targetIds) === [], 'every selected user ID differs across environments');
+                }
                 if ($type === 'import') $check($form['method_import_form_data']['wt_iew_local_file'] === ($index === 2 ? '' : $targetInput), 'exact local CSV or blank draft');
             }
         }

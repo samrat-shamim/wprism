@@ -120,6 +120,28 @@ foreach (['missing-table', 'missing-witness', 'missing-template', 'extra-templat
     wprism_check_throws(static fn() => ImporterRoundtripEvidence::applied($source, $badBefore, $bad), RuntimeException::class,
         'native roundtrip evidence rejects ' . $fault);
 }
+foreach (['one-coincident-user', 'all-coincident-users', 'integer-user-references'] as $fault) {
+    $bad = $after;
+    $badBefore = $before;
+    $replacements = $fault === 'one-coincident-user' ? ['82' => '2'] : ['82' => '2', '93' => '3'];
+    if ($fault === 'integer-user-references') $replacements = [];
+    foreach ([&$badBefore, &$bad] as &$record) {
+        foreach ($record['tables']['users'] as &$user) $user['ID'] = $replacements[$user['ID']] ?? $user['ID'];
+        unset($user);
+        foreach ($record['tables']['wt_iew_mapping_template'] as &$row) {
+            if ($row['template_type'] !== 'export' || $row['item_type'] !== 'user') continue;
+            $form = json_decode($row['data'], true, 32, JSON_THROW_ON_ERROR);
+            $form['filter_form_data']['wt_iew_email'] = array_map(static fn(string $id) =>
+                $fault === 'integer-user-references' ? (int) $id : ($replacements[$id] ?? $id),
+                $form['filter_form_data']['wt_iew_email']);
+            $row['data'] = json_encode($form, JSON_THROW_ON_ERROR);
+        }
+        unset($row);
+    }
+    unset($record);
+    wprism_check_throws(static fn() => ImporterRoundtripEvidence::applied($source, $badBefore, $bad), RuntimeException::class,
+        'normalizing references to logins cannot hide ' . $fault);
+}
 foreach (['posts', 'postmeta', 'terms', 'term_taxonomy', 'term_relationships', 'termmeta', 'usermeta'] as $table) {
     $bad = $after;
     $bad['tables'][$table] = [];
