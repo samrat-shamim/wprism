@@ -45,8 +45,8 @@ foreach (['missing-managed', 'missing-local', 'extra-getter', 'duplicate-option'
 }
 $edit = static function (array $record, string $side) use ($fixtureSettings): array {
     $settings = array_replace($fixtureSettings, ['wt_iew_default_import_batch' => $side === 'source' ? 19 : 29]);
-    $record['settings'] = array_replace($record['settings'], $settings);
-    $record['tables']['options'][0]['option_value'] = serialize($settings + ['other_module_key' => ['nested' => 'keep-target-local']]);
+    $record['settings'] = $settings;
+    $record['tables']['options'][0]['option_value'] = serialize($settings);
     foreach ([0, 2] as $index) {
         $row = &$record['tables']['wt_iew_mapping_template'][$index];
         $form = json_decode($row['data'], true, flags: JSON_THROW_ON_ERROR);
@@ -61,13 +61,16 @@ foreach (['source', 'target'] as $side) {
     $edited = $edit($native, $side);
     ImporterDirtyTargetEvidence::edited($native, $edited, $side);
     wprism_check(true, 'independent three-field native edit admits ' . $side);
-    foreach (['missing-table', 'extra-history', 'other-option', 'changed-file', 'lost-local-setting', 'wrong-edit', 'changed-id', 'changed-foreign', 'wrong-getter'] as $fault) {
+    foreach (['missing-table', 'extra-history', 'other-option', 'changed-file', 'unexpected-local-setting', 'wrong-edit', 'changed-id', 'changed-foreign', 'wrong-getter'] as $fault) {
         $bad = $edited;
         if ($fault === 'missing-table') unset($bad['tables']['usermeta']);
         if ($fault === 'extra-history') $bad['tables']['wt_iew_action_history'][] = ['id' => '99'];
         if ($fault === 'other-option') $bad['tables']['options'][1]['option_value'] = 'changed';
         if ($fault === 'changed-file') $bad['files']['input.csv'] = str_repeat('b', 64);
-        if ($fault === 'lost-local-setting') $bad['tables']['options'][0]['option_value'] = serialize(array_intersect_key($bad['settings'], $fixtureSettings));
+        if ($fault === 'unexpected-local-setting') {
+            $bad['settings']['other_module_key'] = ['nested' => 'unexpected-native-retention'];
+            $bad['tables']['options'][0]['option_value'] = serialize($bad['settings']);
+        }
         if ($fault === 'wrong-edit') $bad['tables']['wt_iew_mapping_template'][2]['data'] = $native['tables']['wt_iew_mapping_template'][2]['data'];
         if ($fault === 'changed-id') $bad['tables']['wt_iew_mapping_template'][0]['id'] = '900';
         if ($fault === 'changed-foreign') $bad['tables']['wt_iew_mapping_template'][6]['data'] = '{}';
@@ -123,6 +126,8 @@ foreach (['collision', 'drift', 'conflict'] as $case) {
     }
 }
 $before = $edit($native, 'target');
+$before['settings']['other_module_key'] = ['nested' => 'keep-target-local'];
+$before['tables']['options'][0]['option_value'] = serialize($before['settings']);
 $source = $edit($native, 'source');
 unset($source['settings']['other_module_key']);
 $source['tables']['options'][0]['option_value'] = serialize($source['settings']);
@@ -137,6 +142,8 @@ foreach ($source['tables']['wt_iew_mapping_template'] as $index => &$row) {
 }
 unset($row);
 $resolved = $edit($native, 'source');
+$resolved['settings']['other_module_key'] = ['nested' => 'keep-target-local'];
+$resolved['tables']['options'][0]['option_value'] = serialize($resolved['settings']);
 foreach ([0, 2] as $index) {
     $row = &$resolved['tables']['wt_iew_mapping_template'][$index];
     $form = json_decode($row['data'], true, flags: JSON_THROW_ON_ERROR);

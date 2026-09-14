@@ -151,10 +151,11 @@ final class ImporterDirtyTargetEvidence {
         $expected = $before;
         $settings = json_decode(file_get_contents(__DIR__ . '/native-settings.json'), true, flags: JSON_THROW_ON_ERROR)['source'];
         $settings['wt_iew_default_import_batch'] = $side === 'source' ? 19 : 29;
-        $expected['settings'] = array_replace($before['settings'], $settings);
+        // The plugin's save_settings() replaces this entire option through
+        // set_advanced_settings(); Apply's field projection has a different boundary.
+        $expected['settings'] = $settings;
         foreach ($expected['tables']['options'] as &$row) if ($row['option_name'] === 'wt_iew_advanced_settings') {
-            $old = unserialize($row['option_value'], ['allowed_classes' => false]);
-            $row['option_value'] = serialize(array_replace($old, $settings));
+            $row['option_value'] = serialize($settings);
         }
         unset($row);
         foreach (['export' => 'Selected users', 'import' => 'Reusable input mapping'] as $type => $name) {
@@ -168,7 +169,7 @@ final class ImporterDirtyTargetEvidence {
             foreach ($expected['tables']['wt_iew_mapping_template'] as &$row) if ($row['id'] === $old['id']) $row = $new;
             unset($row);
         }
-        ImporterRoundtripEvidence::same($expected, $after, 'three native Saves preserve every other native table, field and operational file');
+        ImporterRoundtripEvidence::same($expected, $after, 'native Saves replace the settings option and selected template fields while preserving all other rows and files');
     }
 
     public static function resolved(array $source, array $before, array $after): void {
