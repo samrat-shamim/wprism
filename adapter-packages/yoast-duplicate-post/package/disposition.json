@@ -34,8 +34,8 @@
             "exact-artifact-version-matrix"
         ]
     },
-    "reason": "Experimental: exact 4.7 source review found that native duplication after WPrism Capture copies the original _wprism_uuid unless the operator has explicitly excluded that key. Existing conformance clones only before first Capture, so its settings, _dp_original, role-provider, deletion, lifecycle and round-trip evidence does not establish the managed-cloning workflow. Production authorization is withdrawn until that identity boundary and its native recovery workflow have complete evidence.",
-    "status": "experimental",
+    "reason": "Certified for exact Yoast Duplicate Post 4.7 on single-site WordPress. The bounded claim carries the reviewed settings and _dp_original post reference, proves native UI/clone-link behavior, reconciles duplicate_post_roles through the verified role provider, and exercises lifecycle, deletion/refusal, conflict recovery, and byte-identical recapture. Native duplication of an already captured WPrism post copies _wprism_uuid and is explicitly unsupported; the exact refusal and full state preservation are evidenced rather than repaired. Rewrite & Republish workflow state, multisite, and plugin-specific workflow orchestration remain outside the claim.",
+    "status": "certified",
     "supported_versions": {
         "plugin": "duplicate-post/duplicate-post.php",
         "range": {
@@ -46,7 +46,7 @@
     "unsupported": [
         {
             "operation": "all",
-            "reason": "The default native metadata copier includes _wprism_uuid. A clone of an already-managed post therefore creates conflicting embedded identity, and WPrism refuses rather than choosing an owner. There is no reviewed automatic repair or general identity-fork command. Neither an implicit blacklist change nor pre-Capture-only cloning establishes support.",
+            "reason": "The default native metadata copier includes _wprism_uuid. A clone of an already-managed post therefore creates conflicting embedded identity, and WPrism refuses rather than choosing an owner; the exact 4.7 conformance reproduction preserves the complete SQL and canonical state at both refusal boundaries. There is no reviewed automatic repair or general identity-fork command. Neither an implicit blacklist change nor the bounded unmanaged-source clone establishes support for this workflow.",
             "surface": "native-managed-duplication"
         },
         {

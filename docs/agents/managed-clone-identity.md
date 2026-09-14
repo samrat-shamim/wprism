@@ -135,9 +135,10 @@ plugin's main managed-cloning workflow unresolved and must not be counted as
 production-ready adapter coverage.
 
 The same audit found a second consumer: exact Yoast Duplicate Post 4.7 also
-copies the reserved key, and its certified fixture clones only before first
-Capture. Its [capsule gap record](../../adapter-packages/yoast-duplicate-post/evidence/managed-clone-gap.md)
-now also records its own exact-artifact native reproduction and independently
-verified repeated refusal. Production authorization is withdrawn, not restored
-by that safety evidence. The genuine ready count drops
-by one; a catalog target is not grounds to retain an overbroad certification.
+copies the reserved key, and its bounded fixture clones only before first
+Capture. Its [managed-clone boundary record](../../adapter-packages/yoast-duplicate-post/evidence/managed-clone-gap.md)
+records the exact-artifact native reproduction and independently verified
+repeated refusal. The capsule is now certified only for its settings,
+reference, provider, lifecycle, recovery and ordinary deletion surface; the
+managed-clone workflow remains explicitly unsupported. A catalog target is not
+grounds to invent an identity repair.
