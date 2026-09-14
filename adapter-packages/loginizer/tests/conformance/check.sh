@@ -163,7 +163,11 @@ rm -rf "${CONF_REPO2:-siterepo/conf2}/.tmp-loginizer-recovered"
 pass "Loginizer uninstall residue, absent-code refusal, exact digest-verified reinstall, the capture-first drift refusal with its capture-reconcile-fresh-apply remediation, and byte-identical recapture recover every owned row"
 
 # ------------------------------------------------- three-way settings conflict
-wp_conf1 eval "update_option('loginizer_options', ['max_retries'=>7,'lockout_time'=>600,'max_lockouts'=>11,'lockouts_extend'=>3600,'reset_retries'=>7200,'notify_email'=>0,'notify_email_address'=>'branch@example.test','trusted_ips'=>'off','blocked_screen'=>'off']);" >/dev/null
+# The branch intent uses the plugin-native unchecked representation for the
+# two checkbox members ('' — what lz_optpost() yields when the box is absent,
+# never 'off', which the plugin's own reader would interpret as enabled
+# because init.php:265 tests only emptiness).
+wp_conf1 eval "update_option('loginizer_options', ['max_retries'=>7,'lockout_time'=>600,'max_lockouts'=>11,'lockouts_extend'=>3600,'reset_retries'=>7200,'notify_email'=>0,'notify_email_address'=>'branch@example.test','trusted_ips'=>'','blocked_screen'=>'']);" >/dev/null
 wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "${CONF_REPO1:-siterepo/conf1}" add -A
 git -C "${CONF_REPO1:-siterepo/conf1}" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: Loginizer repository branch intent'
@@ -196,7 +200,7 @@ printf '%s\n' "$FORCED_STATE" | jq -e '
   and .rows.options.max_lockouts == 11 and .rows.options.lockouts_extend == 3600
   and .rows.options.reset_retries == 7200 and .rows.options.notify_email == 0
   and .rows.options.notify_email_address == "branch@example.test"
-  and .rows.options.trusted_ips == "off" and .rows.options.blocked_screen == "off"
+  and .rows.options.trusted_ips == "" and .rows.options.blocked_screen == ""
   and .effective.max_retries == 7 and .effective.lockout_time == 600
   and .effective.notify_email == 0 and .effective.trusted_ips == false
   and .rows.whitelist["1"].start == "10.0.0.5"
@@ -294,7 +298,7 @@ grep -q "undeclared sibling key" <<<"$UNDECLARED_OUT" \
 grep -q "loginizer_options" <<<"$UNDECLARED_OUT" \
   || fail "undeclared Loginizer sibling refusal did not name the option: $UNDECLARED_OUT"
 
-wp_conf2 eval "update_option('loginizer_options', ['max_retries'=>7,'lockout_time'=>600,'max_lockouts'=>11,'lockouts_extend'=>3600,'reset_retries'=>7200,'notify_email'=>0,'notify_email_address'=>'branch@example.test','trusted_ips'=>'off','blocked_screen'=>'off']);" >/dev/null
+wp_conf2 eval "update_option('loginizer_options', ['max_retries'=>7,'lockout_time'=>600,'max_lockouts'=>11,'lockouts_extend'=>3600,'reset_retries'=>7200,'notify_email'=>0,'notify_email_address'=>'branch@example.test','trusted_ips'=>'','blocked_screen'=>'']);" >/dev/null
 wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-loginizer-restored >/dev/null
 diff -r "${CONF_REPO1:-siterepo/conf1}/state" "${CONF_REPO2:-siterepo/conf2}/.tmp-loginizer-restored" \
   || fail "Loginizer capture did not recover after the undeclared sibling was removed"
