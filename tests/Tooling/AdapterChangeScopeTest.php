@@ -39,6 +39,7 @@ final class AdapterChangeScopeTest extends TestCase
         self::assertSame(
             [
                 'integration-scenarios/importer-woocommerce-customers/tests/live/regress_importer_woocommerce_native_premise.sh',
+                'integration-scenarios/importer-woocommerce-customers/tests/offline/regress_importer_woocommerce_apply_evidence.php',
                 'integration-scenarios/importer-woocommerce-customers/tests/offline/regress_importer_woocommerce_customers.php',
                 'integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh',
                 'integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual_ssh_deletion.sh',

@@ -97,7 +97,7 @@ final class AdapterChangeScopeCliTest extends TestCase
             $decision['scenario_gates'][0]['command']
         );
         self::assertSame(
-            ['php', 'integration-scenarios/importer-woocommerce-customers/tests/offline/regress_importer_woocommerce_customers.php'],
+            ['php', 'integration-scenarios/importer-woocommerce-customers/tests/offline/regress_importer_woocommerce_apply_evidence.php'],
             $decision['scenario_gates'][1]['command']
         );
         self::assertSame(
