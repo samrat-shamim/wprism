@@ -20,26 +20,23 @@ $disposition = json_decode((string) file_get_contents($package . '/package/dispo
 $artifacts = json_decode((string) file_get_contents($package . '/evidence/artifacts.lock.json'), true, 512, JSON_THROW_ON_ERROR);
 $policy = Policy::load(null, ['core', 'block-visibility'], adapterLibrary: AdapterLibrary::fromSourcePackage($root, 'block-visibility'));
 
-// The claim is experimental ON PURPOSE, and the assertions below are the
-// boundary that word stands for — not a stage this capsule is passing through.
-wprism_check_same('experimental', $disposition['status'], 'the reviewed claim is experimental, because the plugin\'s primary surface is withheld');
+// The claim is certified for the bounded settings/preset surface. The primary
+// block attribute remains an explicit unsupported boundary rather than a
+// silent widening of the engine grammar.
+wprism_check_same('certified', $disposition['status'], 'the reviewed bounded claim is certified');
 wprism_check_same(
-    ['capture', 'compile', 'plan'],
+    ['capture', 'compile', 'plan', 'deploy', 'apply', 'recapture', 'render-api'],
     $disposition['capabilities']['operations'],
-    'no deploy, apply, recapture or render-api is claimed anywhere'
+    'the certified bounded claim covers the exercised product operations'
 );
-wprism_check_same([], $disposition['capabilities']['lifecycle_phases'], 'and no lifecycle phase, because no deploy is claimed');
+wprism_check_same(['retire', 'activate', 'verify'], $disposition['capabilities']['lifecycle_phases'], 'lifecycle evidence is part of the certified claim');
 
 $readiness = AdapterProductionReadiness::record($root, 'block-visibility');
-wprism_check_same('unready', $readiness['readiness'], 'the readiness record refuses to call this production-ready');
-wprism_check(
-    array_key_exists('identity-references', $readiness['blocked']),
-    'identity-references is BLOCKED rather than merely a gap: no amount of capsule work can declare these references today'
-);
-wprism_check(
-    str_contains($readiness['blocked']['identity-references'], 'any_block_structured_attribute_reference_paths'),
-    'and it names the engine-gap primitive, so the blocker is countable rather than prose'
-);
+wprism_check_same('ready', $readiness['readiness'], 'the bounded readiness record authorizes production support');
+wprism_check_same([], $readiness['gaps'], 'the bounded claim has no open evidence gaps');
+wprism_check_same([], $readiness['blocked'], 'the bounded claim has no blocked applicable families');
+wprism_check_same([], $policy->adapter_readiness_blockers(), 'the policy projects no production-readiness blocker');
+wprism_check_same(true, $policy->capability_report()['ready'], 'the certified support reports ready');
 
 // The withheld surface, stated as data rather than as a promise in prose.
 $blocks = array_keys($manifest['block_attrs']);
@@ -162,16 +159,15 @@ foreach (['restrictedUsers', 'hideOnRestrictedUsers', 'ruleSets', 'hideOnRuleSet
 }
 
 wprism_check_same(
-    ['3.7.1'],
+    ['3.7.0', '3.7.1'],
     array_keys(ArtifactLibrary::loadPackage($root, 'block-visibility')['plugins']['block-visibility']),
-    'one artifact is pinned: the exercised release'
+    'the capsule owns the certified artifact and its refusal fixture'
 );
-wprism_check_same('exercise-fixture', $artifacts['plugins']['block-visibility']['3.7.1']['role'], 'and it is an exercise fixture, not a certified boundary — this capsule ships no version matrix');
-wprism_check(
-    !in_array('exact-artifact-version-matrix', $disposition['evidence']['tests'], true),
-    'so the reviewed claim does not cite a matrix that does not exist'
-);
-wprism_check_same(['min' => '3.7.1', 'max' => '3.7.2'], $manifest['version_range'], 'the manifest names the exact probed release window');
+wprism_check_same('refusal-fixture', $artifacts['plugins']['block-visibility']['3.7.0']['role'], 'the adjacent release is a refusal fixture');
+wprism_check_same('9f4d7ecc109390b6fe09d1d79a9f913c19af7766f9f261289004586fd02019c4', $artifacts['plugins']['block-visibility']['3.7.0']['sha256'], 'the refusal fixture carries the measured SHA-256');
+wprism_check_same('certified-boundary', $artifacts['plugins']['block-visibility']['3.7.1']['role'], 'the admitted release is the certified boundary');
+wprism_check_same('1b889bb9f5c650fd89bc968f26a4acf01355cc58736eabc8da63cab213710a9a', $artifacts['plugins']['block-visibility']['3.7.1']['sha256'], 'the admitted artifact carries the measured SHA-256');
+wprism_check_same(['min' => '3.7.1', 'max' => '3.7.2'], $manifest['version_range'], 'the manifest names the exact certified release window');
 wprism_check_same('block-visibility/block-visibility.php', $manifest['plugin'], 'and the subject plugin file');
 
 $surfaces = array_column($disposition['unsupported'], 'surface');
@@ -179,7 +175,6 @@ foreach ([
     'block_attrs.*.blockVisibility',
     'post_meta.control_sets controls outside the reviewed allowlist',
     'option:block_visibility_settings absent-row default completion',
-    'deploy/apply',
     'multisite',
 ] as $surface) {
     wprism_check(in_array($surface, $surfaces, true), "the disposition records '$surface' as an explicit unsupported surface");

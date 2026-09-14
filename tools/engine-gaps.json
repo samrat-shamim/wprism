@@ -931,13 +931,13 @@
       "closing": "Independent editor vectors and deterministic product tests prove scalar framing, URL/query-ID rebinding, decoded privacy checks, ownership refusal, bounded expansion, malformed preimage refusal, checked SQL rollback/retry, repeat Apply and full post/term/user/options recapture. Ordinary and unknown block framing and real block widget capture share the privacy fix. This closes these engine mechanisms only; Visual Portfolio has no capsule or native Save/reopen, rendering, lifecycle, host/version or combination qualification yet."
     },
     {
-      "id": "block-visibility",
-      "candidate": "Block Visibility",
+      "id": "block-visibility-block-attribute",
+      "candidate": "Block Visibility blockVisibility attribute",
       "versions_probed": [
         "3.7.1"
       ],
       "probed_on": "2026-09-08",
-      "disposition": "promotion_blocked",
+      "disposition": "rejected",
       "blocked_adapters": [
         "block-visibility"
       ],

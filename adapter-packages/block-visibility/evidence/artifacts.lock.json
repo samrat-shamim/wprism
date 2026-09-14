@@ -1,10 +1,15 @@
 {
   "plugins": {
     "block-visibility": {
+      "3.7.0": {
+        "url": "https://downloads.wordpress.org/plugin/block-visibility.3.7.0.zip",
+        "sha256": "9f4d7ecc109390b6fe09d1d79a9f913c19af7766f9f261289004586fd02019c4",
+        "role": "refusal-fixture"
+      },
       "3.7.1": {
         "url": "https://downloads.wordpress.org/plugin/block-visibility.3.7.1.zip",
         "sha256": "1b889bb9f5c650fd89bc968f26a4acf01355cc58736eabc8da63cab213710a9a",
-        "role": "exercise-fixture"
+        "role": "certified-boundary"
       }
     }
   },
