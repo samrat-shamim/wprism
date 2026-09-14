@@ -409,6 +409,9 @@ pass "plugin-native REST provenance removal converges without delete authorizati
 # Deleting the duplicated post itself is ordinary core entity deletion: it
 # requires --with-deletes, but this capsule deliberately withholds the signed
 # automatic rollback authority needed to remove it.
+PRE_DELETE_STATE="$CONF_REPO1/.tmp-yoast-duplicate-post-pre-delete-state"
+rm -rf "$PRE_DELETE_STATE"
+cp -R "$CONF_REPO1/state" "$PRE_DELETE_STATE"
 wp_conf1 eval '$copy=get_page_by_path("wprism-duplicate-copy", OBJECT, "post"); if (!$copy || !wp_delete_post($copy->ID, true)) throw new RuntimeException("copy delete failed");' >/dev/null
 wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
@@ -442,7 +445,13 @@ wp_conf2 post get "$TARGET_COPY" >/dev/null 2>&1 \
   || fail "duplicated-post deletion refusal removed or changed the original"
 [ "$(wp_conf2 post meta get "$TARGET_ORIGINAL" _dp_has_rewrite_republish_copy)" = "$TARGET_COPY" ] \
   || fail "deletion refusal disturbed target-sovereign Rewrite & Republish state"
-pass "duplicated-post entity deletion remains explicitly unsupported without signed automatic rollback authority and preserves both posts"
+rm -rf "$CONF_REPO1/state"
+mv "$PRE_DELETE_STATE" "$CONF_REPO1/state"
+git -C "$CONF_REPO1" add state
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: recover unsupported Duplicate Post deletion intent'
+git -C "$CONF_REPO1" push -q origin main
+git -C "$CONF_REPO2" pull -q origin main
+pass "duplicated-post entity deletion remains explicitly unsupported without signed automatic rollback authority, preserves both posts, and recovers the canonical intent"
 
 # Credential-shaped authored settings must refuse atomically and redact the
 # value. Restore the local probe afterward; canonical bytes never move.
