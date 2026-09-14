@@ -56,7 +56,13 @@ if printf '%s\n' "$BODY" | grep -Fq 'Block Visibility native probe'; then
 fi
 pass "Block Visibility hides an anonymous block through the migrated native preset"
 
-wp_conf2 eval "\$post = get_post((int) $PROBE_ID); if (!\$post) { throw new RuntimeException('target-local visibility probe disappeared'); } wp_update_post(['ID' => \$post->ID, 'post_content' => '<!-- wp:paragraph -->' . PHP_EOL . '<p>Block Visibility native probe</p>' . PHP_EOL . '<!-- /wp:paragraph -->'], true);" >/dev/null
+VISIBLE_CONTENT='<!-- wp:paragraph -->
+<p>Block Visibility native probe</p>
+<!-- /wp:paragraph -->'
+wp_conf2 post update "$PROBE_ID" --post_content="$VISIBLE_CONTENT" >/dev/null
+STORED_CONTENT=$(wp_conf2 post get "$PROBE_ID" --field=post_content)
+printf '%s\n' "$STORED_CONTENT" | grep -Fq 'Block Visibility native probe' \
+  || fail "the target-local probe content was not restored before the frontend check"
 BODY=$(curl --max-time 20 -sS "http://localhost:${CONF2_PORT}/?p=${PROBE_ID}") \
   || fail "Block Visibility restored frontend probe failed before an HTTP response"
 printf '%s\n' "$BODY" | grep -Fq 'Block Visibility native probe' \
