@@ -78,6 +78,38 @@ final class ImporterWooApplyEvidence {
         string $artifact, array $window, bool $repeat = false): void {
         self::check(count($intent) === 2 && preg_match('/^[a-f0-9]{40}$/D', $revision) === 1
             && preg_match('/^[a-f0-9]{64}$/D', $artifact) === 1, 'two independently captured template updates and exact revision/artifact');
+        $expected = self::authoredTransition($before, $after, $intent, $repeat);
+        $old = $before['controls']; $new = $after['controls'];
+        $kv = self::index($old['wp_wprism_kv'], 'k');
+        self::check(isset($kv['applied_revision'], $kv['promotion_session'])
+            && !isset($kv['apply_in_progress']) && !isset($kv['promotion_lock']), 'settled prior Apply without an incomplete marker or lease');
+        foreach (['applied_revision', 'promotion_session'] as $key) {
+            $i = $kv[$key];
+            self::check(($new['wp_wprism_kv'][$i]['k'] ?? null) === $key, 'stable control row identity');
+            $value = $new['wp_wprism_kv'][$i]['v'];
+            if ($key === 'applied_revision') {
+                self::check($value === $revision && ($repeat ? $old['wp_wprism_kv'][$i]['v'] === $revision
+                    : $old['wp_wprism_kv'][$i]['v'] !== $revision), 'exact intended revision advance');
+            } else {
+                $prior = json_decode($old['wp_wprism_kv'][$i]['v'], true, flags: JSON_THROW_ON_ERROR);
+                $session = json_decode($value, true, flags: JSON_THROW_ON_ERROR);
+                $keys = array_keys($session); sort($keys, SORT_STRING);
+                self::check($keys === ['artifact_hash', 'begun_at', 'owner', 'session_id']
+                    && $session['artifact_hash'] === $artifact && is_string($session['owner'])
+                    && preg_match('/^direct-[a-f0-9]{32}$/D', $session['owner']) === 1 && $session['owner'] !== $prior['owner']
+                    && is_string($session['session_id']) && preg_match('/^ps-[a-f0-9]{32}$/D', $session['session_id']) === 1
+                    && $session['session_id'] !== $prior['session_id'] && array_keys($window) === ['before', 'after']
+                    && is_int($window['before']) && is_int($window['after']) && $window['before'] <= $window['after']
+                    && is_int($session['begun_at']) && $session['begun_at'] >= $window['before']
+                    && $session['begun_at'] <= $window['after'], 'fresh bounded direct Apply session');
+            }
+            $expected['rows']['wp_wprism_kv'][$i]['v'] = $after['database']['rows']['wp_wprism_kv'][$i]['v'];
+        }
+        self::check($expected === $after['database'], 'every schema, column, row and other cell is preserved');
+    }
+
+    /** Shared exact row contract; callers separately constrain cardinality and bookkeeping. */
+    public static function authoredTransition(array $before, array $after, array $intent, bool $repeat): array {
         $expected = $before['database'];
         $old = $before['controls']; $new = $after['controls'];
         $table = 'wp_wt_iew_mapping_template';
@@ -113,32 +145,7 @@ final class ImporterWooApplyEvidence {
                     : $old['wp_wprism_state'][$j]['content_hash'] !== $entity['hash']), 'exact intended ledger baseline advance');
             $expected['rows']['wp_wprism_state'][$j]['content_hash'] = $after['database']['rows']['wp_wprism_state'][$j]['content_hash'];
         }
-        $kv = self::index($old['wp_wprism_kv'], 'k');
-        self::check(isset($kv['applied_revision'], $kv['promotion_session'])
-            && !isset($kv['apply_in_progress']) && !isset($kv['promotion_lock']), 'settled prior Apply without an incomplete marker or lease');
-        foreach (['applied_revision', 'promotion_session'] as $key) {
-            $i = $kv[$key];
-            self::check(($new['wp_wprism_kv'][$i]['k'] ?? null) === $key, 'stable control row identity');
-            $value = $new['wp_wprism_kv'][$i]['v'];
-            if ($key === 'applied_revision') {
-                self::check($value === $revision && ($repeat ? $old['wp_wprism_kv'][$i]['v'] === $revision
-                    : $old['wp_wprism_kv'][$i]['v'] !== $revision), 'exact intended revision advance');
-            } else {
-                $prior = json_decode($old['wp_wprism_kv'][$i]['v'], true, flags: JSON_THROW_ON_ERROR);
-                $session = json_decode($value, true, flags: JSON_THROW_ON_ERROR);
-                $keys = array_keys($session); sort($keys, SORT_STRING);
-                self::check($keys === ['artifact_hash', 'begun_at', 'owner', 'session_id']
-                    && $session['artifact_hash'] === $artifact && is_string($session['owner'])
-                    && preg_match('/^direct-[a-f0-9]{32}$/D', $session['owner']) === 1 && $session['owner'] !== $prior['owner']
-                    && is_string($session['session_id']) && preg_match('/^ps-[a-f0-9]{32}$/D', $session['session_id']) === 1
-                    && $session['session_id'] !== $prior['session_id'] && array_keys($window) === ['before', 'after']
-                    && is_int($window['before']) && is_int($window['after']) && $window['before'] <= $window['after']
-                    && is_int($session['begun_at']) && $session['begun_at'] >= $window['before']
-                    && $session['begun_at'] <= $window['after'], 'fresh bounded direct Apply session');
-            }
-            $expected['rows']['wp_wprism_kv'][$i]['v'] = $after['database']['rows']['wp_wprism_kv'][$i]['v'];
-        }
-        self::check($expected === $after['database'], 'every schema, column, row and other cell is preserved');
+        return $expected;
     }
 
     public static function plan(array $plan, array $intent, array $before): string {
@@ -169,7 +176,7 @@ final class ImporterWooApplyEvidence {
             $updates[$uuid] = true;
         }
         $expected = array_keys($wanted); $actual = array_keys($updates); sort($expected); sort($actual);
-        self::check($expected === $actual && count($expected) === 2, 'Plan includes both intended updates');
+        self::check($expected === $actual && in_array(count($expected), [1, 2], true), 'Plan includes exactly the intended updates');
         $remaining = array_values(array_diff(array_column($before['controls']['wp_wprism_state'], 'uuid'), $expected));
         $unchanged = array_column($plan['unchanged'] ?? [], 'uuid'); sort($remaining); sort($unchanged);
         self::check($remaining === $unchanged && is_string($plan['artifact_hash'] ?? null)
