@@ -12,11 +12,19 @@
         "field_sections": [
             "options"
         ],
-        "lifecycle_phases": [],
+        "lifecycle_phases": [
+            "retire",
+            "activate",
+            "verify"
+        ],
         "operations": [
             "capture",
             "compile",
-            "plan"
+            "plan",
+            "deploy",
+            "apply",
+            "recapture",
+            "render-api"
         ]
     },
     "default_authored_keyspaces": [],
@@ -24,11 +32,12 @@
         "bundle_schema": "wprism-subject-certification-bundle/v1",
         "tests": [
             "conformance-block-visibility",
-            "regress-package-contract"
+            "regress-package-contract",
+            "exact-artifact-version-matrix"
         ]
     },
-    "reason": "Experimental, capture-plan only, for exact Block Visibility 3.7.1 on single-site WordPress. The settings option and the visibility_preset post type are captured faithfully. The plugin's PRIMARY surface is not: blockVisibility is injected into every registered block (measured 115 of 116 on WP 7.1) and carries entity ids at conditionally-typed nested paths that block_attrs -- one top-level key per exact block name, values closed at {int,int[]} -- cannot address. Rather than carry a source-local id that lint would not catch (unregistered_block_attr fires only on id/ids/ref-named or *Id-suffixed NUMERIC attributes, and blockVisibility is an object), every block that can hold the attribute declares it a reviewed unsupported boundary, which fires only when a block actually holds it. No deploy/apply evidence exists and none is claimed.",
-    "status": "experimental",
+    "reason": "Certified for exact Block Visibility 3.7.1 on single-site WordPress, bounded to the block_visibility_settings option and visibility_preset rows whose control_sets contain only the reviewed reference-free controls. Native target behavior proves the migrated settings and entity-free preset hide and restore a target-local block. blockVisibility remains explicitly unsupported on every block because it carries conditionally-typed entity ids that the engine cannot rebind; reference-bearing preset controls and absent-row default completion likewise refuse. The adapter makes no claim for those surfaces, multisite, or plugin-specific deletion.",
+    "status": "certified",
     "supported_versions": {
         "plugin": "block-visibility/block-visibility.php",
         "range": {
@@ -56,11 +65,6 @@
             "operation": "capture",
             "reason": "block_visibility_settings is absent until the first save, and the plugin publishes its defaults only through register_setting() on rest_api_init/admin_init, which a capture process does not fire. There is no in-process way to read them from the plugin, so an absent row captures as absence rather than as a hardcoded copy of its defaults.",
             "surface": "option:block_visibility_settings absent-row default completion"
-        },
-        {
-            "operation": "deploy",
-            "reason": "No target round-trip evidence exists for this capsule. capture-plan is the only admitted conformance mode, and tests/conformance/check.sh refuses so a future mode edit cannot turn a source-only proof into target acceptance.",
-            "surface": "deploy/apply"
         }
     ]
 }
