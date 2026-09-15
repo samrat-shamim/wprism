@@ -483,8 +483,19 @@ wp_conf2 db query '
 FAULT_RC=0
 FAULT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || FAULT_RC=$?
 require_wprism_answered "CF7 injected transaction failure" human "$FAULT_OUT"
-[ "$FAULT_RC" -ne 0 ] && grep -q 'wprism_cf7_fail_messages' <<<"$FAULT_OUT" \
-  || fail "CF7 injected late database failure did not surface exactly: $FAULT_OUT"
+# Apply writes authored post meta through Db's checked mutation, whose refusal
+# carries no driver text on purpose (agent/src/Kernel/DatabaseExceptions.php:14):
+# the native error renders the statement, so it can echo meta payloads -- here,
+# CF7 mail and message properties. The constraint name therefore never reaches
+# the operator, and asserting it would be asserting a leak. Attribute through
+# the product boundary and assert the redaction instead, the idiom
+# the-events-calendar/tests/conformance/check.sh already uses for its own late
+# postmeta constraint.
+[ "$FAULT_RC" -ne 0 ] \
+  && grep -Fq 'wprism: database mutation failed: apply reconcile authored post meta' <<<"$FAULT_OUT" \
+  || fail "CF7 injected late database failure did not surface at the product boundary: $FAULT_OUT"
+! grep -q 'wprism_cf7_fail_messages' <<<"$FAULT_OUT" \
+  || fail "CF7 late-failure refusal leaked native driver text, which renders SQL values, into operator output: $FAULT_OUT"
 [ "$(cf7_target_hash)" = "$FAULT_BEFORE" ] \
   || fail "CF7 failed transaction left partial post/meta writes"
 [ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
