@@ -98,7 +98,7 @@
                 "core",
                 "woocommerce"
             ],
-            "snapshot_sha256": "4cd99b05cc3e95da1cf161abb6d38ece045cb460faa80e55f437cd3cfa7f1935"
+            "snapshot_sha256": "f668e6f79543b49ef28879cb3659e534e6725609f2b7428ca2137025021bee97"
         },
         "core-only": {
             "manifest_hash": "14bf83b00f73f2210c7f9dc329fd3bdda5e576eb5a7a2d4415cda6d375f8f64c",

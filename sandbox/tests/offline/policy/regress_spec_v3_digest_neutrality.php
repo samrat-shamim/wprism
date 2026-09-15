@@ -38,10 +38,10 @@ use WPrism\Policy;
 // The native pa_* hierarchy fact moves only Woo's manifest and adapter digest.
 // Its three containing pin sets move with it; the disposition registry, pin
 // order, neighbouring adapters and all unrelated snapshots stay byte-identical.
-const BASELINE_FIXTURE_SHA256 = '625d0f7f68dbdc438c574f47d25f0a4459419ab7d3a0a8c24006cec9eb20cb30';
+const BASELINE_FIXTURE_SHA256 = 'd2767b38337dc9492fc6dec3db307c7ee339e7d21802184dd4f123a8fcb07c3b';
 const RANK_WORLD_MANIFEST_HASH = '93259760d28eea7afbb519c43eeefb0fefe56ef1b8cea0e26902bcc2af240ce8';
 const YOAST_WORLD_MANIFEST_HASH = 'fb44052306b852db6ce5538b00f10a524e3d468fe862018d725aef4fd06160b1';
-const REGISTRY_SHA256 = '6448cabb56ddb12ffc0a4beb3ecd2bb0d15e33807eed91c4b465dcea1478cb4a';
+const REGISTRY_SHA256 = '1a53946f6e3179156857f3877fb03e3e741fa123828bb1df517969c8e5e3a199';
 const RANK_WORLD_SNAPSHOT_SHA256 = '065885ab682a3ff7957261781bd9dbe60357d8f646100d363d7fe8a93ea41b21';
 const YOAST_WORLD_SNAPSHOT_SHA256 = 'b2db75c3aa6a76e6854d175350f09a154be329d269b5a3d7ca21e144597189fa';
 
