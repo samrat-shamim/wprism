@@ -361,7 +361,7 @@ const PRE_QI_RECORD_FIELDS_DIGEST = '590ffbb979b8a049674c0813aa04216e159340ff7de
 // Withdrawing an overbroad native-clone claim moves only its disposition.
 // Preserve the exact preceding claim to check the other 18 entries unchanged.
 const PRE_MANAGED_CLONE_YDP_DIGEST = '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456';
-const PRE_MANAGED_CLONE_REGISTRY_SHA = '67a985911f1c69f3e2d48bedfa11684ee275c86fc2d71006e8f0b5db13f4f431';
+const PRE_MANAGED_CLONE_REGISTRY_SHA = 'd3966a13ee8e72b597fb1ec7abce0661d3b95f49dac1aaaeec9f19aa2ba0a35b';
 const PRE_MANAGED_CLONE_RANK_MANIFEST_HASH = 'af24228b63b27dda4bf340809775f8340d5f9ed36446dce9c93018b3c19ae79b';
 const PRE_MANAGED_CLONE_YOAST_MANIFEST_HASH = 'c1aa6d89c57d244f5035b9298a2a43a604de25b005ef2b0c0183ab1ded1a9902';
 const PRE_MANAGED_CLONE_RANK_SNAPSHOT_SHA = 'e2a7c90b5759fd3a84de7d7a0826bc7dbbaf3bf3de4317aad3dfd414fe3948bc';
@@ -375,7 +375,7 @@ const PRE_TEC_6174_CF7_MESSAGE_DIGESTS = [
     'contact-form-7' => 'fc544747e494f54e7fb574643c5a4b3c8c5f789aecf27f8a35a7af7d5b0c06b5',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
 ];
-const PRE_TEC_6174_REGISTRY_SHA = '4daf078131a6fb15560ac24942a0dd6e2176a40db7a76affd40e05ebdd36e9ed';
+const PRE_TEC_6174_REGISTRY_SHA = '175357a89adf0654fe65c67a02fa17257c0a1f508892856e4c79853c4d01c32a';
 const PRE_TEC_6174_DISPOSITION_SHA = 'f6f4d951bbaefe3d6c2cf7af3cbb7cfae354bb1ebf048bc3cc5ff447267b7557';
 const PRE_TEC_6174_REASON = 'Certified for official free The Events Calendar 6.17.2 and 6.17.3 on single-site WordPress: exact clean/dirty canonical round trips; populated 6.17.2-to-6.17.3 upgrade; native event, venue, organizer, category, settings, Customizer, widget, REST, and frontend behavior; exact reviewed PII authority limited to eleven native event/organizer/venue contact coordinates populated divergently through the generic entity-meta capture seam; divergent huge identities and ordered repeated organizers; Category Colors and Custom Tables V1 regeneration; scoped receipt-loss and selected-map ABA inverse recovery; database, filter, provider, and transaction failure rollback/retry; competing applies; lifecycle recovery; byte-identical recapture; and official 6.17.1 plus synthetic 6.17.4 refusal controls. Pro/add-on/import/credential/runtime surfaces, plugin-specific deletion, out-of-range releases, and multisite remain explicit loud boundaries.';
 const PRE_TEC_6174_VERSION_REFUSAL = [
@@ -407,7 +407,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
     'the-events-calendar' => '0a06d5cadb9d4ed797c36bb1b2aba3c9f5518095e3a6a9ea8d1848a43be658f5',
     'woocommerce' => 'b9b1837dc2521560f767c67c32cdb1878904c9c18c406cf6d7dfc11cd593f7c1',
-    'wpforms-lite' => 'e1136e1cf369b2c93de77db797d77ea629b0d49f5a37a23ab2d0fa2faa6dd46f',
+    'wpforms-lite' => '58796114814efcf6bfba577bc9d22eb541fabd9e19220886a7a67d446eee546e',
     'wprism-agency-cpt' => '174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab',
     'wps-hide-login' => '4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050',
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
@@ -422,11 +422,11 @@ const WPRISM_CURRENT_DIGESTS = [
 // WPRISM_CURRENT_DIGESTS and every 'moves only <subject>' assertion still hold, so
 // woocommerce is measurably the only identity that moved. The same five numbers are
 // independently re-pinned in regress_spec_v3_digest_neutrality.php and agree there.
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '93259760d28eea7afbb519c43eeefb0fefe56ef1b8cea0e26902bcc2af240ce8';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'fb44052306b852db6ce5538b00f10a524e3d468fe862018d725aef4fd06160b1';
-const WPRISM_CURRENT_REGISTRY_SHA = '1a53946f6e3179156857f3877fb03e3e741fa123828bb1df517969c8e5e3a199';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '065885ab682a3ff7957261781bd9dbe60357d8f646100d363d7fe8a93ea41b21';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = 'b2db75c3aa6a76e6854d175350f09a154be329d269b5a3d7ca21e144597189fa';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = 'aedd218a805b0b7756e73a2f3e7f4b4c8d5ea46cba9372bc9f6bb33b0e50d17c';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '77f3026e24c715a219c446ee4a8b43174a0c08db538853dfc0b313d64983becf';
+const WPRISM_CURRENT_REGISTRY_SHA = 'ab45dd77fb0e1c80d36121bd45fdf7da559467d3ec961f837eef5c04923485c7';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = 'd042190a3b20e7e4f45dd02ba76284fc76d1fa97c739b8b880a4f20eefa64919';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '0e139f47591e96c49d93cccf4d87c57d097b665e877cbeddeb2ef1bca1e7be63';
 
 $liveRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(

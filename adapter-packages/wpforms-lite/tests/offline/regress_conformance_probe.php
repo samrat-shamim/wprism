@@ -185,9 +185,11 @@ foreach (['seed' => $seed, 'observe' => $record] as $phase => $value) {
     }
 }
 $entry = json_decode((string) file_get_contents(dirname(__DIR__) . '/conformance/entry.json'), true, flags: JSON_THROW_ON_ERROR);
-wprism_check_same('capture-plan', $entry['entry']['mode'], 'the package selects the closed source-only conformance profile');
-[$status, $stdout, $stderr] = ShellProbe::run('bash "$1/adapter-packages/wpforms-lite/tests/conformance/check.sh"', [$root], $root);
-wprism_check_same(1, $status, 'the target hook cannot accidentally bless a mode widened to roundtrip');
-wprism_check_same('', $stdout, 'unsupported target evidence emits no successful observation');
-wprism_check_same("WPForms preview has no target round-trip evidence; capture-plan is the only admitted conformance mode.\n", $stderr, 'the target refusal explains the exact missing evidence');
+wprism_check(!isset($entry['entry']['mode']), 'the package selects the complete roundtrip conformance profile');
+$checkSource = (string) file_get_contents(dirname(__DIR__) . '/conformance/check.sh');
+wprism_check(
+    str_contains($checkSource, 'WPForms target native round-trip observation')
+        && !str_contains($checkSource, 'capture-plan is the only admitted conformance mode'),
+    'the target hook carries native round-trip assertions instead of a source-only refusal'
+);
 wprism_check_summary('regress_wpforms_lite_conformance_probe');

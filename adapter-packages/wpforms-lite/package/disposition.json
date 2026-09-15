@@ -19,24 +19,34 @@
       "attr_id_codecs",
       "widgets"
     ],
-    "lifecycle_phases": [],
+    "lifecycle_phases": [
+      "retire",
+      "activate",
+      "verify"
+    ],
     "operations": [
       "capture",
       "compile",
-      "recapture"
+      "plan",
+      "deploy",
+      "apply",
+      "recapture",
+      "render-api"
     ]
   },
   "default_authored_keyspaces": [],
   "evidence": {
-    "bundle_schema": "wprism-subject-certification-bundle/v1",
-    "tests": [
-      "regress-package-contract",
-      "regress-native-bodies",
-      "regress-settings-and-embeds"
-    ]
+      "bundle_schema": "wprism-subject-certification-bundle/v1",
+      "tests": [
+        "regress-package-contract",
+        "regress-native-bodies",
+        "regress-settings-and-embeds",
+        "conformance-wpforms-lite",
+        "exact-artifact-version-matrix"
+      ]
   },
-  "reason": "Experimental declarations and bounded native location reconstruction. Native provider/refusal and SDK recovery evidence do not complete the capsule's authored-state, lifecycle or combination conformance. Production readiness remains blocked.",
-  "status": "experimental",
+  "reason": "Certified for exact WPForms Lite 2.0.1.1 on single-site WordPress within the reviewed authored settings, JSON form/template bodies, shortcode/block/widget references, native form-tag relationships, and the verified wpforms_form_locations reconstruction boundary. The capsule proves divergent-ID Apply, native settings/form/tag consumers, provider retry and fixed-point recapture, while preserving target-local credentials, Pro/addon/runtime/payment state. Form/template/tag deletion, QR browser authoring, submissions/mail, integrations, multisite, and unreviewed permalink or extension combinations remain explicit unsupported boundaries.",
+  "status": "certified",
   "supported_versions": {
     "plugin": "wpforms-lite/wpforms.php",
     "range": {
@@ -46,19 +56,19 @@
   },
   "unsupported": [
     {
-      "operation": "apply",
-      "surface": "wpforms_form_locations",
-      "reason": "The experimental provider is declared and has native reconstruction/refusal and SDK recovery evidence. Complete authored-state Apply across all declared writers/consumers and hostile-target scenario families remains unproved."
-    },
-    {
-      "operation": "deploy",
-      "surface": "adapter",
-      "reason": "Experimental support is not production-authorizing; full native source-to-target conformance and independent review remain pending."
-    },
-    {
       "operation": "delete",
       "surface": "deletions.*",
       "reason": "No deletion selector is declared until form/embed/tag references, intent refusal and preservation have capsule-owned proof."
+    },
+    {
+      "operation": "all",
+      "surface": "multisite",
+      "reason": "WPrism v1 refuses multisite before policy load; network settings and activation are outside this single-site adapter."
+    },
+    {
+      "operation": "all",
+      "surface": "Pro/addon/integration/submission/payment/runtime state",
+      "reason": "The certified boundary carries only Lite authored settings, bodies, references, tags, widgets and the reviewed derived location cache. Pro/addon fields, submissions, mail, integrations, payment/analytics/log/task tables and cloud enrollment remain target-local."
     },
     {
       "operation": "capture",
