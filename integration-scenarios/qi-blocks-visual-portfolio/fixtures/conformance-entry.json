@@ -1,0 +1,45 @@
+{
+  "manifest": "qi-blocks-visual-portfolio",
+  "entry": {
+    "mode": "agent-apply-roundtrip",
+    "disable_target_cron": true,
+    "adopt_by_slug": [
+      "terms",
+      "posts"
+    ],
+    "pin": [
+      "core",
+      "qi-blocks",
+      "visual-portfolio"
+    ],
+    "plugins": [
+      {
+        "slug": "qi-blocks",
+        "version": "1.5.2"
+      },
+      {
+        "slug": "visual-portfolio",
+        "version": "3.8.1"
+      }
+    ],
+    "post_types": [
+      "post",
+      "page",
+      "attachment",
+      "portfolio"
+    ],
+    "taxonomies": [
+      "category",
+      "post_tag",
+      "portfolio_category",
+      "portfolio_tag"
+    ],
+    "hooks": {
+      "seed": "fixtures/seed.sh",
+      "capture-check": "fixtures/capture-check.sh",
+      "postdeploy": "fixtures/postdeploy.sh",
+      "postapply": "fixtures/postapply.sh",
+      "check": "fixtures/check.sh"
+    }
+  }
+}

@@ -188,6 +188,9 @@ pass 'agent-roundtrip requires experimental target claims and proves production 
 AGENT_APPLY_CLAIMS='[{"name":"core","status":"certified","operations":["capture","compile","plan","deploy","apply","recapture"]},{"name":"fixture","status":"experimental","operations":["capture","compile","plan","apply","recapture"]}]'
 ( . "$FRAGMENT"; assert_agent_apply_roundtrip_refusal "$AGENT_APPLY_CLAIMS" 1 "$AGENT_REFUSAL" ) \
   || fail 'agent Apply qualification did not admit its exact host refusal and deploy-free claim'
+AGENT_APPLY_MIXED=$(jq -c '. + [.[1] | .name="deployable-fixture" | .operations += ["deploy"]]' <<<"$AGENT_APPLY_CLAIMS")
+( . "$FRAGMENT"; assert_agent_apply_roundtrip_refusal "$AGENT_APPLY_MIXED" 1 "$AGENT_REFUSAL" ) \
+  || fail 'agent Apply qualification rejected a mixed scenario whose other experimental participant has standalone deploy evidence'
 for AGENT_APPLY_FAULT in exit success unrelated warning certified missing-operation deploy; do
   AGENT_CASE_CLAIMS="$AGENT_APPLY_CLAIMS"; AGENT_CASE_RC=1; AGENT_CASE_OUT="$AGENT_REFUSAL"
   case "$AGENT_APPLY_FAULT" in
@@ -203,6 +206,10 @@ for AGENT_APPLY_FAULT in exit success unrelated warning certified missing-operat
     fail "agent Apply qualification accepted $AGENT_APPLY_FAULT instead of the exact honest boundary"
   fi
 done
+if ( . "$FRAGMENT"; assert_agent_apply_roundtrip_refusal \
+  "$(jq -c '.[2].operations -= ["apply"]' <<<"$AGENT_APPLY_MIXED")" 1 "$AGENT_REFUSAL" ) >/dev/null 2>&1; then
+  fail 'agent Apply qualification accepted a deployable scenario participant without the shared Apply operation'
+fi
 grep -q 'AGENT APPLY ROUNDTRIP PASSED' conformance/run.sh \
   || fail 'agent-apply-roundtrip has no distinct successful terminal'
 DIRECT_PROVIDER_REFUSAL_LINE=$(grep -n "grep -Fq 'wprism: direct target deploy cannot run host-owned provider settlement'" conformance/run.sh | cut -d: -f1)
@@ -212,7 +219,40 @@ POSTDEPLOY_RESOLUTION_LINE=$(grep -n '^POSTDEPLOY=$(conformance_hook postdeploy.
   && [ "$DIRECT_PROVIDER_REFUSAL_LINE" -lt "$FIXTURE_LIFECYCLE_LINE" ] \
   && [ "$FIXTURE_LIFECYCLE_LINE" -lt "$POSTDEPLOY_RESOLUTION_LINE" ] \
   || fail 'agent-apply-roundtrip must prove direct provider refusal before disposable lifecycle setup and package hooks'
-pass 'agent-apply-roundtrip requires its five exercised operations, leaves deploy unclaimed, and pins host refusal'
+pass 'agent-apply-roundtrip requires five shared operations, one host-provider deploy omission, and exact aggregate refusals'
+
+# The exact Qi + Visual Portfolio run at 77f2839b exposed `docker compose run`
+# inheriting the `while read` stdin: activating Qi drained the remaining Visual
+# Portfolio record, then returned success with only Qi active. Make every fake
+# mutation drain stdin too; only an explicit detached stdin preserves both the
+# current and canonical multi-plugin iterations.
+FIXTURE_LIFECYCLE_FUNCTION=$(sed -n '/^fixture_reconcile_target_lifecycle() {/,/^}/p' conformance/run.sh)
+[ -n "$FIXTURE_LIFECYCLE_FUNCTION" ] || fail 'fixture lifecycle helper is absent'
+FIXTURE_LIFECYCLE_CALLS=$(mktemp "${TMPDIR:-/tmp}/wprism-fixture-lifecycle.XXXXXX")
+(
+  eval "$FIXTURE_LIFECYCLE_FUNCTION"
+  wp_conf2() {
+    case "$*" in
+      'plugin list --status=active --field=name') printf '%s\n' stale-first stale-final ;;
+      'plugin deactivate stale-first'|'plugin deactivate stale-final')
+        cat >/dev/null
+        printf '%s\n' "$*" >> "$FIXTURE_LIFECYCLE_CALLS"
+        ;;
+      'plugin activate qi-blocks'|'plugin activate visual-portfolio')
+        cat >/dev/null
+        printf '%s\n' "$*" >> "$FIXTURE_LIFECYCLE_CALLS"
+        ;;
+      'option get stylesheet') printf '%s' twentytwentyone ;;
+      'theme activate twentytwentyfive') printf '%s\n' "$*" >> "$FIXTURE_LIFECYCLE_CALLS" ;;
+      *) fail "unexpected fixture lifecycle command: $*" ;;
+    esac
+  }
+  fixture_reconcile_target_lifecycle $'qi-blocks\nvisual-portfolio' twentytwentyfive
+)
+[ "$(cat "$FIXTURE_LIFECYCLE_CALLS")" = $'plugin deactivate stale-final\nplugin deactivate stale-first\nplugin activate qi-blocks\nplugin activate visual-portfolio\ntheme activate twentytwentyfive' ] \
+  || fail "fixture lifecycle let a nested command consume its remaining plugin records: $(cat "$FIXTURE_LIFECYCLE_CALLS")"
+rm -f "$FIXTURE_LIFECYCLE_CALLS"
+pass 'fixture lifecycle detaches nested commands from both multi-plugin record streams'
 
 # Execute the actual terminal block in a fresh shell: putting a function in ||
 # disables errexit and hides the original rc-3 assignment defect. Independent
