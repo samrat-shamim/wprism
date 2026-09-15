@@ -185,6 +185,35 @@ for AGENT_FAULT in exit success unrelated warning certified operation; do
 done
 pass 'agent-roundtrip requires experimental target claims and proves production deployment remains refused'
 
+AGENT_APPLY_CLAIMS='[{"name":"core","status":"certified","operations":["capture","compile","plan","deploy","apply","recapture"]},{"name":"fixture","status":"experimental","operations":["capture","compile","plan","apply","recapture"]}]'
+( . "$FRAGMENT"; assert_agent_apply_roundtrip_refusal "$AGENT_APPLY_CLAIMS" 1 "$AGENT_REFUSAL" ) \
+  || fail 'agent Apply qualification did not admit its exact host refusal and deploy-free claim'
+for AGENT_APPLY_FAULT in exit success unrelated warning certified missing-operation deploy; do
+  AGENT_CASE_CLAIMS="$AGENT_APPLY_CLAIMS"; AGENT_CASE_RC=1; AGENT_CASE_OUT="$AGENT_REFUSAL"
+  case "$AGENT_APPLY_FAULT" in
+    exit) AGENT_CASE_RC=0 ;;
+    success) AGENT_CASE_OUT="$AGENT_REFUSAL"$'\ndeploy complete: invalid' ;;
+    unrelated) AGENT_CASE_OUT='connection failed' ;;
+    warning) AGENT_CASE_OUT="$AGENT_REFUSAL"$'\nPHP Warning: invalid native result' ;;
+    certified) AGENT_CASE_CLAIMS=$(jq -c 'map(.status="certified")' <<<"$AGENT_APPLY_CLAIMS") ;;
+    missing-operation) AGENT_CASE_CLAIMS=$(jq -c '.[1].operations -= ["apply"]' <<<"$AGENT_APPLY_CLAIMS") ;;
+    deploy) AGENT_CASE_CLAIMS=$(jq -c '.[1].operations += ["deploy"]' <<<"$AGENT_APPLY_CLAIMS") ;;
+  esac
+  if ( . "$FRAGMENT"; assert_agent_apply_roundtrip_refusal "$AGENT_CASE_CLAIMS" "$AGENT_CASE_RC" "$AGENT_CASE_OUT" ) >/dev/null 2>&1; then
+    fail "agent Apply qualification accepted $AGENT_APPLY_FAULT instead of the exact honest boundary"
+  fi
+done
+grep -q 'AGENT APPLY ROUNDTRIP PASSED' conformance/run.sh \
+  || fail 'agent-apply-roundtrip has no distinct successful terminal'
+DIRECT_PROVIDER_REFUSAL_LINE=$(grep -n "grep -Fq 'wprism: direct target deploy cannot run host-owned provider settlement'" conformance/run.sh | cut -d: -f1)
+FIXTURE_LIFECYCLE_LINE=$(grep -n '^  fixture_reconcile_target_lifecycle ' conformance/run.sh | cut -d: -f1)
+POSTDEPLOY_RESOLUTION_LINE=$(grep -n '^POSTDEPLOY=$(conformance_hook postdeploy.sh ' conformance/run.sh | cut -d: -f1)
+[ -n "$DIRECT_PROVIDER_REFUSAL_LINE" ] \
+  && [ "$DIRECT_PROVIDER_REFUSAL_LINE" -lt "$FIXTURE_LIFECYCLE_LINE" ] \
+  && [ "$FIXTURE_LIFECYCLE_LINE" -lt "$POSTDEPLOY_RESOLUTION_LINE" ] \
+  || fail 'agent-apply-roundtrip must prove direct provider refusal before disposable lifecycle setup and package hooks'
+pass 'agent-apply-roundtrip requires its five exercised operations, leaves deploy unclaimed, and pins host refusal'
+
 # Execute the actual terminal block in a fresh shell: putting a function in ||
 # disables errexit and hides the original rc-3 assignment defect. Independent
 # claims also catch falsely certified/ready reports, not just bad blocker counts.

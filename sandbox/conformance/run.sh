@@ -10,14 +10,16 @@
 # paths below remain the package fallback while the other adapters migrate:
 #   conformance/seeds/<name>.sh        conf1 only, before capture: author
 #                                       the manifest's representative content.
-#   conformance/postdeploy/<name>.sh   conf2 only, strictly after `wp wprism
-#                                       deploy` and strictly before `wprism
-#                                       apply`: fixups that need conf2's
-#                                       plugin genuinely ACTIVE, which only
-#                                       becomes true once deploy runs (conf2
-#                                       arrives at the seed step with plugin
-#                                       FILES only — install_env's
-#                                       role=target). Motivating case (task
+#   conformance/postdeploy/<name>.sh   conf2 only, strictly after target
+#                                       lifecycle setup and strictly before
+#                                       `wprism apply`: fixups that need conf2's
+#                                       plugin genuinely ACTIVE. Normal and
+#                                       agent-roundtrip entries reach this via
+#                                       deploy; agent-apply-roundtrip uses the
+#                                       disposable harness's native setup after
+#                                       both deployment boundaries refuse. conf2
+#                                       arrives with plugin FILES only
+#                                       (install_env's role=target). Motivating case (task
 #                                       issue #3223): a plugin's OWN activation
 #                                       hook can mint default content
 #                                       independently on each side with no
@@ -43,7 +45,11 @@
 #
 # Entries default to `mode: roundtrip`. `mode: agent-roundtrip` qualifies
 # experimental adapters through the documented lower-level agent verbs while
-# proving the host promotion gate still refuses. It is never certification.
+# proving the host promotion gate still refuses. `mode: agent-apply-roundtrip`
+# is the honest sibling for an experimental adapter with host-owned provider
+# phases: both host and direct target deployment refuse, the disposable harness
+# establishes native lifecycle state, and the public Apply/consumer/recapture
+# path remains exercised without claiming deploy. Neither mode is certification.
 # `mode: capture-plan` is the bounded
 # evidence path for an experimental adapter that deliberately does not claim
 # apply: it still boots an exact-artifact pair, seeds through plugin APIs,
@@ -193,11 +199,11 @@ DISABLE_TARGET_CRON=$(conformance_disable_target_cron "$ENTRY") \
   || fail "manifest '$MANIFEST' has malformed target cron fixture policy"
 MODE=$(echo "$ENTRY" | jq -r '.mode // "roundtrip"')
 case "$MODE" in
-  roundtrip|capture-plan|agent-roundtrip) ;;
-  *) fail "unknown conformance mode '$MODE' for manifest '$MANIFEST' (expected roundtrip|capture-plan|agent-roundtrip)" ;;
+  roundtrip|capture-plan|agent-roundtrip|agent-apply-roundtrip) ;;
+  *) fail "unknown conformance mode '$MODE' for manifest '$MANIFEST' (expected roundtrip|capture-plan|agent-roundtrip|agent-apply-roundtrip)" ;;
 esac
-if [ "$MODE" = agent-roundtrip ] && [ -n "${CONF_RECORD_VECTOR:-}" ]; then
-  fail 'agent-roundtrip cannot publish a certified conformance vector'
+if [[ "$MODE" = agent-* ]] && [ -n "${CONF_RECORD_VECTOR:-}" ]; then
+  fail 'experimental agent roundtrips cannot publish a certified conformance vector'
 fi
 
 # Prefer the legacy docker-compose.yml conf1/conf2 ports (8806/8807) so
@@ -329,7 +335,7 @@ fi
 pair_identity_export_source_mounts \
   || fail 'conformance could not pin its selected source mounts in the caller environment'
 case "$MODE" in
-  capture-plan|agent-roundtrip)
+  capture-plan|agent-roundtrip|agent-apply-roundtrip)
     capture_wprism_json_success CAPTURE_PLAN_CLAIMS 'capture-plan shipped declaration projection' \
       php "$PAIR_SOURCE_ROOT/sandbox/tests/lib/capture_plan_claims.php" "$PAIR_SOURCE_ROOT" \
       "$(jq -c '.pin' <<<"$ENTRY")"
@@ -434,9 +440,36 @@ install_env() { # install_env <conf1|conf2> <author|target> — pair.sh's `up`
   fi
   echo "env $env installed, role=$role ($MANIFEST: ${#PLUGINS[@]} pinned plugins, ${#THEMES[@]} pinned themes${SETUP:+, setup=$SETUP})"
 }
+
+# Test-only lifecycle setup for agent-apply-roundtrip. A manifest with schema
+# or lifecycle providers correctly cannot use standalone `wp wprism deploy`:
+# that command has no authenticated checkpoint or retained host session. This
+# disposable pair still needs the plugin active before its package-owned
+# provider and Apply checks run, so establish exactly canonical plugin/theme
+# state through WordPress's public native commands and verify it below. This is
+# fixture setup, never evidence for the adapter's deploy operation.
+fixture_reconcile_target_lifecycle() { # <newline active slugs> <stylesheet>
+  local canonical_active="$1" canonical_stylesheet="$2" current slug
+  current=$(wp_conf2 plugin list --status=active --field=name | LC_ALL=C sort -u)
+  while IFS= read -r slug; do
+    [ -n "$slug" ] || continue
+    grep -Fxq "$slug" <<<"$canonical_active" || wp_conf2 plugin deactivate "$slug"
+  done <<<"$current"
+  while IFS= read -r slug; do
+    [ -n "$slug" ] || continue
+    wp_conf2 plugin is-active "$slug" >/dev/null 2>&1 || wp_conf2 plugin activate "$slug"
+  done <<<"$canonical_active"
+  current=$(wp_conf2 option get stylesheet)
+  [ "$current" = "$canonical_stylesheet" ] || wp_conf2 theme activate "$canonical_stylesheet"
+}
+
 install_env conf1 author
 install_env conf2 target
-pass "conf1 fully authored (activated + setup); conf2 has plugin files only — deploy (below) reconciles the rest"
+if [ "$MODE" = agent-apply-roundtrip ]; then
+  pass 'conf1 fully authored; conf2 has plugin files only for deployment-refusal and disposable lifecycle evidence'
+else
+  pass "conf1 fully authored (activated + setup); conf2 has plugin files only — deploy (below) reconciles the rest"
+fi
 
 say "init the site repo (own origin, own clones — pins: $(echo "$ENTRY" | jq -c '.pin'))"
 git init --bare -b main "$ORIGIN" >/dev/null
@@ -527,7 +560,7 @@ if [ "$MODE" = "capture-plan" ]; then
   printf '\n\033[1;32m✔ CONFORMANCE PASSED (%s; capture-plan)\033[0m\n' "$MANIFEST"
   exit 0
 fi
-if [ "$MODE" = agent-roundtrip ]; then
+if [[ "$MODE" = agent-* ]]; then
   run_wprism_capture_plan "$CAPTURE_PLAN_CLAIMS" wp_conf1 /siterepo
 fi
 
@@ -541,6 +574,10 @@ wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "$R1" \
 wprism_host_install_recovery_runtime "$PAIR_SOURCE_ROOT" "$R2" \
   || fail 'could not install the adoption-equivalent recovery runtime on conf2'
 pass 'both dev-bound environments carry the exact durable recovery runtime an adopted target has'
+
+CANON_ACTIVE=$(jq -r '.records.active_plugins.value[]? | split("/")[0]' "$R1"/state/options/core.json | sort -u)
+CANON_TEMPLATE=$(jq -r '.records.template.value // empty' "$R1"/state/options/core.json)
+CANON_STYLESHEET=$(jq -r '.records.stylesheet.value // empty' "$R1"/state/options/core.json)
 
 # --- deploy conf2 from canonical --------------------------------------------
 # The real promotion path this harness used to skip entirely (spec/
@@ -564,6 +601,22 @@ if [ "$MODE" = agent-roundtrip ]; then
   jq -e '.lifecycle_phase == "all" and .code_mismatch == [] and .code_drift == [] and .warnings == []' \
     <<<"$AGENT_DEPLOY_JSON" >/dev/null || fail 'experimental agent deployment did not settle cleanly'
   pass 'agent lifecycle exercised; host production deployment remains refused'
+elif [ "$MODE" = agent-apply-roundtrip ]; then
+  assert_agent_apply_roundtrip_refusal "$CAPTURE_PLAN_CLAIMS" "$DEPLOY_RC" "$DEPLOY_OUT"
+  printf '%s\n' "$DEPLOY_OUT"
+  AGENT_DEPLOY_RC=0
+  AGENT_DEPLOY_OUT=$(wp_conf2 wprism deploy --repo=/siterepo 2>&1) || AGENT_DEPLOY_RC=$?
+  [ "$AGENT_DEPLOY_RC" -eq 1 ] \
+    || fail 'agent-apply-roundtrip direct target deploy must refuse before lifecycle mutation'
+  assert_no_php_runtime_diagnostics 'agent-apply-roundtrip direct deploy refusal' "$AGENT_DEPLOY_OUT"
+  grep -Fq 'wprism: direct target deploy cannot run host-owned provider settlement' <<<"$AGENT_DEPLOY_OUT" \
+    || fail 'agent-apply-roundtrip direct deploy did not preserve the host-owned provider boundary'
+  if grep -qE '(^|[[:space:]])(activated:|deactivated:|theme switched:)' <<<"$AGENT_DEPLOY_OUT"; then
+    fail 'agent-apply-roundtrip direct deploy reported lifecycle mutation before its provider-boundary refusal'
+  fi
+  printf '%s\n' "$AGENT_DEPLOY_OUT"
+  fixture_reconcile_target_lifecycle "$CANON_ACTIVE" "$CANON_STYLESHEET"
+  pass 'host and direct deploy boundaries refused; disposable native lifecycle setup completed for Apply evidence'
 elif [ "$DEPLOY_RC" != "0" ]; then
   echo "$DEPLOY_OUT"
   fail "host wprism deploy failed on conf2 (exit $DEPLOY_RC, manifest: $MANIFEST) — conf2's plugin-files-only install was likely insufficient (missing plugin/theme code), or deploy hit a genuine code_mismatch; see output above"
@@ -578,40 +631,46 @@ if [ "$MANIFEST" = woocommerce ]; then
   pass 'target WooCommerce placeholder is exact and safe after the cooperative test umask'
 fi
 
-say "acceptance: conf2's activation/theme state matches canonical, from deploy alone"
-CANON_ACTIVE=$(jq -r '.records.active_plugins.value[]? | split("/")[0]' "$R1"/state/options/core.json | sort -u)
+if [ "$MODE" = agent-apply-roundtrip ]; then
+  say "acceptance: conf2's fixture-established activation/theme state matches canonical"
+else
+  say "acceptance: conf2's activation/theme state matches canonical, from deploy alone"
+fi
 CONF2_ACTIVE=$(wp_conf2 plugin list --status=active --field=name | sort -u)
 if [ "$CANON_ACTIVE" != "$CONF2_ACTIVE" ]; then
   echo "canonical active plugins (from conf1's capture): $CANON_ACTIVE"
-  echo "conf2 active plugins (post-deploy):               $CONF2_ACTIVE"
-  fail "conf2's active-plugin set does not match canonical after deploy (manifest: $MANIFEST)"
+  echo "conf2 active plugins (post-lifecycle):            $CONF2_ACTIVE"
+  fail "conf2's active-plugin set does not match canonical after target lifecycle setup (manifest: $MANIFEST)"
 fi
-CANON_TEMPLATE=$(jq -r '.records.template.value // empty' "$R1"/state/options/core.json)
-CANON_STYLESHEET=$(jq -r '.records.stylesheet.value // empty' "$R1"/state/options/core.json)
 CONF2_TEMPLATE=$(wp_conf2 option get template)
 CONF2_STYLESHEET=$(wp_conf2 option get stylesheet)
 [ "$CANON_TEMPLATE" = "$CONF2_TEMPLATE" ] \
-  || fail "conf2 template ('$CONF2_TEMPLATE') does not match canonical ('$CANON_TEMPLATE') after deploy (manifest: $MANIFEST)"
+  || fail "conf2 template ('$CONF2_TEMPLATE') does not match canonical ('$CANON_TEMPLATE') after target lifecycle setup (manifest: $MANIFEST)"
 [ "$CANON_STYLESHEET" = "$CONF2_STYLESHEET" ] \
-  || fail "conf2 stylesheet ('$CONF2_STYLESHEET') does not match canonical ('$CANON_STYLESHEET') after deploy (manifest: $MANIFEST)"
-pass "conf2 active plugins (${CANON_ACTIVE:-none}) and theme (template=$CONF2_TEMPLATE, stylesheet=$CONF2_STYLESHEET) match canonical — deploy alone did this"
+  || fail "conf2 stylesheet ('$CONF2_STYLESHEET') does not match canonical ('$CANON_STYLESHEET') after target lifecycle setup (manifest: $MANIFEST)"
+if [ "$MODE" = agent-apply-roundtrip ]; then
+  pass "conf2 active plugins (${CANON_ACTIVE:-none}) and theme (template=$CONF2_TEMPLATE, stylesheet=$CONF2_STYLESHEET) match canonical after disposable native lifecycle setup"
+else
+  pass "conf2 active plugins (${CANON_ACTIVE:-none}) and theme (template=$CONF2_TEMPLATE, stylesheet=$CONF2_STYLESHEET) match canonical — deploy alone did this"
+fi
 # --- end deploy --------------------------------------------------------------
 
-# Optional per-manifest post-deploy hook (conformance/postdeploy/<name>.sh,
+# Optional per-manifest post-lifecycle hook (conformance/postdeploy/<name>.sh,
 # see this file's header comment for the full timing contract): conf2-only
-# fixups that need the plugin genuinely ACTIVE, which only just became true.
-# Runs strictly here — after deploy, before apply — never folded into the
-# seed (conf2 isn't active yet at seed time) and never left to apply (apply
-# is content reconciliation, not a place to special-case one manifest's
-# activation-hook side effects).
+# fixups that need the plugin genuinely ACTIVE, which only just became true
+# through deploy or agent-apply-roundtrip's explicit fixture lifecycle.
+# Runs strictly here — before apply — never folded into the seed (conf2 isn't
+# active yet at seed time) and never left to apply (apply is content
+# reconciliation, not a place to special-case one manifest's activation-hook
+# side effects).
 POSTDEPLOY=$(conformance_hook postdeploy.sh "conformance/postdeploy/$MANIFEST.sh")
 if [ -f "$POSTDEPLOY" ]; then
-  say "post-deploy conf2 fixup ($POSTDEPLOY)"
+  say "post-lifecycle conf2 fixup ($POSTDEPLOY)"
   bash "$POSTDEPLOY"
   pass "post-deploy fixup applied"
 fi
 
-# Setup hooks that need the plugin ACTIVE on conf2 run here, after deploy —
+# Setup hooks that need the plugin ACTIVE on conf2 run here, after lifecycle setup —
 # never in install_env (role=target skipped this on purpose; see there).
 case "$SETUP" in
   "") ;;
@@ -635,7 +694,7 @@ case "$SETUP" in
   *) fail "unknown setup hook '$SETUP' for manifest '$MANIFEST'" ;;
 esac
 
-say "apply conf2 (content only — activation/theme were deploy's job, above)"
+say "apply conf2 (content only — activation/theme lifecycle completed above)"
 # The entry's validated fixture policy selects adoption. Plugin names do not
 # grant collision authority; a dirty typed-table fixture opts in explicitly.
 capture_wprism_json_checked \
@@ -700,6 +759,8 @@ fi
 conformance_target_cron_end
 if [ "$MODE" = agent-roundtrip ]; then
   printf '\n\033[1;32m✔ AGENT ROUNDTRIP PASSED (%s; production promotion withheld)\033[0m\n' "$MANIFEST"
+elif [ "$MODE" = agent-apply-roundtrip ]; then
+  printf '\n\033[1;32m✔ AGENT APPLY ROUNDTRIP PASSED (%s; deployment unclaimed)\033[0m\n' "$MANIFEST"
 else
   printf '\n\033[1;32m✔ CONFORMANCE PASSED (%s)\033[0m\n' "$MANIFEST"
 fi

@@ -10,31 +10,59 @@
     "provider-native-post-types/v1", "provider-physical-table-rows/v1",
     "spec-window/v1", "storage-prerequisites/v1"
   ],
-  "providers": [{
-    "id": "visual-portfolio-settings", "source": "manifest", "version": "1.0.0",
-    "plugin": "visual-portfolio/class-visual-portfolio.php",
-    "capabilities": ["reconcile_settings"],
-    "fresh_process_capabilities": ["reconcile_settings"],
-    "requires": {
-      "classes": ["Visual_Portfolio_Archive_Mapping", "Visual_Portfolio_Custom_Post_Type", "Visual_Portfolio_Settings", "WP_Rewrite"],
-      "functions": ["did_action", "get_home_path", "is_blog_installed", "visual_portfolio", "wp_roles"]
+  "providers": [
+    {
+      "id": "visual-portfolio-settings", "source": "manifest", "version": "1.0.0",
+      "plugin": "visual-portfolio/class-visual-portfolio.php",
+      "capabilities": ["reconcile_settings"],
+      "fresh_process_capabilities": ["reconcile_settings"],
+      "requires": {
+        "classes": ["Visual_Portfolio_Archive_Mapping", "Visual_Portfolio_Custom_Post_Type", "Visual_Portfolio_Settings", "WP_Rewrite"],
+        "functions": ["did_action", "get_home_path", "is_blog_installed", "visual_portfolio", "wp_roles"]
+      },
+      "contracts": {"reconcile_settings": {
+        "args": [], "scope": "site", "idempotent": true, "timeout_seconds": 600,
+        "reads": ["table:options", "table:postmeta", "table:posts", "table:term_relationships", "table:term_taxonomy", "table:termmeta", "table:terms", "table:usermeta", "table:users"],
+        "writes": ["table:options", "table:postmeta"],
+        "scoped": {"operation_envelope": "wprism-scoped-effect-operation/v1", "receipt_projection": "handler", "reconcile": true}
+      }}
     },
-    "contracts": {"reconcile_settings": {
-      "args": [], "scope": "site", "idempotent": true, "timeout_seconds": 600,
-      "reads": ["table:options", "table:postmeta", "table:posts", "table:term_relationships", "table:term_taxonomy", "table:termmeta", "table:terms", "table:usermeta", "table:users"],
-      "writes": ["table:options", "table:postmeta"],
-      "scoped": {"operation_envelope": "wprism-scoped-effect-operation/v1", "receipt_projection": "handler", "reconcile": true}
-    }}
-  }],
-  "actions": [{
-    "kind": "provider", "provider": "visual-portfolio-settings", "capability": "reconcile_settings", "args": [],
-    "effects": [
-      {"id": "visual-portfolio-settings-options", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "options"}},
-      {"id": "visual-portfolio-archive-markers", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "postmeta"}},
-      {"id": "visual-portfolio-server-rules", "kind": "filesystem", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "visual-portfolio-settings:v1:wordpress-root-htaccess-and-web-config"}},
-      {"id": "visual-portfolio-native-settings-hooks", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "visual-portfolio-settings:v1:rewrite-meta-role-hooks-and-object-cache"}}
-    ]
-  }],
+    {
+      "id": "visual-portfolio-migrations", "source": "manifest", "version": "1.0.0",
+      "plugin": "visual-portfolio/class-visual-portfolio.php",
+      "capabilities": ["settle_storage"],
+      "fresh_process_capabilities": ["settle_storage"],
+      "requires": {
+        "classes": ["Visual_Portfolio_Archive_Mapping", "Visual_Portfolio_Migrations", "Visual_Portfolio_Settings"],
+        "functions": ["is_multisite", "visual_portfolio"]
+      },
+      "contracts": {"settle_storage": {
+        "args": [], "scope": "site", "idempotent": true, "timeout_seconds": 600,
+        "reads": ["table:options", "table:postmeta", "table:posts", "table:term_relationships", "table:term_taxonomy", "table:termmeta", "table:terms"],
+        "writes": ["table:options", "table:postmeta", "table:posts"]
+      }}
+    }
+  ],
+  "actions": [
+    {
+      "kind": "provider", "provider": "visual-portfolio-settings", "capability": "reconcile_settings", "args": [],
+      "effects": [
+        {"id": "visual-portfolio-settings-options", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "options"}},
+        {"id": "visual-portfolio-archive-markers", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "postmeta"}},
+        {"id": "visual-portfolio-server-rules", "kind": "filesystem", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "visual-portfolio-settings:v1:wordpress-root-htaccess-and-web-config"}},
+        {"id": "visual-portfolio-native-settings-hooks", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "visual-portfolio-settings:v1:rewrite-meta-role-hooks-and-object-cache"}}
+      ]
+    },
+    {
+      "kind": "provider", "provider": "visual-portfolio-migrations", "capability": "settle_storage",
+      "phase": "lifecycle_settle", "args": [],
+      "effects": [
+        {"id": "visual-portfolio-migration-options", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "options"}},
+        {"id": "visual-portfolio-migration-postmeta", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "postmeta"}},
+        {"id": "visual-portfolio-migration-posts", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "posts"}}
+      ]
+    }
+  ],
   "option_autoload": "preserve",
   "option_namespaces": [{"match": "^(?:_?vp_|vpf_|visual_portfolio_)"}],
   "options": {
@@ -520,7 +548,7 @@
   "notes": [
     "Modern postsQuery is an exact authored object: native picker lists are string references, while customQuery must stay empty even when its source mode is inactive. Native Save retains hidden custom text and deleted selected IDs (fixtures/queries/provenance.json). Unknown extension fields refuse.",
     "All legacy and modern query selectors refuse unmapped identities. class-get-portfolio.php:2089 omits an empty post__in constraint, so dropping the last missing selected ID could broaden the query to every post.",
-    "Experimental source capture, immutable compilation and bounded native settings Apply; archive mapping, role synchronization and deferred hard rewrite effects use the settings provider.",
+    "Experimental source capture, immutable compilation and bounded native settings Apply; archive mapping, role synchronization and deferred hard rewrite effects use the settings provider. A separate lifecycle provider runs the database-only 3.8.1 native migration procedure under an engine-owned transaction and fresh-process postimage check; a non-null portfolio_slug on a cursor predating 2.15 refuses before native mutation because that branch defers the settings provider's irreversible hard rewrite boundary.",
     "Native 3.8.1 classes/class-custom-post-type.php:200,223 declares hierarchical categories and flat tags. Both are unregistered while portfolio content is disabled; these exact declarations let the engine bound its taxonomy cache roster when re-enabling settings.",
     "The archive page and placeholder are post references. _vp_post_type_mapped is derived from the archive option; treating each marker as authored leaves the old target marker outside outbound scope closure.",
     "The native archive page-size and seven image-width settings are numeric controls (classes/class-settings.php:287, 434-485), not post identities. Their narrow lint_ok reviews preserve string values even when they coincide with real post IDs.",

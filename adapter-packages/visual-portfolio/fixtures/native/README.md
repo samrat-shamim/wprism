@@ -1,11 +1,10 @@
 # Native authoring round trip
 
 The capsule conformance profile exercises the exact free 3.8.1 artifact through
-experimental agent deployment and Apply. The shared harness still requires the
-host production-deployment refusal; this profile does not promote readiness.
-The experimental disposition explicitly declares `deploy` as well as `apply`.
-This shipped claim changes adapter identity, so existing deployments must
-recompile and re-pin; the conformance guard is never bypassed.
+the public Apply path after package-owned provider settlement. The shared harness
+requires both the host certification refusal and the direct target refusal for
+host-owned provider phases, then establishes disposable native lifecycle state.
+Deploy remains unclaimed; this profile does not promote readiness.
 
 The retained native gallery and legacy archive bodies, settings and images are
 written on source through the existing fixture's WordPress/REST paths. Four
@@ -13,14 +12,22 @@ projects have distinct native dates so archive order does not depend on local ID
 allocation. Before authoring, the source begins without `vpf_db_version` and the
 plugin's public `Visual_Portfolio_Migrations::init()` procedure advances it to
 3.8.1 and reaches a second-run fixed point across the bounded observed option,
-post and postmeta migration surface. The target starts with
-plugin files only, and agent activation naturally leaves the cursor absent. A
+post and postmeta migration surface. On the target, the legacy archive option is
+deliberately pointed at an ordinary post; the official migration has no post-type
+check and defers a hard rewrite. The provider proves a non-mutating refusal because
+that branch exceeds its checkpoint-restorable effect boundary. Explicit native
+maintenance then proves the slug change, drains the plugin's deferred rewrite, and
+removes its target-only witness before authored replay. The target starts with
+plugin files only, and fixture activation naturally leaves the cursor absent. A
 real public Apply then returns the value-free `storage_prerequisite_unmet`
 envelope without changing the bounded migration surface. The same refusal and
-non-mutation proof runs for a stale 3.8.0 cursor. In both cases only the plugin's
-own migration procedure advances storage; the fixture never writes a current
-cursor directly. Automatic host settlement when installed code is already
-current remains a platform follow-up.
+non-mutation proof runs for a stale 3.8.0 cursor. Once the legacy state is cleared,
+the dedicated lifecycle provider invokes the plugin's own procedure for both missing
+and stale cursors through the engine provider phase, under its declared database
+transaction and two fresh WordPress boots. The fixture never writes a current cursor
+directly. The same-manifest effect declaration makes database-only storage settlement
+discoverable. Certified host deployment remains unclaimed and is a separate
+qualification milestone.
 
 After storage settles, 32 trash posts and 32 inserted/deleted categories advance
 target identity spaces. The term padding leaves no authored target-only

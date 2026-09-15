@@ -1,20 +1,25 @@
 {
   "status": "experimental",
-  "reason": "Visual Portfolio 3.8.1 declares experimental agent deployment through native activation, capture, immutable compilation, bounded native post-query Apply and scoped archive/settings repair, including explicit requests returning to earlier artifacts. The locked activation hook sets a welcome transient and defers rewrite flushing (class-visual-portfolio.php:285-290); the agent-roundtrip profile exercises this boundary while host production deployment remains refused. Complete effect recovery and production qualification remain open.",
+  "reason": "Visual Portfolio 3.8.1 declares experimental capture, immutable compilation, bounded native post-query Apply and scoped archive/settings repair, including explicit requests returning to earlier artifacts. A dedicated lifecycle action runs the plugin's database-only public migration routine in an engine-owned transaction and proves the exact cursor and bounded database postimage again in an independent fresh WordPress boot. A non-null portfolio_slug on a cursor predating 2.15 refuses before native mutation because the plugin couples that branch to deferred hard rewrite effects outside the checkpoint-restorable storage action. A certified host can infer storage-only settlement without duplicating provider identity in the prerequisite. Because provider phases require host checkpoint/session ordering while experimental disposition blocks host promotion, deploy remains deliberately unclaimed. The agent-apply-roundtrip profile pins both deployment refusals, establishes disposable native lifecycle state, and exercises the provider and Apply boundary. Irreversible settings effects, broader lifecycle combinations and production qualification remain open.",
   "supported_versions": {"plugin": "visual-portfolio/class-visual-portfolio.php", "range": {"min": "3.8.1", "max": "3.8.2"}},
   "capabilities": {
     "entity_sections": ["post_types", "taxonomies"],
     "field_sections": ["options", "post_meta", "block_attrs", "block_values"],
-    "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture"],
-    "lifecycle_phases": [],
+    "operations": ["capture", "compile", "plan", "apply", "recapture"],
+    "lifecycle_phases": ["lifecycle_settle"],
     "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific entity deletion"]}
   },
   "default_authored_keyspaces": [],
   "evidence": {
     "bundle_schema": "wprism-subject-certification-bundle/v1",
-    "tests": ["regress-native-content", "regress-native-options", "regress-native-queries", "regress-settings-apply", "regress-native-roundtrip-evidence", "regress-native-roundtrip-claims", "conformance-visual-portfolio"]
+    "tests": ["regress-native-content", "regress-native-options", "regress-native-queries", "regress-settings-apply", "regress-storage-migrations", "regress-native-roundtrip-evidence", "regress-native-roundtrip-claims", "conformance-visual-portfolio"]
   },
   "unsupported": [
+    {
+      "operation": "apply",
+      "surface": "legacy-archive-slug-storage-settlement",
+      "reason": "Visual Portfolio's pre-2.15 migration of a non-null portfolio_slug defers a hard rewrite with server-file and hook effects. Automatic storage settlement refuses before mutation; run the plugin's native maintenance procedure, then retry."
+    },
     {
       "operation": "apply",
       "surface": "server-file-and-native-hook-recovery",
@@ -23,7 +28,7 @@
     {
       "operation": "all",
       "surface": "production-qualification",
-      "reason": "Full native round trips, hostile cases, lifecycle and combinations remain under authoring."
+      "reason": "Full native round trips, hostile cases, lifecycle combinations and certified host promotion remain under authoring."
     },
     {
       "operation": "all",

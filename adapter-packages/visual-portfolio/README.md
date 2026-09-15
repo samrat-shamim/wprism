@@ -1,11 +1,13 @@
 # Visual Portfolio
 
 Experimental declarations for the official free **3.8.1** artifact. This capsule
-exercises source capture, immutable compilation, codec fixed points and a bounded
-native settings and post-query Apply lanes. It does not authorize production release.
+exercises source capture, immutable compilation, codec fixed points and bounded
+native settings, storage-migration and post-query Apply lanes. Deploy remains
+unclaimed until certified host qualification; this does not authorize production release.
 
 The manifest uses 41 exact block groups and one composed query object for 470
-value declarations, plus four explicit unsupported attributes. One manifest provider repairs native settings;
+value declarations, plus four explicit unsupported attributes. Separate manifest
+providers repair native settings and settle the exact 3.8.1 migration cursor;
 there is no interpreter or regenerator.
 The native source registry accounts for all 22 block types in its observed context;
 registry coverage is not evidence that every control was edited and saved.
@@ -51,10 +53,25 @@ table at 8,192 rows / 16 MiB. Server-file snapshots bind bytes or absence; they 
 not prove rewrite-file semantics or provide file rollback. Server files and native
 external hooks remain explicitly irreversible effects, blocking automatic promotion.
 
-Saved Layouts, nonempty custom queries, extension sources and modern custom CSS refuse
+The migration provider is a separate `lifecycle_settle` action. Its complete
+durable write set is the `options`, `posts` and `postmeta` tables covered by the
+host database checkpoint, so storage-only deploy can infer it from the existing
+`vpf_db_version=3.8.1` prerequisite without another callback declaration. The
+provider invokes `Visual_Portfolio_Migrations::init()` inside the SDK transaction,
+proves an immediate no-op pass, and exposes only a bounded physical postimage to
+the engine's independent fresh observer. The observed migration surface is limited
+to 4,096 rows / 4 MiB per options, page/saved-layout plus legacy-option archive
+post, and Visual Portfolio postmeta projection. Exceeding any bound refuses before
+a successful receipt. A non-null `vp_general.portfolio_slug` whose saved cursor
+predates 2.15 takes the plugin's hard rewrite path, whose server-file and hook effects
+are not checkpoint-restorable; the provider refuses that state before native mutation
+and leaves it to explicit native maintenance.
+
+Saved Layout authoring, nonempty custom queries, extension sources and modern custom CSS refuse
 where declared. Premium settings, including hidden premium fields submitted by the
 free popup form, remain target-local. The exact artifact lock retains 3.8.0 as an
-unexecuted refusal fixture. Native version transitions, lifecycle, combinations
+explicit stale-cursor exercise fixture. Certified host promotion, adjacent version
+transitions, retirement/reactivation and participant-declared combinations
 and all twelve production readiness families remain open in
 [evidence/production-readiness.json](evidence/production-readiness.json).
 
@@ -66,7 +83,7 @@ php tools/adapter-package-tests.php --adapter=visual-portfolio
 ```
 
 The package-owned native workflow uses the shared conformance driver in
-`capture-plan` mode. From a clean, committed candidate, select an unused pair and
+`agent-apply-roundtrip` mode. From a clean, committed candidate, select an unused pair and
 ports, then run:
 
 ```sh
@@ -78,9 +95,10 @@ bash sandbox/bin/pair.sh destroy vpcap01
 
 This workflow rebases the retained block bodies onto fresh native media IDs,
 saves through WordPress REST and plugin source writers, then exercises public
-Capture and immutable compilation. It compares complete canonical files, seven
-native tables, the block registry and upload hashes across repeated Capture.
-It stops before target deploy or Apply.
+Capture, immutable compilation and experimental agent Apply. It pins both host
+and target deployment refusals, proves the target's migration boundaries, and
+compares complete canonical files, seven native tables, the block registry,
+upload hashes and rendered native pages across the roundtrip.
 
 The separate settings lane owns and destroys its pair automatically:
 
