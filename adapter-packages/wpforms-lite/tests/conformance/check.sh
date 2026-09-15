@@ -23,10 +23,12 @@ foreach (['integer', 'string', 'template'] as $role) {
     if (!is_array($data) || ($role !== 'template' && (string) ($data['id'] ?? '') !== (string) $post->ID)) {
         throw new RuntimeException("WPForms target body identity did not converge: $role");
     }
-    ob_start();
-    wpforms_display($post->ID, true, true);
-    $html = (string) ob_get_clean();
-    if ($html === '' || !str_contains($html, 'wpforms-form')) throw new RuntimeException("WPForms target form did not render: $role");
+    if ($role !== 'template') {
+        ob_start();
+        wpforms_display($post->ID, true, true);
+        $html = (string) ob_get_clean();
+        if ($html === '' || !str_contains($html, 'wpforms-form')) throw new RuntimeException("WPForms target form did not render: $role");
+    }
     $forms[$role] = ['id' => (int) $post->ID, 'data' => $data, 'locations' => get_post_meta($post->ID, 'wpforms_form_locations', true)];
 }
 $destination = $find(...$roles['destination']);
