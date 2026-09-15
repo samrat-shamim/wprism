@@ -4,7 +4,8 @@
   "plugin": "qi-blocks/class-qi-blocks.php",
   "version_range": {"min": "1.5.2", "max": "1.5.3"},
   "engine_features": [
-    "block-attribute-groups/v1", "block-attribute-values/v1", "block-media-derivatives/v1", "block-record-fields/v1",
+    "block-attribute-groups/v1", "block-attribute-name-products/v1", "block-attribute-values/v1",
+    "block-media-derivatives/v1", "block-record-fields/v1",
     "key-bound-strings/v1", "php-container-values/v1", "spec-window/v1"
   ],
   "option_autoload": "preserve",
@@ -51,7 +52,8 @@
           "qi-blocks/tabs-horizontal", "qi-blocks/tabs-vertical", "qi-blocks/tag-cloud", "qi-blocks/team-member",
           "qi-blocks/testimonials-list", "qi-blocks/text-marquee", "qi-blocks/timeline"
         ],
-        "attributes": ["advancedBackgroundImage", "advancedBackgroundImageMobile", "advancedBackgroundImageTablet"],
+        "attribute_bases": ["advancedBackgroundImage"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {
           "class": "authored",
           "json_refs": [
@@ -64,7 +66,8 @@
           "qi-blocks/call-to-action", "qi-blocks/column", "qi-blocks/columns", "qi-blocks/countdown",
           "qi-blocks/info-box", "qi-blocks/message-box"
         ],
-        "attributes": ["backgroundImage", "backgroundImageMobile", "backgroundImageTablet"],
+        "attribute_bases": ["backgroundImage"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {
           "class": "authored",
           "json_refs": [
@@ -85,7 +88,8 @@
       },
       {
         "blocks": ["qi-blocks/author-info", "qi-blocks/single-image"],
-        "attributes": ["image", "imageMobile", "imageTablet"],
+        "attribute_bases": ["image"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {
           "class": "authored",
           "json_refs": [
@@ -127,7 +131,8 @@
       },
       {
         "blocks": ["qi-blocks/process", "qi-blocks/testimonials-list"],
-        "attributes": ["itemBackgroundImage", "itemBackgroundImageMobile", "itemBackgroundImageTablet"],
+        "attribute_bases": ["itemBackgroundImage"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {
           "class": "authored",
           "json_refs": [
@@ -147,10 +152,8 @@
       },
       {
         "blocks": ["qi-blocks/tabs-horizontal", "qi-blocks/tabs-vertical"],
-        "attributes": [
-          "titleBackgroundImage", "titleBackgroundImageMobile", "titleBackgroundImageTablet",
-          "titleHoverBackgroundImage", "titleHoverBackgroundImageMobile", "titleHoverBackgroundImageTablet"
-        ],
+        "attribute_bases": ["titleBackgroundImage", "titleHoverBackgroundImage"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {
           "class": "authored",
           "json_refs": [
@@ -197,10 +200,9 @@
       },
       {
         "blocks": ["qi-blocks/columns"],
-        "attributes": [
-          "backgroundVideoFallbackImage", "backgroundVideoLink", "overlayBackgroundImage",
-          "overlayBackgroundImageMobile", "overlayBackgroundImageTablet"
-        ],
+        "attributes": ["backgroundVideoFallbackImage", "backgroundVideoLink"],
+        "attribute_bases": ["overlayBackgroundImage"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {
           "class": "authored",
           "json_refs": [
@@ -220,7 +222,8 @@
       },
       {
         "blocks": ["qi-blocks/contact-form-7"],
-        "attributes": ["responseBackgroundImage", "responseBackgroundImageMobile", "responseBackgroundImageTablet"],
+        "attribute_bases": ["responseBackgroundImage"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {
           "class": "authored",
           "json_refs": [
@@ -272,7 +275,8 @@
       },
       {
         "blocks": ["qi-blocks/parallax-images"],
-        "attributes": ["mainImage", "mainImageMobile", "mainImageTablet"],
+        "attribute_bases": ["mainImage"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {
           "class": "authored",
           "json_refs": [
@@ -282,10 +286,9 @@
       },
       {
         "blocks": ["qi-blocks/pricing-table"],
-        "attributes": [
-          "titleWrapperBackgroundImage", "titleWrapperBackgroundImageMobile",
-          "titleWrapperBackgroundImageTablet", "verticalImage"
-        ],
+        "attributes": ["verticalImage"],
+        "attribute_bases": ["titleWrapperBackgroundImage"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {
           "class": "authored",
           "json_refs": [
@@ -295,10 +298,8 @@
       },
       {
         "blocks": ["qi-blocks/process"],
-        "attributes": [
-          "additionalHolderBackgroundImage", "additionalHolderBackgroundImageMobile",
-          "additionalHolderBackgroundImageTablet"
-        ],
+        "attribute_bases": ["additionalHolderBackgroundImage"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {
           "class": "authored",
           "json_refs": [
@@ -349,10 +350,10 @@
           "qi-blocks/testimonials-list", "qi-blocks/text-marquee", "qi-blocks/timeline"
         ],
         "attributes": [
-          "className", "cssClasses", "cssId", "entranceAnimation", "entranceAnimationDuration", "marginUnit",
-          "marginUnitMobile", "marginUnitTablet", "paddingUnit", "paddingUnitMobile", "paddingUnitTablet",
-          "uniqueClass"
+          "className", "cssClasses", "cssId", "entranceAnimation", "entranceAnimationDuration", "uniqueClass"
         ],
+        "attribute_bases": ["marginUnit", "paddingUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -374,23 +375,17 @@
         "attributes": [
           "advancedBackgroundAttachment", "advancedBackgroundColor", "advancedBackgroundGradientColor1",
           "advancedBackgroundGradientColor2", "advancedBackgroundGradientType",
-          "advancedBackgroundGradientTypePosition", "advancedBackgroundPosition",
-          "advancedBackgroundPositionMobile", "advancedBackgroundPositionTablet", "advancedBackgroundRepeat",
-          "advancedBackgroundRepeatMobile", "advancedBackgroundRepeatTablet", "advancedBackgroundSize",
-          "advancedBackgroundSizeMobile", "advancedBackgroundSizeTablet", "advancedBackgroundSizeWidthUnit",
-          "advancedBackgroundSizeWidthUnitMobile", "advancedBackgroundSizeWidthUnitTablet",
-          "advancedBackgroundType", "advancedBackgroundXPositionUnit", "advancedBackgroundXPositionUnitMobile",
-          "advancedBackgroundXPositionUnitTablet", "advancedBackgroundYPositionUnit",
-          "advancedBackgroundYPositionUnitMobile", "advancedBackgroundYPositionUnitTablet",
-          "advancedBorderColor", "advancedBorderRadiusUnit", "advancedBorderRadiusUnitMobile",
-          "advancedBorderRadiusUnitTablet", "advancedBorderStyle", "advancedBorderWidthUnit",
-          "advancedBorderWidthUnitMobile", "advancedBorderWidthUnitTablet", "advancedBoxShadowColor",
-          "advancedBoxShadowPosition", "blockCustomWidthUnit", "blockCustomWidthUnitMobile",
-          "blockCustomWidthUnitTablet", "blockPosition", "blockWidth", "blockWidthMobile", "blockWidthTablet",
-          "positionHorizontalOffsetUnit", "positionHorizontalOffsetUnitMobile",
-          "positionHorizontalOffsetUnitTablet", "positionHorizontalOrientation", "positionVerticalOffsetUnit",
-          "positionVerticalOffsetUnitMobile", "positionVerticalOffsetUnitTablet", "positionVerticalOrientation"
+          "advancedBackgroundGradientTypePosition", "advancedBackgroundType", "advancedBorderColor",
+          "advancedBorderStyle", "advancedBoxShadowColor", "advancedBoxShadowPosition", "blockPosition",
+          "positionHorizontalOrientation", "positionVerticalOrientation"
         ],
+        "attribute_bases": [
+          "advancedBackgroundPosition", "advancedBackgroundRepeat", "advancedBackgroundSize",
+          "advancedBackgroundSizeWidthUnit", "advancedBackgroundXPositionUnit", "advancedBackgroundYPositionUnit",
+          "advancedBorderRadiusUnit", "advancedBorderWidthUnit", "blockCustomWidthUnit", "blockWidth",
+          "positionHorizontalOffsetUnit", "positionVerticalOffsetUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -404,12 +399,9 @@
           "qi-blocks/section-title", "qi-blocks/table-of-contents", "qi-blocks/tabs-horizontal",
           "qi-blocks/tabs-vertical", "qi-blocks/testimonials-list", "qi-blocks/timeline"
         ],
-        "attributes": [
-          "titleFontSizeUnit", "titleFontSizeUnitMobile", "titleFontSizeUnitTablet", "titleFontStyle",
-          "titleFontWeight", "titleLetterSpacingUnit", "titleLetterSpacingUnitMobile",
-          "titleLetterSpacingUnitTablet", "titleLineHeightUnit", "titleLineHeightUnitMobile",
-          "titleLineHeightUnitTablet", "titleTextDecoration", "titleTextTransform"
-        ],
+        "attributes": ["titleFontStyle", "titleFontWeight", "titleTextDecoration", "titleTextTransform"],
+        "attribute_bases": ["titleFontSizeUnit", "titleLetterSpacingUnit", "titleLineHeightUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -450,11 +442,11 @@
           "qi-blocks/text-marquee", "qi-blocks/timeline"
         ],
         "attributes": [
-          "textColor", "textFontFamily", "textFontSizeUnit", "textFontSizeUnitMobile", "textFontSizeUnitTablet",
-          "textFontStyle", "textFontWeight", "textLetterSpacingUnit", "textLetterSpacingUnitMobile",
-          "textLetterSpacingUnitTablet", "textLineHeightUnit", "textLineHeightUnitMobile",
-          "textLineHeightUnitTablet", "textTextDecoration", "textTextTransform"
+          "textColor", "textFontFamily", "textFontStyle", "textFontWeight", "textTextDecoration",
+          "textTextTransform"
         ],
+        "attribute_bases": ["textFontSizeUnit", "textLetterSpacingUnit", "textLineHeightUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -492,7 +484,8 @@
           "qi-blocks/how-to", "qi-blocks/icon-with-text", "qi-blocks/message-box", "qi-blocks/process",
           "qi-blocks/progress-bar-circle", "qi-blocks/section-title", "qi-blocks/table-of-contents"
         ],
-        "attributes": ["textMarginTopUnit", "textMarginTopUnitMobile", "textMarginTopUnitTablet"],
+        "attribute_bases": ["textMarginTopUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -528,7 +521,8 @@
           "qi-blocks/icon-with-text", "qi-blocks/process", "qi-blocks/product-list",
           "qi-blocks/progress-bar-circle", "qi-blocks/table-of-contents"
         ],
-        "attributes": ["titleMarginTopUnit", "titleMarginTopUnitMobile", "titleMarginTopUnitTablet"],
+        "attribute_bases": ["titleMarginTopUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -537,7 +531,8 @@
           "qi-blocks/image-gallery-masonry", "qi-blocks/image-gallery-pinterest", "qi-blocks/product-list",
           "qi-blocks/testimonials-list", "qi-blocks/text-marquee", "qi-blocks/timeline"
         ],
-        "attributes": ["spaceBetweenItemsUnit", "spaceBetweenItemsUnitMobile", "spaceBetweenItemsUnitTablet"],
+        "attribute_bases": ["spaceBetweenItemsUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -546,7 +541,8 @@
           "qi-blocks/image-gallery-pinterest", "qi-blocks/image-slider", "qi-blocks/product-list",
           "qi-blocks/single-image", "qi-blocks/testimonials-list", "qi-blocks/timeline"
         ],
-        "attributes": ["imageBorderRadiusUnit", "imageBorderRadiusUnitMobile", "imageBorderRadiusUnitTablet"],
+        "attribute_bases": ["imageBorderRadiusUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -555,7 +551,8 @@
           "qi-blocks/table-of-contents", "qi-blocks/tabs-horizontal", "qi-blocks/tabs-vertical",
           "qi-blocks/testimonials-list", "qi-blocks/timeline"
         ],
-        "attributes": ["textPaddingUnit", "textPaddingUnitMobile", "textPaddingUnitTablet"],
+        "attribute_bases": ["textPaddingUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -588,7 +585,8 @@
           "qi-blocks/author-info", "qi-blocks/button", "qi-blocks/counter", "qi-blocks/divider",
           "qi-blocks/icon-with-text", "qi-blocks/info-box", "qi-blocks/message-box", "qi-blocks/pricing-table"
         ],
-        "attributes": ["iconFontSizeUnit", "iconFontSizeUnitMobile", "iconFontSizeUnitTablet"],
+        "attribute_bases": ["iconFontSizeUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -596,7 +594,8 @@
           "qi-blocks/accordion", "qi-blocks/banner", "qi-blocks/blog-list", "qi-blocks/clients-list",
           "qi-blocks/faq", "qi-blocks/product-list", "qi-blocks/team-member"
         ],
-        "attributes": ["contentPaddingUnit", "contentPaddingUnitMobile", "contentPaddingUnitTablet"],
+        "attribute_bases": ["contentPaddingUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -636,7 +635,8 @@
           "qi-blocks/accordion", "qi-blocks/clients-list", "qi-blocks/faq", "qi-blocks/team-member",
           "qi-blocks/text-marquee", "qi-blocks/timeline"
         ],
-        "attributes": ["iconSizeUnit", "iconSizeUnitMobile", "iconSizeUnitTablet"],
+        "attribute_bases": ["iconSizeUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -644,7 +644,8 @@
           "qi-blocks/blog-list", "qi-blocks/button", "qi-blocks/divider", "qi-blocks/icon-with-text",
           "qi-blocks/message-box", "qi-blocks/product-list"
         ],
-        "attributes": ["iconMarginUnit", "iconMarginUnitMobile", "iconMarginUnitTablet"],
+        "attribute_bases": ["iconMarginUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -652,7 +653,8 @@
           "qi-blocks/blog-list", "qi-blocks/clients-list", "qi-blocks/info-box", "qi-blocks/search",
           "qi-blocks/testimonials-list", "qi-blocks/timeline"
         ],
-        "attributes": ["titleMarginBottomUnit", "titleMarginBottomUnitMobile", "titleMarginBottomUnitTablet"],
+        "attribute_bases": ["titleMarginBottomUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -685,15 +687,14 @@
           "qi-blocks/info-box", "qi-blocks/message-box"
         ],
         "attributes": [
-          "backgroundAttachment", "backgroundGradientColor1", "backgroundGradientColor2",
-          "backgroundGradientType", "backgroundGradientTypePosition", "backgroundPosition",
-          "backgroundPositionMobile", "backgroundPositionTablet", "backgroundRepeat", "backgroundRepeatMobile",
-          "backgroundRepeatTablet", "backgroundSize", "backgroundSizeMobile", "backgroundSizeTablet",
-          "backgroundSizeWidthUnit", "backgroundSizeWidthUnitMobile", "backgroundSizeWidthUnitTablet",
-          "backgroundType", "backgroundXPositionUnit", "backgroundXPositionUnitMobile",
-          "backgroundXPositionUnitTablet", "backgroundYPositionUnit", "backgroundYPositionUnitMobile",
-          "backgroundYPositionUnitTablet"
+          "backgroundAttachment", "backgroundGradientColor1", "backgroundGradientColor2", "backgroundGradientType",
+          "backgroundGradientTypePosition", "backgroundType"
         ],
+        "attribute_bases": [
+          "backgroundPosition", "backgroundRepeat", "backgroundSize", "backgroundSizeWidthUnit",
+          "backgroundXPositionUnit", "backgroundYPositionUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -701,7 +702,8 @@
           "qi-blocks/pricing-table", "qi-blocks/progress-bar-horizontal", "qi-blocks/progress-bar-vertical",
           "qi-blocks/section-title", "qi-blocks/tabs-horizontal", "qi-blocks/tabs-vertical"
         ],
-        "attributes": ["titleMarginUnit", "titleMarginUnitMobile", "titleMarginUnitTablet"],
+        "attribute_bases": ["titleMarginUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -734,12 +736,11 @@
           "qi-blocks/table-of-contents"
         ],
         "attributes": [
-          "subtitle", "subtitleColor", "subtitleFontFamily", "subtitleFontSizeUnit",
-          "subtitleFontSizeUnitMobile", "subtitleFontSizeUnitTablet", "subtitleFontStyle", "subtitleFontWeight",
-          "subtitleLetterSpacingUnit", "subtitleLetterSpacingUnitMobile", "subtitleLetterSpacingUnitTablet",
-          "subtitleLineHeightUnit", "subtitleLineHeightUnitMobile", "subtitleLineHeightUnitTablet",
+          "subtitle", "subtitleColor", "subtitleFontFamily", "subtitleFontStyle", "subtitleFontWeight",
           "subtitleTextDecoration", "subtitleTextTransform"
         ],
+        "attribute_bases": ["subtitleFontSizeUnit", "subtitleLetterSpacingUnit", "subtitleLineHeightUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -747,7 +748,8 @@
           "qi-blocks/banner", "qi-blocks/icon-with-text", "qi-blocks/pricing-table", "qi-blocks/product-list",
           "qi-blocks/section-title"
         ],
-        "attributes": ["buttonMarginTopUnit", "buttonMarginTopUnitMobile", "buttonMarginTopUnitTablet"],
+        "attribute_bases": ["buttonMarginTopUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -756,11 +758,11 @@
           "qi-blocks/search"
         ],
         "attributes": [
-          "buttonBackgroundColor", "buttonBorderColor", "buttonBorderRadiusUnit", "buttonBorderRadiusUnitMobile",
-          "buttonBorderRadiusUnitTablet", "buttonBorderWidthUnit", "buttonBorderWidthUnitMobile",
-          "buttonBorderWidthUnitTablet", "buttonColor", "buttonHoverBackgroundColor", "buttonHoverColor",
-          "buttonPaddingUnit", "buttonPaddingUnitMobile", "buttonPaddingUnitTablet"
+          "buttonBackgroundColor", "buttonBorderColor", "buttonColor", "buttonHoverBackgroundColor",
+          "buttonHoverColor"
         ],
+        "attribute_bases": ["buttonBorderRadiusUnit", "buttonBorderWidthUnit", "buttonPaddingUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -768,7 +770,8 @@
           "qi-blocks/blog-list", "qi-blocks/info-box", "qi-blocks/team-member", "qi-blocks/testimonials-list",
           "qi-blocks/timeline"
         ],
-        "attributes": ["textMarginBottomUnit", "textMarginBottomUnitMobile", "textMarginBottomUnitTablet"],
+        "attribute_bases": ["textMarginBottomUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -801,7 +804,9 @@
       },
       {
         "blocks": ["qi-blocks/call-to-action", "qi-blocks/clients-list", "qi-blocks/column", "qi-blocks/columns"],
-        "attributes": ["borderStyle", "borderWidthUnit", "borderWidthUnitMobile", "borderWidthUnitTablet"],
+        "attributes": ["borderStyle"],
+        "attribute_bases": ["borderWidthUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -810,11 +815,10 @@
           "qi-blocks/progress-bar-vertical"
         ],
         "attributes": [
-          "numberFontFamily", "numberFontSizeUnit", "numberFontSizeUnitMobile", "numberFontSizeUnitTablet",
-          "numberFontStyle", "numberFontWeight", "numberLetterSpacingUnit", "numberLetterSpacingUnitMobile",
-          "numberLetterSpacingUnitTablet", "numberLineHeightUnit", "numberLineHeightUnitMobile",
-          "numberLineHeightUnitTablet", "numberTextDecoration", "numberTextTransform"
+          "numberFontFamily", "numberFontStyle", "numberFontWeight", "numberTextDecoration", "numberTextTransform"
         ],
+        "attribute_bases": ["numberFontSizeUnit", "numberLetterSpacingUnit", "numberLineHeightUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -828,15 +832,15 @@
           "qi-blocks/image-slider"
         ],
         "attributes": [
-          "captionBoxBackgroundColor", "captionBoxPaddingUnit", "captionBoxPaddingUnitMobile",
-          "captionBoxPaddingUnitTablet", "captionLabelColor", "captionLabelFontFamily",
-          "captionLabelFontSizeUnit", "captionLabelFontSizeUnitMobile", "captionLabelFontSizeUnitTablet",
-          "captionLabelFontStyle", "captionLabelFontWeight", "captionLabelHoverColor",
-          "captionLabelLetterSpacingUnit", "captionLabelLetterSpacingUnitMobile",
-          "captionLabelLetterSpacingUnitTablet", "captionLabelLineHeightUnit",
-          "captionLabelLineHeightUnitMobile", "captionLabelLineHeightUnitTablet", "captionLabelTextDecoration",
+          "captionBoxBackgroundColor", "captionLabelColor", "captionLabelFontFamily", "captionLabelFontStyle",
+          "captionLabelFontWeight", "captionLabelHoverColor", "captionLabelTextDecoration",
           "captionLabelTextTransform"
         ],
+        "attribute_bases": [
+          "captionBoxPaddingUnit", "captionLabelFontSizeUnit", "captionLabelLetterSpacingUnit",
+          "captionLabelLineHeightUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -844,7 +848,8 @@
           "qi-blocks/pricing-table", "qi-blocks/tabs-horizontal", "qi-blocks/tabs-vertical",
           "qi-blocks/timeline"
         ],
-        "attributes": ["titlePaddingUnit", "titlePaddingUnitMobile", "titlePaddingUnitTablet"],
+        "attribute_bases": ["titlePaddingUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -862,7 +867,8 @@
       },
       {
         "blocks": ["qi-blocks/accordion", "qi-blocks/faq", "qi-blocks/tabs-vertical"],
-        "attributes": ["itemsSpaceUnit", "itemsSpaceUnitMobile", "itemsSpaceUnitTablet"],
+        "attribute_bases": ["itemsSpaceUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -877,12 +883,14 @@
       },
       {
         "blocks": ["qi-blocks/author-info", "qi-blocks/blog-list", "qi-blocks/testimonials-list"],
-        "attributes": ["sideImageWidthUnit", "sideImageWidthUnitMobile", "sideImageWidthUnitTablet"],
+        "attribute_bases": ["sideImageWidthUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/banner", "qi-blocks/clients-list", "qi-blocks/countdown"],
-        "attributes": ["textHorizontalAlignment", "textHorizontalAlignmentMobile", "textHorizontalAlignmentTablet"],
+        "attribute_bases": ["textHorizontalAlignment"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -890,25 +898,19 @@
         "attributes": [
           "buttonIconBackgroundColor", "buttonIconBackgroundHoverColor", "buttonIconBackgroundHoverReveal",
           "buttonIconEnableSideBorder", "buttonIconHoverMove", "buttonIconSideBorderColor",
-          "buttonIconSideBorderHeightUnit", "buttonIconSideBorderHeightUnitMobile",
-          "buttonIconSideBorderHeightUnitTablet", "buttonIconSideBorderHoverColor",
-          "buttonIconSideBorderWidthUnit", "buttonIconSideBorderWidthUnitMobile",
-          "buttonIconSideBorderWidthUnitTablet", "buttonIconStrokeWidthUnit", "buttonInnerBorderColor",
-          "buttonInnerBorderHoverColor", "buttonInnerBorderHoverType", "buttonInnerBorderOffsetUnit",
-          "buttonInnerBorderOffsetUnitMobile", "buttonInnerBorderOffsetUnitTablet", "buttonInnerBorderWidthUnit",
-          "buttonInnerBorderWidthUnitMobile", "buttonInnerBorderWidthUnitTablet", "buttonLayout",
-          "buttonRevealHover", "buttonSize", "buttonTextFontFamily", "buttonTextFontSizeUnit",
-          "buttonTextFontSizeUnitMobile", "buttonTextFontSizeUnitTablet", "buttonTextFontStyle",
-          "buttonTextFontWeight", "buttonTextLetterSpacingUnit", "buttonTextLetterSpacingUnitMobile",
-          "buttonTextLetterSpacingUnitTablet", "buttonTextLineHeightUnit", "buttonTextLineHeightUnitMobile",
-          "buttonTextLineHeightUnitTablet", "buttonTextTextDecoration", "buttonTextTextTransform",
-          "buttonUnderline", "buttonUnderlineAlignment", "buttonUnderlineColor", "buttonUnderlineDraw",
-          "buttonUnderlineHoverColor", "buttonUnderlineHoverWidthUnit", "buttonUnderlineHoverWidthUnitMobile",
-          "buttonUnderlineHoverWidthUnitTablet", "buttonUnderlineOffsetUnit", "buttonUnderlineOffsetUnitMobile",
-          "buttonUnderlineOffsetUnitTablet", "buttonUnderlineThicknessUnit",
-          "buttonUnderlineThicknessUnitMobile", "buttonUnderlineThicknessUnitTablet", "buttonUnderlineWidthUnit",
-          "buttonUnderlineWidthUnitMobile", "buttonUnderlineWidthUnitTablet"
+          "buttonIconSideBorderHoverColor", "buttonIconStrokeWidthUnit", "buttonInnerBorderColor",
+          "buttonInnerBorderHoverColor", "buttonInnerBorderHoverType", "buttonLayout", "buttonRevealHover",
+          "buttonSize", "buttonTextFontFamily", "buttonTextFontStyle", "buttonTextFontWeight",
+          "buttonTextTextDecoration", "buttonTextTextTransform", "buttonUnderline", "buttonUnderlineAlignment",
+          "buttonUnderlineColor", "buttonUnderlineDraw", "buttonUnderlineHoverColor"
         ],
+        "attribute_bases": [
+          "buttonIconSideBorderHeightUnit", "buttonIconSideBorderWidthUnit", "buttonInnerBorderOffsetUnit",
+          "buttonInnerBorderWidthUnit", "buttonTextFontSizeUnit", "buttonTextLetterSpacingUnit",
+          "buttonTextLineHeightUnit", "buttonUnderlineHoverWidthUnit", "buttonUnderlineOffsetUnit",
+          "buttonUnderlineThicknessUnit", "buttonUnderlineWidthUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -924,11 +926,11 @@
       {
         "blocks": ["qi-blocks/blog-list", "qi-blocks/post-date", "qi-blocks/timeline"],
         "attributes": [
-          "dateColor", "dateFontFamily", "dateFontSizeUnit", "dateFontSizeUnitMobile", "dateFontSizeUnitTablet",
-          "dateFontStyle", "dateFontWeight", "dateLetterSpacingUnit", "dateLetterSpacingUnitMobile",
-          "dateLetterSpacingUnitTablet", "dateLineHeightUnit", "dateLineHeightUnitMobile",
-          "dateLineHeightUnitTablet", "dateTextDecoration", "dateTextTransform"
+          "dateColor", "dateFontFamily", "dateFontStyle", "dateFontWeight", "dateTextDecoration",
+          "dateTextTransform"
         ],
+        "attribute_bases": ["dateFontSizeUnit", "dateLetterSpacingUnit", "dateLineHeightUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -949,27 +951,26 @@
       {
         "blocks": ["qi-blocks/contact-form-7", "qi-blocks/countdown", "qi-blocks/pricing-table"],
         "attributes": [
-          "labelColor", "labelFontFamily", "labelFontSizeUnit", "labelFontSizeUnitMobile",
-          "labelFontSizeUnitTablet", "labelFontStyle", "labelFontWeight", "labelLetterSpacingUnit",
-          "labelLetterSpacingUnitMobile", "labelLetterSpacingUnitTablet", "labelLineHeightUnit",
-          "labelLineHeightUnitMobile", "labelLineHeightUnitTablet", "labelTextDecoration", "labelTextTransform"
+          "labelColor", "labelFontFamily", "labelFontStyle", "labelFontWeight", "labelTextDecoration",
+          "labelTextTransform"
         ],
+        "attribute_bases": ["labelFontSizeUnit", "labelLetterSpacingUnit", "labelLineHeightUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/divider", "qi-blocks/icon-with-text", "qi-blocks/pricing-table"],
-        "attributes": [
-          "separatorBorderImagePosition", "separatorBorderImageRepeat", "separatorBorderImageSize",
-          "separatorHeightUnit", "separatorHeightUnitMobile", "separatorHeightUnitTablet",
-          "separatorMarginBottomUnit", "separatorMarginBottomUnitMobile", "separatorMarginBottomUnitTablet",
-          "separatorMarginTopUnit", "separatorMarginTopUnitMobile", "separatorMarginTopUnitTablet",
-          "separatorWidthUnit", "separatorWidthUnitMobile", "separatorWidthUnitTablet"
+        "attributes": ["separatorBorderImagePosition", "separatorBorderImageRepeat", "separatorBorderImageSize"],
+        "attribute_bases": [
+          "separatorHeightUnit", "separatorMarginBottomUnit", "separatorMarginTopUnit", "separatorWidthUnit"
         ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/faq", "qi-blocks/progress-bar-horizontal", "qi-blocks/progress-bar-vertical"],
-        "attributes": ["numberMarginUnit", "numberMarginUnitMobile", "numberMarginUnitTablet"],
+        "attribute_bases": ["numberMarginUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -994,7 +995,8 @@
       },
       {
         "blocks": ["qi-blocks/post-title", "qi-blocks/tabs-horizontal", "qi-blocks/tabs-vertical"],
-        "attributes": ["titleHorizontalAlignment", "titleHorizontalAlignmentMobile", "titleHorizontalAlignmentTablet"],
+        "attribute_bases": ["titleHorizontalAlignment"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -1014,15 +1016,15 @@
         "blocks": ["qi-blocks/accordion", "qi-blocks/faq"],
         "attributes": [
           "borderBorderColor", "contentActiveBackgroundColor", "contentColor", "contentFontFamily",
-          "contentFontSizeUnit", "contentFontSizeUnitMobile", "contentFontSizeUnitTablet", "contentFontStyle",
-          "contentFontWeight", "contentLetterSpacingUnit", "contentLetterSpacingUnitMobile",
-          "contentLetterSpacingUnitTablet", "contentLineHeightUnit", "contentLineHeightUnitMobile",
-          "contentLineHeightUnitTablet", "contentTextDecoration", "contentTextTransform", "iconInitialColor",
-          "openIcon", "titleActiveBackgroundColor", "titleActiveColor", "titleActivePaddingUnit",
-          "titleActivePaddingUnitMobile", "titleActivePaddingUnitTablet", "titleInitialBackgroundColor",
-          "titleInitialColor", "titleInitialPaddingUnit", "titleInitialPaddingUnitMobile",
-          "titleInitialPaddingUnitTablet"
+          "contentFontStyle", "contentFontWeight", "contentTextDecoration", "contentTextTransform",
+          "iconInitialColor", "openIcon", "titleActiveBackgroundColor", "titleActiveColor",
+          "titleInitialBackgroundColor", "titleInitialColor"
         ],
+        "attribute_bases": [
+          "contentFontSizeUnit", "contentLetterSpacingUnit", "contentLineHeightUnit", "titleActivePaddingUnit",
+          "titleInitialPaddingUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -1042,7 +1044,8 @@
       },
       {
         "blocks": ["qi-blocks/author-info", "qi-blocks/single-image"],
-        "attributes": ["imageSize", "imageSizeMobile", "imageSizeTablet"],
+        "attribute_bases": ["imageSize"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -1063,23 +1066,19 @@
       {
         "blocks": ["qi-blocks/blog-list", "qi-blocks/product-list"],
         "attributes": [
-          "additionalParams", "authorSlug", "buttonIconColor", "buttonIconFontSizeUnit",
-          "buttonIconFontSizeUnitMobile", "buttonIconFontSizeUnitTablet", "customImageHeight",
-          "customImageWidth", "enablePagination", "enableZigzag", "order", "orderBy", "paginationArrowNextIcon",
-          "paginationArrowPrevIcon", "paginationArrowsSizeUnit", "paginationArrowsSizeUnitMobile",
-          "paginationArrowsSizeUnitTablet", "paginationBackgroundColor", "paginationBorderRadiusUnit",
-          "paginationBorderRadiusUnitMobile", "paginationBorderRadiusUnitTablet", "paginationColor",
-          "paginationFontFamily", "paginationFontSizeUnit", "paginationFontSizeUnitMobile",
-          "paginationFontSizeUnitTablet", "paginationFontStyle", "paginationFontWeight", "paginationHeightUnit",
-          "paginationHeightUnitMobile", "paginationHeightUnitTablet", "paginationHoverColor",
-          "paginationLetterSpacingUnit", "paginationLetterSpacingUnitMobile",
-          "paginationLetterSpacingUnitTablet", "paginationLineHeightUnit", "paginationLineHeightUnitMobile",
-          "paginationLineHeightUnitTablet", "paginationMarginTopUnit", "paginationMarginTopUnitMobile",
-          "paginationMarginTopUnitTablet", "paginationSpacingUnit", "paginationSpacingUnitMobile",
-          "paginationSpacingUnitTablet", "paginationTextDecoration", "paginationTextTransform",
-          "paginationWidthUnit", "paginationWidthUnitMobile", "paginationWidthUnitTablet", "showCategory", "tax",
-          "taxIn", "taxSlug", "zigzagAmountUnit", "zigzagAmountUnitMobile", "zigzagAmountUnitTablet"
+          "additionalParams", "authorSlug", "buttonIconColor", "customImageHeight", "customImageWidth",
+          "enablePagination", "enableZigzag", "order", "orderBy", "paginationArrowNextIcon",
+          "paginationArrowPrevIcon", "paginationBackgroundColor", "paginationColor", "paginationFontFamily",
+          "paginationFontStyle", "paginationFontWeight", "paginationHoverColor", "paginationTextDecoration",
+          "paginationTextTransform", "showCategory", "tax", "taxIn", "taxSlug"
         ],
+        "attribute_bases": [
+          "buttonIconFontSizeUnit", "paginationArrowsSizeUnit", "paginationBorderRadiusUnit",
+          "paginationFontSizeUnit", "paginationHeightUnit", "paginationLetterSpacingUnit",
+          "paginationLineHeightUnit", "paginationMarginTopUnit", "paginationSpacingUnit", "paginationWidthUnit",
+          "zigzagAmountUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -1089,12 +1088,14 @@
       },
       {
         "blocks": ["qi-blocks/call-to-action", "qi-blocks/contact-form-7"],
-        "attributes": ["buttonMarginUnit", "buttonMarginUnitMobile", "buttonMarginUnitTablet"],
+        "attribute_bases": ["buttonMarginUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/call-to-action", "qi-blocks/info-box"],
-        "attributes": ["holderPaddingUnit", "holderPaddingUnitMobile", "holderPaddingUnitTablet"],
+        "attribute_bases": ["holderPaddingUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -1104,55 +1105,52 @@
       },
       {
         "blocks": ["qi-blocks/clients-list", "qi-blocks/message-box"],
-        "attributes": ["boxPaddingUnit", "boxPaddingUnitMobile", "boxPaddingUnitTablet"],
+        "attribute_bases": ["boxPaddingUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/column", "qi-blocks/columns"],
-        "attributes": ["borderRadiusUnit", "borderRadiusUnitMobile", "borderRadiusUnitTablet", "htmlTag", "overflow"],
+        "attributes": ["htmlTag", "overflow"],
+        "attribute_bases": ["borderRadiusUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/contact-form-7", "qi-blocks/search"],
         "attributes": [
-          "buttonBorderStyle", "buttonFontFamily", "buttonFontSizeUnit", "buttonFontSizeUnitMobile",
-          "buttonFontSizeUnitTablet", "buttonFontStyle", "buttonFontWeight", "buttonLetterSpacingUnit",
-          "buttonLetterSpacingUnitMobile", "buttonLetterSpacingUnitTablet", "buttonLineHeightUnit",
-          "buttonLineHeightUnitMobile", "buttonLineHeightUnitTablet", "buttonTextDecoration",
-          "buttonTextTransform", "inputBackgroundColor", "inputBorderColor", "inputBorderRadiusUnit",
-          "inputBorderRadiusUnitMobile", "inputBorderRadiusUnitTablet", "inputBorderStyle",
-          "inputBorderWidthUnit", "inputBorderWidthUnitMobile", "inputBorderWidthUnitTablet", "inputColor",
+          "buttonBorderStyle", "buttonFontFamily", "buttonFontStyle", "buttonFontWeight", "buttonTextDecoration",
+          "buttonTextTransform", "inputBackgroundColor", "inputBorderColor", "inputBorderStyle", "inputColor",
           "inputFocusBackgroundColor", "inputFocusBorderColor", "inputFocusColor", "inputFocusFontFamily",
-          "inputFocusFontSizeUnit", "inputFocusFontSizeUnitMobile", "inputFocusFontSizeUnitTablet",
-          "inputFocusFontStyle", "inputFocusFontWeight", "inputFocusLetterSpacingUnit",
-          "inputFocusLetterSpacingUnitMobile", "inputFocusLetterSpacingUnitTablet", "inputFocusLineHeightUnit",
-          "inputFocusLineHeightUnitMobile", "inputFocusLineHeightUnitTablet", "inputFocusTextDecoration",
-          "inputFocusTextTransform", "inputFontFamily", "inputFontSizeUnit", "inputFontSizeUnitMobile",
-          "inputFontSizeUnitTablet", "inputFontStyle", "inputFontWeight", "inputLetterSpacingUnit",
-          "inputLetterSpacingUnitMobile", "inputLetterSpacingUnitTablet", "inputLineHeightUnit",
-          "inputLineHeightUnitMobile", "inputLineHeightUnitTablet", "inputPaddingUnit", "inputPaddingUnitMobile",
-          "inputPaddingUnitTablet", "inputTextDecoration", "inputTextTransform"
+          "inputFocusFontStyle", "inputFocusFontWeight", "inputFocusTextDecoration", "inputFocusTextTransform",
+          "inputFontFamily", "inputFontStyle", "inputFontWeight", "inputTextDecoration", "inputTextTransform"
         ],
+        "attribute_bases": [
+          "buttonFontSizeUnit", "buttonLetterSpacingUnit", "buttonLineHeightUnit", "inputBorderRadiusUnit",
+          "inputBorderWidthUnit", "inputFocusFontSizeUnit", "inputFocusLetterSpacingUnit",
+          "inputFocusLineHeightUnit", "inputFontSizeUnit", "inputLetterSpacingUnit", "inputLineHeightUnit",
+          "inputPaddingUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/countdown", "qi-blocks/counter"],
         "attributes": [
-          "digitColor", "digitFontFamily", "digitFontSizeUnit", "digitFontSizeUnitMobile",
-          "digitFontSizeUnitTablet", "digitFontStyle", "digitFontWeight", "digitLetterSpacingUnit",
-          "digitLetterSpacingUnitMobile", "digitLetterSpacingUnitTablet", "digitLineHeightUnit",
-          "digitLineHeightUnitMobile", "digitLineHeightUnitTablet", "digitTextDecoration", "digitTextTransform"
+          "digitColor", "digitFontFamily", "digitFontStyle", "digitFontWeight", "digitTextDecoration",
+          "digitTextTransform"
         ],
+        "attribute_bases": ["digitFontSizeUnit", "digitLetterSpacingUnit", "digitLineHeightUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/icon-with-text", "qi-blocks/pricing-table"],
         "attributes": [
-          "enableSeparator", "separatorBorderType", "separatorIconColor", "separatorIconFontSizeUnit",
-          "separatorIconFontSizeUnitMobile", "separatorIconFontSizeUnitTablet", "separatorIconMarginUnit",
-          "separatorIconMarginUnitMobile", "separatorIconMarginUnitTablet", "separatorLayout",
-          "separatorPosition"
+          "enableSeparator", "separatorBorderType", "separatorIconColor", "separatorLayout", "separatorPosition"
         ],
+        "attribute_bases": ["separatorIconFontSizeUnit", "separatorIconMarginUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -1167,21 +1165,19 @@
       },
       {
         "blocks": ["qi-blocks/image-slider", "qi-blocks/tabs-horizontal"],
-        "attributes": [
-          "navigationBorderColor", "navigationBorderStyle", "navigationBorderWidthUnit",
-          "navigationBorderWidthUnitMobile", "navigationBorderWidthUnitTablet"
-        ],
+        "attributes": ["navigationBorderColor", "navigationBorderStyle"],
+        "attribute_bases": ["navigationBorderWidthUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/post-author", "qi-blocks/testimonials-list"],
         "attributes": [
-          "authorColor", "authorFontFamily", "authorFontSizeUnit", "authorFontSizeUnitMobile",
-          "authorFontSizeUnitTablet", "authorFontStyle", "authorFontWeight", "authorLetterSpacingUnit",
-          "authorLetterSpacingUnitMobile", "authorLetterSpacingUnitTablet", "authorLineHeightUnit",
-          "authorLineHeightUnitMobile", "authorLineHeightUnitTablet", "authorTextDecoration",
+          "authorColor", "authorFontFamily", "authorFontStyle", "authorFontWeight", "authorTextDecoration",
           "authorTextTransform"
         ],
+        "attribute_bases": ["authorFontSizeUnit", "authorLetterSpacingUnit", "authorLineHeightUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -1192,22 +1188,22 @@
       {
         "blocks": ["qi-blocks/pricing-table", "qi-blocks/process"],
         "attributes": [
-          "itemFontFamily", "itemFontSizeUnit", "itemFontSizeUnitMobile", "itemFontSizeUnitTablet",
-          "itemFontStyle", "itemFontWeight", "itemLetterSpacingUnit", "itemLetterSpacingUnitMobile",
-          "itemLetterSpacingUnitTablet", "itemLineHeightUnit", "itemLineHeightUnitMobile",
-          "itemLineHeightUnitTablet", "itemTextDecoration", "itemTextTransform"
+          "itemFontFamily", "itemFontStyle", "itemFontWeight", "itemTextDecoration", "itemTextTransform"
         ],
+        "attribute_bases": ["itemFontSizeUnit", "itemLetterSpacingUnit", "itemLineHeightUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/pricing-table", "qi-blocks/product-list"],
         "attributes": [
-          "currencyFontSizeUnit", "currencyFontSizeUnitMobile", "currencyFontSizeUnitTablet", "priceColor",
-          "priceFontFamily", "priceFontSizeUnit", "priceFontSizeUnitMobile", "priceFontSizeUnitTablet",
-          "priceFontStyle", "priceFontWeight", "priceLetterSpacingUnit", "priceLetterSpacingUnitMobile",
-          "priceLetterSpacingUnitTablet", "priceLineHeightUnit", "priceLineHeightUnitMobile",
-          "priceLineHeightUnitTablet", "priceTextDecoration", "priceTextTransform"
+          "priceColor", "priceFontFamily", "priceFontStyle", "priceFontWeight", "priceTextDecoration",
+          "priceTextTransform"
         ],
+        "attribute_bases": [
+          "currencyFontSizeUnit", "priceFontSizeUnit", "priceLetterSpacingUnit", "priceLineHeightUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -1220,140 +1216,111 @@
         "attributes": [
           "itemBackgroundAttachment", "itemBackgroundColor", "itemBackgroundGradientColor1",
           "itemBackgroundGradientColor2", "itemBackgroundGradientType", "itemBackgroundGradientTypePosition",
-          "itemBackgroundPosition", "itemBackgroundPositionMobile", "itemBackgroundPositionTablet",
-          "itemBackgroundRepeat", "itemBackgroundRepeatMobile", "itemBackgroundRepeatTablet",
-          "itemBackgroundSize", "itemBackgroundSizeMobile", "itemBackgroundSizeTablet",
-          "itemBackgroundSizeWidthUnit", "itemBackgroundSizeWidthUnitMobile",
-          "itemBackgroundSizeWidthUnitTablet", "itemBackgroundType", "itemBackgroundXPositionUnit",
-          "itemBackgroundXPositionUnitMobile", "itemBackgroundXPositionUnitTablet",
-          "itemBackgroundYPositionUnit", "itemBackgroundYPositionUnitMobile",
-          "itemBackgroundYPositionUnitTablet"
+          "itemBackgroundType"
         ],
+        "attribute_bases": [
+          "itemBackgroundPosition", "itemBackgroundRepeat", "itemBackgroundSize", "itemBackgroundSizeWidthUnit",
+          "itemBackgroundXPositionUnit", "itemBackgroundYPositionUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/progress-bar-horizontal", "qi-blocks/progress-bar-vertical"],
         "attributes": [
-          "activeLineOpacityUnit", "activeLineOpacityUnitMobile", "activeLineOpacityUnitTablet", "barBorder",
-          "barBorderColor", "barBorderRadiusUnit", "barBorderRadiusUnitMobile", "barBorderRadiusUnitTablet",
-          "barBorderStyle", "barBorderWidthUnit", "barBorderWidthUnitMobile", "barBorderWidthUnitTablet",
-          "gradientColorEnd", "gradientColorStart", "inactiveLineOpacityUnit", "inactiveLineOpacityUnitMobile",
-          "inactiveLineOpacityUnitTablet", "percentageType"
+          "barBorder", "barBorderColor", "barBorderStyle", "gradientColorEnd", "gradientColorStart",
+          "percentageType"
         ],
+        "attribute_bases": [
+          "activeLineOpacityUnit", "barBorderRadiusUnit", "barBorderWidthUnit", "inactiveLineOpacityUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/tabs-horizontal", "qi-blocks/tabs-vertical"],
         "attributes": [
-          "textBackgroundColor", "textBorderColor", "textBorderStyle", "textBorderWidthUnit",
-          "textBorderWidthUnitMobile", "textBorderWidthUnitTablet", "titleBackgroundAttachment",
+          "textBackgroundColor", "textBorderColor", "textBorderStyle", "titleBackgroundAttachment",
           "titleBackgroundGradientColor1", "titleBackgroundGradientColor2", "titleBackgroundGradientType",
-          "titleBackgroundGradientTypePosition", "titleBackgroundPosition", "titleBackgroundPositionMobile",
-          "titleBackgroundPositionTablet", "titleBackgroundRepeat", "titleBackgroundRepeatMobile",
-          "titleBackgroundRepeatTablet", "titleBackgroundSize", "titleBackgroundSizeMobile",
-          "titleBackgroundSizeTablet", "titleBackgroundSizeWidthUnit", "titleBackgroundSizeWidthUnitMobile",
-          "titleBackgroundSizeWidthUnitTablet", "titleBackgroundType", "titleBackgroundXPositionUnit",
-          "titleBackgroundXPositionUnitMobile", "titleBackgroundXPositionUnitTablet",
-          "titleBackgroundYPositionUnit", "titleBackgroundYPositionUnitMobile",
-          "titleBackgroundYPositionUnitTablet", "titleBorderColor", "titleBorderStyle", "titleBorderWidthUnit",
-          "titleBorderWidthUnitMobile", "titleBorderWidthUnitTablet", "titleHoverBackgroundAttachment",
-          "titleHoverBackgroundColor", "titleHoverBackgroundGradientColor1",
+          "titleBackgroundGradientTypePosition", "titleBackgroundType", "titleBorderColor", "titleBorderStyle",
+          "titleHoverBackgroundAttachment", "titleHoverBackgroundColor", "titleHoverBackgroundGradientColor1",
           "titleHoverBackgroundGradientColor2", "titleHoverBackgroundGradientType",
-          "titleHoverBackgroundGradientTypePosition", "titleHoverBackgroundPosition",
-          "titleHoverBackgroundPositionMobile", "titleHoverBackgroundPositionTablet",
-          "titleHoverBackgroundRepeat", "titleHoverBackgroundRepeatMobile", "titleHoverBackgroundRepeatTablet",
-          "titleHoverBackgroundSize", "titleHoverBackgroundSizeMobile", "titleHoverBackgroundSizeTablet",
-          "titleHoverBackgroundSizeWidthUnit", "titleHoverBackgroundSizeWidthUnitMobile",
-          "titleHoverBackgroundSizeWidthUnitTablet", "titleHoverBackgroundType",
-          "titleHoverBackgroundXPositionUnit", "titleHoverBackgroundXPositionUnitMobile",
-          "titleHoverBackgroundXPositionUnitTablet", "titleHoverBackgroundYPositionUnit",
-          "titleHoverBackgroundYPositionUnitMobile", "titleHoverBackgroundYPositionUnitTablet"
+          "titleHoverBackgroundGradientTypePosition", "titleHoverBackgroundType"
         ],
+        "attribute_bases": [
+          "textBorderWidthUnit", "titleBackgroundPosition", "titleBackgroundRepeat", "titleBackgroundSize",
+          "titleBackgroundSizeWidthUnit", "titleBackgroundXPositionUnit", "titleBackgroundYPositionUnit",
+          "titleBorderWidthUnit", "titleHoverBackgroundPosition", "titleHoverBackgroundRepeat",
+          "titleHoverBackgroundSize", "titleHoverBackgroundSizeWidthUnit", "titleHoverBackgroundXPositionUnit",
+          "titleHoverBackgroundYPositionUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/accordion"],
-        "attributes": [
-          "accordionItemsRepeater", "contentHeight", "iconXOffsetUnit", "iconXOffsetUnitMobile",
-          "iconXOffsetUnitTablet"
-        ],
+        "attributes": ["accordionItemsRepeater", "contentHeight"],
+        "attribute_bases": ["iconXOffsetUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/advanced-text"],
         "attributes": [
-          "fontFamily", "fontSizeUnit", "fontSizeUnitMobile", "fontSizeUnitTablet", "fontStyle", "fontWeight",
-          "letterSpacingUnit", "letterSpacingUnitMobile", "letterSpacingUnitTablet", "lineHeightUnit",
-          "lineHeightUnitMobile", "lineHeightUnitTablet", "linkColor", "linkHoverColor", "textDecoration",
-          "textStrokeWidthUnit", "textStrokeWidthUnitMobile", "textStrokeWidthUnitTablet", "textTransform"
+          "fontFamily", "fontStyle", "fontWeight", "linkColor", "linkHoverColor", "textDecoration", "textTransform"
         ],
+        "attribute_bases": ["fontSizeUnit", "letterSpacingUnit", "lineHeightUnit", "textStrokeWidthUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/author-info"],
         "attributes": [
-          "authorBoxPaddingUnit", "authorBoxPaddingUnitMobile", "authorBoxPaddingUnitTablet",
-          "authorInfoBorderRadiusUnit", "authorInfoBorderRadiusUnitMobile", "authorInfoBorderRadiusUnitTablet",
-          "email", "emailColor", "emailFontFamily", "emailFontSizeUnit", "emailFontSizeUnitMobile",
-          "emailFontSizeUnitTablet", "emailFontStyle", "emailFontWeight", "emailHoverColor",
-          "emailLetterSpacingUnit", "emailLetterSpacingUnitMobile", "emailLetterSpacingUnitTablet",
-          "emailLineHeightUnit", "emailLineHeightUnitMobile", "emailLineHeightUnitTablet", "emailMarginTopUnit",
-          "emailMarginTopUnitMobile", "emailMarginTopUnitTablet", "emailTextDecoration", "emailTextTransform",
-          "iconFontFamily", "iconFontStyle", "iconFontWeight", "iconLetterSpacingUnit",
-          "iconLetterSpacingUnitMobile", "iconLetterSpacingUnitTablet", "iconLineHeightUnit",
-          "iconLineHeightUnitMobile", "iconLineHeightUnitTablet", "iconTextDecoration", "iconTextTransform",
-          "iconsMarginTopUnit", "iconsMarginTopUnitMobile", "iconsMarginTopUnitTablet",
-          "sideImageMarginRightUnit", "sideImageMarginRightUnitMobile", "sideImageMarginRightUnitTablet",
-          "signatureMarginTopUnit", "signatureMarginTopUnitMobile", "signatureMarginTopUnitTablet",
-          "singleIconMarginUnit", "singleIconMarginUnitMobile", "singleIconMarginUnitTablet",
-          "socialIconsRepeater"
+          "email", "emailColor", "emailFontFamily", "emailFontStyle", "emailFontWeight", "emailHoverColor",
+          "emailTextDecoration", "emailTextTransform", "iconFontFamily", "iconFontStyle", "iconFontWeight",
+          "iconTextDecoration", "iconTextTransform", "socialIconsRepeater"
         ],
+        "attribute_bases": [
+          "authorBoxPaddingUnit", "authorInfoBorderRadiusUnit", "emailFontSizeUnit", "emailLetterSpacingUnit",
+          "emailLineHeightUnit", "emailMarginTopUnit", "iconLetterSpacingUnit", "iconLineHeightUnit",
+          "iconsMarginTopUnit", "sideImageMarginRightUnit", "signatureMarginTopUnit", "singleIconMarginUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/banner"],
         "attributes": [
-          "contentWidthUnit", "contentWidthUnitMobile", "contentWidthUnitTablet", "defaultBoxShadowColor",
-          "defaultBoxShadowPosition", "holderBorderRadiusUnit", "holderBorderRadiusUnitMobile",
-          "holderBorderRadiusUnitTablet", "holderHoverColor", "holderInitialColor", "hoverBoxShadowColor",
-          "hoverBoxShadowPosition", "inBoxContentBorderRadiusUnit", "inBoxContentBorderRadiusUnitMobile",
-          "inBoxContentBorderRadiusUnitTablet", "inBoxContentPaddingUnit", "inBoxContentPaddingUnitMobile",
-          "inBoxContentPaddingUnitTablet"
+          "defaultBoxShadowColor", "defaultBoxShadowPosition", "holderHoverColor", "holderInitialColor",
+          "hoverBoxShadowColor", "hoverBoxShadowPosition"
         ],
+        "attribute_bases": [
+          "contentWidthUnit", "holderBorderRadiusUnit", "inBoxContentBorderRadiusUnit", "inBoxContentPaddingUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/blog-list"],
         "attributes": [
-          "boxedContentBackgroundColor", "boxedItemBoxShadowColor", "boxedItemBoxShadowPosition",
-          "centerContent", "dateBackgroundColor", "dateBorderRadiusUnit", "dateBorderRadiusUnitMobile",
-          "dateBorderRadiusUnitTablet", "dateHorizontalOffsetUnit", "dateHorizontalOffsetUnitMobile",
-          "dateHorizontalOffsetUnitTablet", "datePaddingUnit", "datePaddingUnitMobile", "datePaddingUnitTablet",
-          "dateVerticalOffsetUnit", "dateVerticalOffsetUnitMobile", "dateVerticalOffsetUnitTablet",
-          "excerptColor", "excerptFontFamily", "excerptFontSizeUnit", "excerptFontSizeUnitMobile",
-          "excerptFontSizeUnitTablet", "excerptFontStyle", "excerptFontWeight", "excerptLength",
-          "excerptLetterSpacingUnit", "excerptLetterSpacingUnitMobile", "excerptLetterSpacingUnitTablet",
-          "excerptLineHeightUnit", "excerptLineHeightUnitMobile", "excerptLineHeightUnitTablet",
-          "excerptTextDecoration", "excerptTextTransform", "imageMarginBottomUnit",
-          "imageMarginBottomUnitMobile", "imageMarginBottomUnitTablet", "infoColor", "infoFontFamily",
-          "infoFontSizeUnit", "infoFontSizeUnitMobile", "infoFontSizeUnitTablet", "infoFontStyle",
-          "infoFontWeight", "infoHoverColor", "infoIconsColor", "infoLetterSpacingUnit",
-          "infoLetterSpacingUnitMobile", "infoLetterSpacingUnitTablet", "infoLineHeightUnit",
-          "infoLineHeightUnitMobile", "infoLineHeightUnitTablet", "infoTextDecoration", "infoTextTransform",
-          "minimalBorderTopColor", "minimalBorderTopStyle", "minimalBorderTopThicknessUnit",
-          "minimalBorderTopThicknessUnitMobile", "minimalBorderTopThicknessUnitTablet",
-          "minimalItemPaddingTopUnit", "minimalItemPaddingTopUnitMobile", "minimalItemPaddingTopUnitTablet",
-          "paginationBackgroundHoverColor", "postInfoMarginBottomUnit", "postInfoMarginBottomUnitMobile",
-          "postInfoMarginBottomUnitTablet", "showAuthor", "showButton", "showDate", "showExcerpt",
-          "showInfoIcons", "showMedia", "standardBottomInfoColor", "standardBottomInfoFontFamily",
-          "standardBottomInfoFontSizeUnit", "standardBottomInfoFontSizeUnitMobile",
-          "standardBottomInfoFontSizeUnitTablet", "standardBottomInfoFontStyle", "standardBottomInfoFontWeight",
-          "standardBottomInfoHoverColor", "standardBottomInfoLetterSpacingUnit",
-          "standardBottomInfoLetterSpacingUnitMobile", "standardBottomInfoLetterSpacingUnitTablet",
-          "standardBottomInfoLineHeightUnit", "standardBottomInfoLineHeightUnitMobile",
-          "standardBottomInfoLineHeightUnitTablet", "standardBottomInfoTextDecoration",
+          "boxedContentBackgroundColor", "boxedItemBoxShadowColor", "boxedItemBoxShadowPosition", "centerContent",
+          "dateBackgroundColor", "excerptColor", "excerptFontFamily", "excerptFontStyle", "excerptFontWeight",
+          "excerptLength", "excerptTextDecoration", "excerptTextTransform", "infoColor", "infoFontFamily",
+          "infoFontStyle", "infoFontWeight", "infoHoverColor", "infoIconsColor", "infoTextDecoration",
+          "infoTextTransform", "minimalBorderTopColor", "minimalBorderTopStyle", "paginationBackgroundHoverColor",
+          "showAuthor", "showButton", "showDate", "showExcerpt", "showInfoIcons", "showMedia",
+          "standardBottomInfoColor", "standardBottomInfoFontFamily", "standardBottomInfoFontStyle",
+          "standardBottomInfoFontWeight", "standardBottomInfoHoverColor", "standardBottomInfoTextDecoration",
           "standardBottomInfoTextTransform", "titleHoverUnderline"
         ],
+        "attribute_bases": [
+          "dateBorderRadiusUnit", "dateHorizontalOffsetUnit", "datePaddingUnit", "dateVerticalOffsetUnit",
+          "excerptFontSizeUnit", "excerptLetterSpacingUnit", "excerptLineHeightUnit", "imageMarginBottomUnit",
+          "infoFontSizeUnit", "infoLetterSpacingUnit", "infoLineHeightUnit", "minimalBorderTopThicknessUnit",
+          "minimalItemPaddingTopUnit", "postInfoMarginBottomUnit", "standardBottomInfoFontSizeUnit",
+          "standardBottomInfoLetterSpacingUnit", "standardBottomInfoLineHeightUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -1363,10 +1330,9 @@
       },
       {
         "blocks": ["qi-blocks/call-to-action"],
-        "attributes": [
-          "buttonBelow", "contentPaddingRightUnit", "contentPaddingRightUnitMobile",
-          "contentPaddingRightUnitTablet", "enableLinkOverlay"
-        ],
+        "attributes": ["buttonBelow", "enableLinkOverlay"],
+        "attribute_bases": ["contentPaddingRightUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -1377,187 +1343,133 @@
       {
         "blocks": ["qi-blocks/categories"],
         "attributes": [
-          "categoriesFontFamily", "categoriesFontSizeUnit", "categoriesFontSizeUnitMobile",
-          "categoriesFontSizeUnitTablet", "categoriesFontStyle", "categoriesFontWeight",
-          "categoriesLetterSpacingUnit", "categoriesLetterSpacingUnitMobile",
-          "categoriesLetterSpacingUnitTablet", "categoriesLineHeightUnit", "categoriesLineHeightUnitMobile",
-          "categoriesLineHeightUnitTablet", "categoriesSpaceBetweenItemsUnit", "categoriesTextDecoration",
-          "categoriesTextTransform", "textUnderlineBehavior"
+          "categoriesFontFamily", "categoriesFontStyle", "categoriesFontWeight", "categoriesSpaceBetweenItemsUnit",
+          "categoriesTextDecoration", "categoriesTextTransform", "textUnderlineBehavior"
         ],
+        "attribute_bases": ["categoriesFontSizeUnit", "categoriesLetterSpacingUnit", "categoriesLineHeightUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/clients-list"],
-        "attributes": [
-          "boxBackgroundColor", "clientsColumnsResponsive", "clientsSpaceBetweenItemsUnit",
-          "clientsSpaceBetweenItemsUnitMobile", "clientsSpaceBetweenItemsUnitTablet", "enableBorders",
-          "hoverType", "iconRightPositionUnit", "iconRightPositionUnitMobile", "iconRightPositionUnitTablet",
-          "iconTopPositionUnit", "iconTopPositionUnitMobile", "iconTopPositionUnitTablet",
-          "imagesMarginBottomUnit", "imagesMarginBottomUnitMobile", "imagesMarginBottomUnitTablet"
+        "attributes": ["boxBackgroundColor", "clientsColumnsResponsive", "enableBorders", "hoverType"],
+        "attribute_bases": [
+          "clientsSpaceBetweenItemsUnit", "iconRightPositionUnit", "iconTopPositionUnit", "imagesMarginBottomUnit"
         ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/column"],
-        "attributes": [
-          "horizontalAlign", "horizontalAlignMobile", "horizontalAlignTablet", "verticalAlign",
-          "verticalAlignMobile", "verticalAlignTablet"
-        ],
+        "attribute_bases": ["horizontalAlign", "verticalAlign"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/columns"],
         "attributes": [
-          "columnGap", "columnPosition", "columnVerticalAlign", "columnsLayout", "contentWidth",
-          "customColumnGapUnit", "customColumnGapUnitMobile", "customColumnGapUnitTablet", "height",
-          "minimumHeightUnit", "minimumHeightUnitMobile", "minimumHeightUnitTablet",
+          "columnGap", "columnPosition", "columnVerticalAlign", "columnsLayout", "contentWidth", "height",
           "overlayBackgroundAttachment", "overlayBackgroundColor", "overlayBackgroundGradientColor1",
           "overlayBackgroundGradientColor2", "overlayBackgroundGradientType",
-          "overlayBackgroundGradientTypePosition", "overlayBackgroundPosition",
-          "overlayBackgroundPositionMobile", "overlayBackgroundPositionTablet", "overlayBackgroundRepeat",
-          "overlayBackgroundRepeatMobile", "overlayBackgroundRepeatTablet", "overlayBackgroundSize",
-          "overlayBackgroundSizeMobile", "overlayBackgroundSizeTablet", "overlayBackgroundSizeWidthUnit",
-          "overlayBackgroundSizeWidthUnitMobile", "overlayBackgroundSizeWidthUnitTablet",
-          "overlayBackgroundType", "overlayBackgroundXPositionUnit", "overlayBackgroundXPositionUnitMobile",
-          "overlayBackgroundXPositionUnitTablet", "overlayBackgroundYPositionUnit",
-          "overlayBackgroundYPositionUnitMobile", "overlayBackgroundYPositionUnitTablet", "overlayBlendMode",
-          "predefinedContentBehavior", "predefinedContentBehaviorDisableBelow", "predefinedContentWidth",
-          "widthUnit", "widthUnitMobile", "widthUnitTablet"
+          "overlayBackgroundGradientTypePosition", "overlayBackgroundType", "overlayBlendMode",
+          "predefinedContentBehavior", "predefinedContentBehaviorDisableBelow", "predefinedContentWidth"
         ],
+        "attribute_bases": [
+          "customColumnGapUnit", "minimumHeightUnit", "overlayBackgroundPosition", "overlayBackgroundRepeat",
+          "overlayBackgroundSize", "overlayBackgroundSizeWidthUnit", "overlayBackgroundXPositionUnit",
+          "overlayBackgroundYPositionUnit", "widthUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/comments-template"],
         "attributes": [
-          "commentsAvatarMarginRightUnit", "commentsAvatarWidthUnit", "commentsDateColor",
-          "commentsDateFontFamily", "commentsDateFontSizeUnit", "commentsDateFontSizeUnitMobile",
-          "commentsDateFontSizeUnitTablet", "commentsDateFontStyle", "commentsDateFontWeight",
-          "commentsDateHoverColor", "commentsDateLetterSpacingUnit", "commentsDateLetterSpacingUnitMobile",
-          "commentsDateLetterSpacingUnitTablet", "commentsDateLineHeightUnit",
-          "commentsDateLineHeightUnitMobile", "commentsDateLineHeightUnitTablet", "commentsDateTextDecoration",
-          "commentsDateTextTransform", "commentsInfoLinksColor", "commentsInfoLinksHoverColor",
-          "commentsInfoMarginBottomUnit", "commentsInfoMarginBottomUnitMobile",
-          "commentsInfoMarginBottomUnitTablet", "commentsLineColor", "commentsTemplate", "commentsTextColor",
-          "commentsTextFontFamily", "commentsTextFontSizeUnit", "commentsTextFontSizeUnitMobile",
-          "commentsTextFontSizeUnitTablet", "commentsTextFontStyle", "commentsTextFontWeight",
-          "commentsTextLetterSpacingUnit", "commentsTextLetterSpacingUnitMobile",
-          "commentsTextLetterSpacingUnitTablet", "commentsTextLineHeightUnit",
-          "commentsTextLineHeightUnitMobile", "commentsTextLineHeightUnitTablet", "commentsTextMarginTopUnit",
-          "commentsTextMarginTopUnitMobile", "commentsTextMarginTopUnitTablet", "commentsTextTextDecoration",
-          "commentsTextTextTransform", "commentsTitleColor", "commentsTitleFontFamily",
-          "commentsTitleFontSizeUnit", "commentsTitleFontSizeUnitMobile", "commentsTitleFontSizeUnitTablet",
-          "commentsTitleFontStyle", "commentsTitleFontWeight", "commentsTitleHoverColor",
-          "commentsTitleLetterSpacingUnit", "commentsTitleLetterSpacingUnitMobile",
-          "commentsTitleLetterSpacingUnitTablet", "commentsTitleLineHeightUnit",
-          "commentsTitleLineHeightUnitMobile", "commentsTitleLineHeightUnitTablet", "commentsTitleMarginUnit",
-          "commentsTitleMarginUnitMobile", "commentsTitleMarginUnitTablet", "commentsTitleTextDecoration",
-          "commentsTitleTextTransform", "formButtonBackgroundColor", "formButtonBorderColor",
-          "formButtonBorderRadiusUnit", "formButtonBorderRadiusUnitMobile", "formButtonBorderRadiusUnitTablet",
-          "formButtonBorderStyle", "formButtonBorderWidthUnit", "formButtonBorderWidthUnitMobile",
-          "formButtonBorderWidthUnitTablet", "formButtonBoxShadowColor", "formButtonBoxShadowPosition",
-          "formButtonColor", "formButtonFontFamily", "formButtonFontSizeUnit", "formButtonFontSizeUnitMobile",
-          "formButtonFontSizeUnitTablet", "formButtonFontStyle", "formButtonFontWeight",
-          "formButtonHoverBackgroundColor", "formButtonHoverBorderColor", "formButtonHoverColor",
-          "formButtonIcon", "formButtonLetterSpacingUnit", "formButtonLetterSpacingUnitMobile",
-          "formButtonLetterSpacingUnitTablet", "formButtonLineHeightUnit", "formButtonLineHeightUnitMobile",
-          "formButtonLineHeightUnitTablet", "formButtonMarginTopUnit", "formButtonPaddingUnit",
-          "formButtonPaddingUnitMobile", "formButtonPaddingUnitTablet", "formButtonTextDecoration",
-          "formButtonTextTransform", "formInputBackgroundColor", "formInputBorderColor",
-          "formInputBorderRadiusUnit", "formInputBorderRadiusUnitMobile", "formInputBorderRadiusUnitTablet",
-          "formInputBorderStyle", "formInputBorderWidthUnit", "formInputBorderWidthUnitMobile",
-          "formInputBorderWidthUnitTablet", "formInputBoxShadowColor", "formInputBoxShadowPosition",
-          "formInputColor", "formInputFocusBackgroundColor", "formInputFocusBorderColor",
-          "formInputFocusBoxShadowColor", "formInputFocusBoxShadowPosition", "formInputFocusColor",
-          "formInputFontFamily", "formInputFontSizeUnit", "formInputFontSizeUnitMobile",
-          "formInputFontSizeUnitTablet", "formInputFontStyle", "formInputFontWeight",
-          "formInputLetterSpacingUnit", "formInputLetterSpacingUnitMobile", "formInputLetterSpacingUnitTablet",
-          "formInputLineHeightUnit", "formInputLineHeightUnitMobile", "formInputLineHeightUnitTablet",
-          "formInputMarginBottomUnit", "formInputPaddingUnit", "formInputPaddingUnitMobile",
-          "formInputPaddingUnitTablet", "formInputTextDecoration", "formInputTextTransform", "formLabelColor",
-          "formLabelFontFamily", "formLabelFontSizeUnit", "formLabelFontSizeUnitMobile",
-          "formLabelFontSizeUnitTablet", "formLabelFontStyle", "formLabelFontWeight",
-          "formLabelLetterSpacingUnit", "formLabelLetterSpacingUnitMobile", "formLabelLetterSpacingUnitTablet",
-          "formLabelLineHeightUnit", "formLabelLineHeightUnitMobile", "formLabelLineHeightUnitTablet",
+          "commentsAvatarMarginRightUnit", "commentsAvatarWidthUnit", "commentsDateColor", "commentsDateFontFamily",
+          "commentsDateFontStyle", "commentsDateFontWeight", "commentsDateHoverColor", "commentsDateTextDecoration",
+          "commentsDateTextTransform", "commentsInfoLinksColor", "commentsInfoLinksHoverColor", "commentsLineColor",
+          "commentsTemplate", "commentsTextColor", "commentsTextFontFamily", "commentsTextFontStyle",
+          "commentsTextFontWeight", "commentsTextTextDecoration", "commentsTextTextTransform", "commentsTitleColor",
+          "commentsTitleFontFamily", "commentsTitleFontStyle", "commentsTitleFontWeight", "commentsTitleHoverColor",
+          "commentsTitleTextDecoration", "commentsTitleTextTransform", "formButtonBackgroundColor",
+          "formButtonBorderColor", "formButtonBorderStyle", "formButtonBoxShadowColor",
+          "formButtonBoxShadowPosition", "formButtonColor", "formButtonFontFamily", "formButtonFontStyle",
+          "formButtonFontWeight", "formButtonHoverBackgroundColor", "formButtonHoverBorderColor",
+          "formButtonHoverColor", "formButtonIcon", "formButtonMarginTopUnit", "formButtonTextDecoration",
+          "formButtonTextTransform", "formInputBackgroundColor", "formInputBorderColor", "formInputBorderStyle",
+          "formInputBoxShadowColor", "formInputBoxShadowPosition", "formInputColor",
+          "formInputFocusBackgroundColor", "formInputFocusBorderColor", "formInputFocusBoxShadowColor",
+          "formInputFocusBoxShadowPosition", "formInputFocusColor", "formInputFontFamily", "formInputFontStyle",
+          "formInputFontWeight", "formInputMarginBottomUnit", "formInputTextDecoration", "formInputTextTransform",
+          "formLabelColor", "formLabelFontFamily", "formLabelFontStyle", "formLabelFontWeight",
           "formLabelMarginBottomUnit", "formLabelTextDecoration", "formLabelTextTransform", "formNotesColor",
-          "formNotesFontFamily", "formNotesFontSizeUnit", "formNotesFontSizeUnitMobile",
-          "formNotesFontSizeUnitTablet", "formNotesFontStyle", "formNotesFontWeight",
-          "formNotesLetterSpacingUnit", "formNotesLetterSpacingUnitMobile", "formNotesLetterSpacingUnitTablet",
-          "formNotesLineHeightUnit", "formNotesLineHeightUnitMobile", "formNotesLineHeightUnitTablet",
-          "formNotesLinkHoverColor", "formNotesMarginUnit", "formNotesMarginUnitMobile",
-          "formNotesMarginUnitTablet", "formNotesTextDecoration", "formNotesTextTransform",
-          "formTitleMarginUnit", "formTitleMarginUnitMobile", "formTitleMarginUnitTablet"
+          "formNotesFontFamily", "formNotesFontStyle", "formNotesFontWeight", "formNotesLinkHoverColor",
+          "formNotesTextDecoration", "formNotesTextTransform"
         ],
+        "attribute_bases": [
+          "commentsDateFontSizeUnit", "commentsDateLetterSpacingUnit", "commentsDateLineHeightUnit",
+          "commentsInfoMarginBottomUnit", "commentsTextFontSizeUnit", "commentsTextLetterSpacingUnit",
+          "commentsTextLineHeightUnit", "commentsTextMarginTopUnit", "commentsTitleFontSizeUnit",
+          "commentsTitleLetterSpacingUnit", "commentsTitleLineHeightUnit", "commentsTitleMarginUnit",
+          "formButtonBorderRadiusUnit", "formButtonBorderWidthUnit", "formButtonFontSizeUnit",
+          "formButtonLetterSpacingUnit", "formButtonLineHeightUnit", "formButtonPaddingUnit",
+          "formInputBorderRadiusUnit", "formInputBorderWidthUnit", "formInputFontSizeUnit",
+          "formInputLetterSpacingUnit", "formInputLineHeightUnit", "formInputPaddingUnit", "formLabelFontSizeUnit",
+          "formLabelLetterSpacingUnit", "formLabelLineHeightUnit", "formNotesFontSizeUnit",
+          "formNotesLetterSpacingUnit", "formNotesLineHeightUnit", "formNotesMarginUnit", "formTitleMarginUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/contact-form-7"],
         "attributes": [
           "buttonBoxShadowColor", "buttonBoxShadowPosition", "buttonHoverBorderColor", "checkboxFontFamily",
-          "checkboxFontSizeUnit", "checkboxFontSizeUnitMobile", "checkboxFontSizeUnitTablet",
-          "checkboxFontStyle", "checkboxFontWeight", "checkboxHolderMarginUnit",
-          "checkboxHolderMarginUnitMobile", "checkboxHolderMarginUnitTablet", "checkboxInputMarginUnit",
-          "checkboxInputMarginUnitMobile", "checkboxInputMarginUnitTablet", "checkboxInputSizeUnit",
-          "checkboxInputSizeUnitMobile", "checkboxInputSizeUnitTablet", "checkboxLabelColor",
-          "checkboxLetterSpacingUnit", "checkboxLetterSpacingUnitMobile", "checkboxLetterSpacingUnitTablet",
-          "checkboxLineHeightUnit", "checkboxLineHeightUnitMobile", "checkboxLineHeightUnitTablet",
-          "checkboxSpaceBetweenUnit", "checkboxSpaceBetweenUnitMobile", "checkboxSpaceBetweenUnitTablet",
-          "checkboxTextDecoration", "checkboxTextTransform", "errorColor", "errorFontFamily",
-          "errorFontSizeUnit", "errorFontSizeUnitMobile", "errorFontSizeUnitTablet", "errorFontStyle",
-          "errorFontWeight", "errorHorizontalAlignment", "errorHorizontalAlignmentMobile",
-          "errorHorizontalAlignmentTablet", "errorLetterSpacingUnit", "errorLetterSpacingUnitMobile",
-          "errorLetterSpacingUnitTablet", "errorLineHeightUnit", "errorLineHeightUnitMobile",
-          "errorLineHeightUnitTablet", "errorMarginUnit", "errorMarginUnitMobile", "errorMarginUnitTablet",
-          "errorTextDecoration", "errorTextTransform", "failedBorderColor", "formItemPaddingUnit",
-          "formItemPaddingUnitMobile", "formItemPaddingUnitTablet", "inputBoxShadowColor",
-          "inputBoxShadowPosition", "inputFocusBoxShadowColor", "inputFocusBoxShadowPosition",
-          "invalidBorderColor", "radioHolderMarginUnit", "radioHolderMarginUnitMobile",
-          "radioHolderMarginUnitTablet", "radioInputMarginUnit", "radioInputMarginUnitMobile",
-          "radioInputMarginUnitTablet", "radioInputSizeUnit", "radioInputSizeUnitMobile",
-          "radioInputSizeUnitTablet", "radioSpaceBetweenUnit", "radioSpaceBetweenUnitMobile",
-          "radioSpaceBetweenUnitTablet", "responseBackgroundAttachment", "responseBackgroundColor",
-          "responseBackgroundGradientColor1", "responseBackgroundGradientColor2",
-          "responseBackgroundGradientType", "responseBackgroundGradientTypePosition",
-          "responseBackgroundPosition", "responseBackgroundPositionMobile", "responseBackgroundPositionTablet",
-          "responseBackgroundRepeat", "responseBackgroundRepeatMobile", "responseBackgroundRepeatTablet",
-          "responseBackgroundSize", "responseBackgroundSizeMobile", "responseBackgroundSizeTablet",
-          "responseBackgroundSizeWidthUnit", "responseBackgroundSizeWidthUnitMobile",
-          "responseBackgroundSizeWidthUnitTablet", "responseBackgroundType", "responseBackgroundXPositionUnit",
-          "responseBackgroundXPositionUnitMobile", "responseBackgroundXPositionUnitTablet",
-          "responseBackgroundYPositionUnit", "responseBackgroundYPositionUnitMobile",
-          "responseBackgroundYPositionUnitTablet", "responseBorderColor", "responseBorderRadiusUnit",
-          "responseBorderRadiusUnitMobile", "responseBorderRadiusUnitTablet", "responseBorderStyle",
-          "responseBorderWidthUnit", "responseBorderWidthUnitMobile", "responseBorderWidthUnitTablet",
-          "responseColor", "responseFontFamily", "responseFontSizeUnit", "responseFontSizeUnitMobile",
-          "responseFontSizeUnitTablet", "responseFontStyle", "responseFontWeight", "responseLetterSpacingUnit",
-          "responseLetterSpacingUnitMobile", "responseLetterSpacingUnitTablet", "responseLineHeightUnit",
-          "responseLineHeightUnitMobile", "responseLineHeightUnitTablet", "responseMarginUnit",
-          "responseMarginUnitMobile", "responseMarginUnitTablet", "responsePaddingUnit",
-          "responsePaddingUnitMobile", "responsePaddingUnitTablet", "responseTextDecoration",
-          "responseTextTransform", "sentBorderColor", "spamBorderColor"
+          "checkboxFontStyle", "checkboxFontWeight", "checkboxLabelColor", "checkboxTextDecoration",
+          "checkboxTextTransform", "errorColor", "errorFontFamily", "errorFontStyle", "errorFontWeight",
+          "errorTextDecoration", "errorTextTransform", "failedBorderColor", "inputBoxShadowColor",
+          "inputBoxShadowPosition", "inputFocusBoxShadowColor", "inputFocusBoxShadowPosition", "invalidBorderColor",
+          "responseBackgroundAttachment", "responseBackgroundColor", "responseBackgroundGradientColor1",
+          "responseBackgroundGradientColor2", "responseBackgroundGradientType",
+          "responseBackgroundGradientTypePosition", "responseBackgroundType", "responseBorderColor",
+          "responseBorderStyle", "responseColor", "responseFontFamily", "responseFontStyle", "responseFontWeight",
+          "responseTextDecoration", "responseTextTransform", "sentBorderColor", "spamBorderColor"
         ],
+        "attribute_bases": [
+          "checkboxFontSizeUnit", "checkboxHolderMarginUnit", "checkboxInputMarginUnit", "checkboxInputSizeUnit",
+          "checkboxLetterSpacingUnit", "checkboxLineHeightUnit", "checkboxSpaceBetweenUnit", "errorFontSizeUnit",
+          "errorHorizontalAlignment", "errorLetterSpacingUnit", "errorLineHeightUnit", "errorMarginUnit",
+          "formItemPaddingUnit", "radioHolderMarginUnit", "radioInputMarginUnit", "radioInputSizeUnit",
+          "radioSpaceBetweenUnit", "responseBackgroundPosition", "responseBackgroundRepeat",
+          "responseBackgroundSize", "responseBackgroundSizeWidthUnit", "responseBackgroundXPositionUnit",
+          "responseBackgroundYPositionUnit", "responseBorderRadiusUnit", "responseBorderWidthUnit",
+          "responseFontSizeUnit", "responseLetterSpacingUnit", "responseLineHeightUnit", "responseMarginUnit",
+          "responsePaddingUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/countdown"],
         "attributes": [
           "date", "dayPluralLabel", "daySingularLabel", "format", "hourPluralLabel", "hourSingularLabel",
-          "itemHeightUnit", "itemHeightUnitMobile", "itemHeightUnitTablet", "itemMarginUnit",
-          "itemMarginUnitMobile", "itemMarginUnitTablet", "itemWidthUnit", "itemWidthUnitMobile",
-          "itemWidthUnitTablet", "justifyContent", "justifyContentMobile", "justifyContentTablet",
-          "labelMarginTopUnit", "labelMarginTopUnitMobile", "labelMarginTopUnitTablet", "minutePluralLabel",
-          "minuteSingularLabel", "monthPluralLabel", "monthSingularLabel", "secondPluralLabel",
+          "minutePluralLabel", "minuteSingularLabel", "monthPluralLabel", "monthSingularLabel", "secondPluralLabel",
           "secondSingularLabel"
         ],
+        "attribute_bases": [
+          "itemHeightUnit", "itemMarginUnit", "itemWidthUnit", "justifyContent", "labelMarginTopUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/counter"],
         "attributes": [
-          "digitBackgroundColor", "digitBackgroundSizeUnit", "digitBackgroundSizeUnitMobile",
-          "digitBackgroundSizeUnitTablet", "digitBorderRadiusUnit", "digitBorderRadiusUnitMobile",
-          "digitBorderRadiusUnitTablet", "digitLabel", "digitStrokeColor", "digitStrokeWidthUnit", "endDigit",
+          "digitBackgroundColor", "digitLabel", "digitStrokeColor", "digitStrokeWidthUnit", "endDigit",
           "startDigit", "stepBetweenDigits", "stepDelay"
         ],
+        "attribute_bases": ["digitBackgroundSizeUnit", "digitBorderRadiusUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -1577,137 +1489,111 @@
           "iconInitialBorderColor", "iconInitialBorderHoverColor", "iconInitialHoverColor",
           "numberActiveBackgroundColor", "numberActiveBackgroundHoverColor", "numberActiveBorderColor",
           "numberActiveBorderHoverColor", "numberActiveColor", "numberActiveHoverColor",
-          "numberBorderRadiusUnit", "numberBorderRadiusUnitMobile", "numberBorderRadiusUnitTablet",
-          "numberHeightUnit", "numberHeightUnitMobile", "numberHeightUnitTablet", "numberInitialBackgroundColor",
-          "numberInitialBackgroundHoverColor", "numberInitialBorderColor", "numberInitialBorderHoverColor",
-          "numberInitialColor", "numberInitialHoverColor", "numberWidthUnit", "numberWidthUnitMobile",
-          "numberWidthUnitTablet", "titleActiveBackgroundHoverColor", "titleActiveBorderColor",
-          "titleActiveBorderHoverColor", "titleActiveHoverColor", "titleInitialBackgroundHoverColor",
-          "titleInitialBorderColor", "titleInitialBorderHoverColor", "titleInitialHoverColor"
+          "numberInitialBackgroundColor", "numberInitialBackgroundHoverColor", "numberInitialBorderColor",
+          "numberInitialBorderHoverColor", "numberInitialColor", "numberInitialHoverColor",
+          "titleActiveBackgroundHoverColor", "titleActiveBorderColor", "titleActiveBorderHoverColor",
+          "titleActiveHoverColor", "titleInitialBackgroundHoverColor", "titleInitialBorderColor",
+          "titleInitialBorderHoverColor", "titleInitialHoverColor"
         ],
+        "attribute_bases": ["numberBorderRadiusUnit", "numberHeightUnit", "numberWidthUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/how-to"],
         "attributes": [
-          "pageUrl", "stepItemsMarginBottomUnit", "stepItemsMarginBottomUnitMobile",
-          "stepItemsMarginBottomUnitTablet", "stepTextColor", "stepTextFontFamily", "stepTextFontSizeUnit",
-          "stepTextFontSizeUnitMobile", "stepTextFontSizeUnitTablet", "stepTextFontStyle", "stepTextFontWeight",
-          "stepTextLetterSpacingUnit", "stepTextLetterSpacingUnitMobile", "stepTextLetterSpacingUnitTablet",
-          "stepTextLineHeightUnit", "stepTextLineHeightUnitMobile", "stepTextLineHeightUnitTablet",
-          "stepTextMarginBottomUnit", "stepTextMarginBottomUnitMobile", "stepTextMarginBottomUnitTablet",
+          "pageUrl", "stepTextColor", "stepTextFontFamily", "stepTextFontStyle", "stepTextFontWeight",
           "stepTextTextDecoration", "stepTextTextTransform", "stepTitleColor", "stepTitleFontFamily",
-          "stepTitleFontSizeUnit", "stepTitleFontSizeUnitMobile", "stepTitleFontSizeUnitTablet",
-          "stepTitleFontStyle", "stepTitleFontWeight", "stepTitleLetterSpacingUnit",
-          "stepTitleLetterSpacingUnitMobile", "stepTitleLetterSpacingUnitTablet", "stepTitleLineHeightUnit",
-          "stepTitleLineHeightUnitMobile", "stepTitleLineHeightUnitTablet", "stepTitleMarginBottomUnit",
-          "stepTitleMarginBottomUnitMobile", "stepTitleMarginBottomUnitTablet", "stepTitleTag",
-          "stepTitleTextDecoration", "stepTitleTextTransform", "titleHolderMarginBottomUnit",
-          "titleHolderMarginBottomUnitMobile", "titleHolderMarginBottomUnitTablet"
+          "stepTitleFontStyle", "stepTitleFontWeight", "stepTitleTag", "stepTitleTextDecoration",
+          "stepTitleTextTransform"
         ],
+        "attribute_bases": [
+          "stepItemsMarginBottomUnit", "stepTextFontSizeUnit", "stepTextLetterSpacingUnit",
+          "stepTextLineHeightUnit", "stepTextMarginBottomUnit", "stepTitleFontSizeUnit",
+          "stepTitleLetterSpacingUnit", "stepTitleLineHeightUnit", "stepTitleMarginBottomUnit",
+          "titleHolderMarginBottomUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/icon-with-text"],
         "attributes": [
           "appearAnimation", "appearDelay", "beforeContentColumnResponsive", "iconBackgroundColor",
-          "iconBackgroundHoverColor", "iconBorderColor", "iconBorderHoverColor", "iconBorderRadiusUnit",
-          "iconBorderRadiusUnitMobile", "iconBorderRadiusUnitTablet", "iconBorderSizeUnit",
-          "iconBorderSizeUnitMobile", "iconBorderSizeUnitTablet", "iconBoxSizeUnit", "iconBoxSizeUnitMobile",
-          "iconBoxSizeUnitTablet", "iconBoxed", "iconHoverMove", "iconStrokeHoverColor", "iconStrokeWidthUnit",
-          "textLinkHoverColor"
+          "iconBackgroundHoverColor", "iconBorderColor", "iconBorderHoverColor", "iconBoxed", "iconHoverMove",
+          "iconStrokeHoverColor", "iconStrokeWidthUnit", "textLinkHoverColor"
         ],
+        "attribute_bases": ["iconBorderRadiusUnit", "iconBorderSizeUnit", "iconBoxSizeUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/image-slider"],
         "attributes": [
-          "navigationArrowHolderHeightUnit", "navigationArrowHolderHeightUnitMobile",
-          "navigationArrowHolderHeightUnitTablet", "navigationArrowHolderWidthUnit",
-          "navigationArrowHolderWidthUnitMobile", "navigationArrowHolderWidthUnitTablet",
-          "navigationArrowSizeUnit", "navigationArrowSizeUnitMobile", "navigationArrowSizeUnitTablet",
-          "navigationBorderRadiusUnit", "navigationBorderRadiusUnitMobile", "navigationBorderRadiusUnitTablet",
-          "navigationHorizontalOffsetUnit", "navigationHorizontalOffsetUnitMobile",
-          "navigationHorizontalOffsetUnitTablet", "navigationHoverArrowBackgroundColor",
-          "navigationHoverArrowColor", "navigationInitialArrowBackgroundColor", "navigationInitialArrowColor",
-          "navigationNextIcon", "navigationNextIconColor", "navigationNextIconFontSizeUnit",
-          "navigationNextIconFontSizeUnitMobile", "navigationNextIconFontSizeUnitTablet", "navigationPrevIcon",
-          "navigationPrevIconColor", "navigationPrevIconFontSizeUnit", "navigationPrevIconFontSizeUnitMobile",
-          "navigationPrevIconFontSizeUnitTablet", "navigationTogetherHolderBackgroundColor",
-          "navigationTogetherHolderHeightUnit", "navigationTogetherHolderHeightUnitMobile",
-          "navigationTogetherHolderHeightUnitTablet", "navigationTogetherHolderWidthUnit",
-          "navigationTogetherHolderWidthUnitMobile", "navigationTogetherHolderWidthUnitTablet",
-          "navigationTogetherHorizontalOffsetUnit", "navigationTogetherHorizontalOffsetUnitMobile",
-          "navigationTogetherHorizontalOffsetUnitTablet", "navigationTogetherMarginTopUnit",
-          "navigationTogetherMarginTopUnitMobile", "navigationTogetherMarginTopUnitTablet",
-          "navigationTogetherSpaceBetweenUnit", "navigationTogetherSpaceBetweenUnitMobile",
-          "navigationTogetherSpaceBetweenUnitTablet", "navigationVerticalOffsetUnit",
-          "navigationVerticalOffsetUnitMobile", "navigationVerticalOffsetUnitTablet", "paginationAlignment",
-          "paginationBulletsSizeUnit", "paginationBulletsSizeUnitMobile", "paginationBulletsSizeUnitTablet",
-          "paginationBulletsSpaceBetweenUnit", "paginationBulletsSpaceBetweenUnitMobile",
-          "paginationBulletsSpaceBetweenUnitTablet", "paginationHoverBulletBorderColor",
-          "paginationHoverBulletBorderType", "paginationHoverBulletBorderWidthUnit",
-          "paginationHoverBulletBorderWidthUnitMobile", "paginationHoverBulletBorderWidthUnitTablet",
-          "paginationHoverBulletColor", "paginationInitialBulletBorderColor",
-          "paginationInitialBulletBorderType", "paginationInitialBulletBorderWidthUnit",
-          "paginationInitialBulletBorderWidthUnitMobile", "paginationInitialBulletBorderWidthUnitTablet",
-          "paginationInitialBulletColor", "paginationNumbersColor", "paginationNumbersFontFamily",
-          "paginationNumbersFontSizeUnit", "paginationNumbersFontSizeUnitMobile",
-          "paginationNumbersFontSizeUnitTablet", "paginationNumbersFontStyle", "paginationNumbersFontWeight",
-          "paginationNumbersLetterSpacingUnit", "paginationNumbersLetterSpacingUnitMobile",
-          "paginationNumbersLetterSpacingUnitTablet", "paginationNumbersLineHeightUnit",
-          "paginationNumbersLineHeightUnitMobile", "paginationNumbersLineHeightUnitTablet",
-          "paginationNumbersTextDecoration", "paginationNumbersTextTransform", "paginationOffsetUnit",
-          "paginationOffsetUnitMobile", "paginationOffsetUnitTablet", "sliderAutoplay", "sliderCentered",
-          "sliderColumnsResponsive", "sliderDragging", "sliderEffect", "sliderHeightUnit",
-          "sliderHeightUnitMobile", "sliderHeightUnitTablet", "sliderHideNavigation", "sliderLoop",
+          "navigationHoverArrowBackgroundColor", "navigationHoverArrowColor",
+          "navigationInitialArrowBackgroundColor", "navigationInitialArrowColor", "navigationNextIcon",
+          "navigationNextIconColor", "navigationPrevIcon", "navigationPrevIconColor",
+          "navigationTogetherHolderBackgroundColor", "paginationAlignment", "paginationHoverBulletBorderColor",
+          "paginationHoverBulletBorderType", "paginationHoverBulletColor", "paginationInitialBulletBorderColor",
+          "paginationInitialBulletBorderType", "paginationInitialBulletColor", "paginationNumbersColor",
+          "paginationNumbersFontFamily", "paginationNumbersFontStyle", "paginationNumbersFontWeight",
+          "paginationNumbersTextDecoration", "paginationNumbersTextTransform", "sliderAutoplay", "sliderCentered",
+          "sliderColumnsResponsive", "sliderDragging", "sliderEffect", "sliderHideNavigation", "sliderLoop",
           "sliderNavigation", "sliderNavigationAlignment", "sliderNavigationPosition",
           "sliderNavigationVerticalPosition", "sliderPagination", "sliderPaginationPosition",
           "sliderPartialColumns", "sliderPartialColumnsResponsiveDisable", "sliderSpeed", "sliderSpeedAnimation",
           "sliderZoomCenteredSlide"
         ],
+        "attribute_bases": [
+          "navigationArrowHolderHeightUnit", "navigationArrowHolderWidthUnit", "navigationArrowSizeUnit",
+          "navigationBorderRadiusUnit", "navigationHorizontalOffsetUnit", "navigationNextIconFontSizeUnit",
+          "navigationPrevIconFontSizeUnit", "navigationTogetherHolderHeightUnit",
+          "navigationTogetherHolderWidthUnit", "navigationTogetherHorizontalOffsetUnit",
+          "navigationTogetherMarginTopUnit", "navigationTogetherSpaceBetweenUnit", "navigationVerticalOffsetUnit",
+          "paginationBulletsSizeUnit", "paginationBulletsSpaceBetweenUnit", "paginationHoverBulletBorderWidthUnit",
+          "paginationInitialBulletBorderWidthUnit", "paginationNumbersFontSizeUnit",
+          "paginationNumbersLetterSpacingUnit", "paginationNumbersLineHeightUnit", "paginationOffsetUnit",
+          "sliderHeightUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/info-box"],
-        "attributes": [
-          "holderHorizontalAlignment", "holderHorizontalAlignmentMobile", "holderHorizontalAlignmentTablet",
-          "holderMinHeightUnit", "holderMinHeightUnitMobile", "holderMinHeightUnitTablet",
-          "iconHorizontalAlignment", "iconHorizontalAlignmentMobile", "iconHorizontalAlignmentTablet",
-          "iconMarginBottomUnit", "iconMarginBottomUnitMobile", "iconMarginBottomUnitTablet",
-          "subtitleMarginBottomUnit", "subtitleMarginBottomUnitMobile", "subtitleMarginBottomUnitTablet"
+        "attribute_bases": [
+          "holderHorizontalAlignment", "holderMinHeightUnit", "iconHorizontalAlignment", "iconMarginBottomUnit",
+          "subtitleMarginBottomUnit"
         ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/message-box"],
-        "attributes": [
-          "boxBorderRadiusUnit", "boxBorderRadiusUnitMobile", "boxBorderRadiusUnitTablet", "closeIconColor",
-          "closeIconFontSizeUnit", "closeIconFontSizeUnitMobile", "closeIconFontSizeUnitTablet",
-          "closeIconHoverColor", "iconPosition"
-        ],
+        "attributes": ["closeIconColor", "closeIconHoverColor", "iconPosition"],
+        "attribute_bases": ["boxBorderRadiusUnit", "closeIconFontSizeUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/parallax-images"],
         "attributes": [
-          "mainBoxShadowColor", "mainBoxShadowPosition", "mainImageSize", "mainImageSizeMobile",
-          "mainImageSizeTablet", "mainPaddingUnit", "mainPaddingUnitMobile", "mainPaddingUnitTablet",
-          "parallaxBoxShadowColor", "parallaxBoxShadowPosition"
+          "mainBoxShadowColor", "mainBoxShadowPosition", "parallaxBoxShadowColor", "parallaxBoxShadowPosition"
         ],
+        "attribute_bases": ["mainImageSize", "mainPaddingUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/post-author"],
         "attributes": [
-          "authorByLineColor", "authorByLineFontFamily", "authorByLineFontSizeUnit",
-          "authorByLineFontSizeUnitMobile", "authorByLineFontSizeUnitTablet", "authorByLineFontStyle",
-          "authorByLineFontWeight", "authorByLineLetterSpacingUnit", "authorByLineLetterSpacingUnitMobile",
-          "authorByLineLetterSpacingUnitTablet", "authorByLineLineHeightUnit",
-          "authorByLineLineHeightUnitMobile", "authorByLineLineHeightUnitTablet", "authorByLineMarginRightUnit",
-          "authorByLineTextDecoration", "authorByLineTextTransform", "authorHoverColor",
-          "avatarBorderRadiusUnit", "avatarMarginRightUnit", "byLine"
+          "authorByLineColor", "authorByLineFontFamily", "authorByLineFontStyle", "authorByLineFontWeight",
+          "authorByLineMarginRightUnit", "authorByLineTextDecoration", "authorByLineTextTransform",
+          "authorHoverColor", "avatarBorderRadiusUnit", "avatarMarginRightUnit", "byLine"
         ],
+        "attribute_bases": [
+          "authorByLineFontSizeUnit", "authorByLineLetterSpacingUnit", "authorByLineLineHeightUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -1718,66 +1604,44 @@
       {
         "blocks": ["qi-blocks/post-terms"],
         "attributes": [
-          "separatorFontFamily", "separatorFontSizeUnit", "separatorFontSizeUnitMobile",
-          "separatorFontSizeUnitTablet", "separatorFontStyle", "separatorFontWeight",
-          "separatorLetterSpacingUnit", "separatorLetterSpacingUnitMobile", "separatorLetterSpacingUnitTablet",
-          "separatorLineHeightUnit", "separatorLineHeightUnitMobile", "separatorLineHeightUnitTablet",
-          "separatorMarginUnit", "separatorMarginUnitMobile", "separatorMarginUnitTablet",
-          "separatorTextDecoration", "separatorTextTransform", "term", "termColor", "termFontFamily",
-          "termFontSizeUnit", "termFontSizeUnitMobile", "termFontSizeUnitTablet", "termFontStyle",
-          "termFontWeight", "termHoverColor", "termHoverTextDecoration", "termLetterSpacingUnit",
-          "termLetterSpacingUnitMobile", "termLetterSpacingUnitTablet", "termLineHeightUnit",
-          "termLineHeightUnitMobile", "termLineHeightUnitTablet", "termSpaceBetweenItemsUnit",
-          "termTextDecoration", "termTextTransform", "termsLayout"
+          "separatorFontFamily", "separatorFontStyle", "separatorFontWeight", "separatorTextDecoration",
+          "separatorTextTransform", "term", "termColor", "termFontFamily", "termFontStyle", "termFontWeight",
+          "termHoverColor", "termHoverTextDecoration", "termSpaceBetweenItemsUnit", "termTextDecoration",
+          "termTextTransform", "termsLayout"
         ],
+        "attribute_bases": [
+          "separatorFontSizeUnit", "separatorLetterSpacingUnit", "separatorLineHeightUnit", "separatorMarginUnit",
+          "termFontSizeUnit", "termLetterSpacingUnit", "termLineHeightUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/pricing-table"],
         "attributes": [
           "currency", "currencyColor", "currencyFontFamily", "currencyFontStyle", "currencyFontWeight",
-          "currencyLetterSpacingUnit", "currencyLetterSpacingUnitMobile", "currencyLetterSpacingUnitTablet",
-          "currencyLineHeightUnit", "currencyLineHeightUnitMobile", "currencyLineHeightUnitTablet",
-          "currencyMarginUnit", "currencyMarginUnitMobile", "currencyMarginUnitTablet", "currencyTextDecoration",
-          "currencyTextTransform", "excludedItemsColor", "featuredTable", "iconMarginRightUnit",
-          "iconMarginRightUnitMobile", "iconMarginRightUnitTablet", "iconVerticalOffsetUnit",
-          "iconVerticalOffsetUnitMobile", "iconVerticalOffsetUnitTablet", "itemMarginBottomUnit",
-          "itemMarginBottomUnitMobile", "itemMarginBottomUnitTablet", "itemsColor", "label",
-          "labelBackgroundColor", "labelBorderRadiusUnit", "labelBorderRadiusUnitMobile",
-          "labelBorderRadiusUnitTablet", "labelPaddingUnit", "labelPaddingUnitMobile", "labelPaddingUnitTablet",
-          "labelType", "labelUnit", "labelUnitMobile", "labelUnitTablet", "period", "periodColor",
-          "periodFontFamily", "periodFontSizeUnit", "periodFontSizeUnitMobile", "periodFontSizeUnitTablet",
-          "periodFontStyle", "periodFontWeight", "periodLetterSpacingUnit", "periodLetterSpacingUnitMobile",
-          "periodLetterSpacingUnitTablet", "periodLineHeightUnit", "periodLineHeightUnitMobile",
-          "periodLineHeightUnitTablet", "periodMarginUnit", "periodMarginUnitMobile", "periodMarginUnitTablet",
-          "periodPosition", "periodTextDecoration", "periodTextTransform", "price", "priceMarginUnit",
-          "priceMarginUnitMobile", "priceMarginUnitTablet", "pricingTableItemsRepeater", "tableBackgroundColor",
-          "tableBorderColor", "tableBorderRadiusUnit", "tableBorderRadiusUnitMobile",
-          "tableBorderRadiusUnitTablet", "tableBorderStyle", "tableBorderWidthUnit",
-          "tableBorderWidthUnitMobile", "tableBorderWidthUnitTablet", "tableBoxShadowColor",
-          "tableBoxShadowPosition", "tableContentPaddingUnit", "tableContentPaddingUnitMobile",
-          "tableContentPaddingUnitTablet", "tablePaddingUnit", "tablePaddingUnitMobile",
-          "tablePaddingUnitTablet", "titleWrapperBackgroundAttachment", "titleWrapperBackgroundColor",
-          "titleWrapperBackgroundGradientColor1", "titleWrapperBackgroundGradientColor2",
-          "titleWrapperBackgroundGradientType", "titleWrapperBackgroundGradientTypePosition",
-          "titleWrapperBackgroundPosition", "titleWrapperBackgroundPositionMobile",
-          "titleWrapperBackgroundPositionTablet", "titleWrapperBackgroundRepeat",
-          "titleWrapperBackgroundRepeatMobile", "titleWrapperBackgroundRepeatTablet",
-          "titleWrapperBackgroundSize", "titleWrapperBackgroundSizeMobile", "titleWrapperBackgroundSizeTablet",
-          "titleWrapperBackgroundSizeWidthUnit", "titleWrapperBackgroundSizeWidthUnitMobile",
-          "titleWrapperBackgroundSizeWidthUnitTablet", "titleWrapperBackgroundType",
-          "titleWrapperBackgroundXPositionUnit", "titleWrapperBackgroundXPositionUnitMobile",
-          "titleWrapperBackgroundXPositionUnitTablet", "titleWrapperBackgroundYPositionUnit",
-          "titleWrapperBackgroundYPositionUnitMobile", "titleWrapperBackgroundYPositionUnitTablet",
-          "titleWrapperHorizontalAlignment", "titleWrapperHorizontalAlignmentMobile",
-          "titleWrapperHorizontalAlignmentTablet", "titleWrapperPaddingUnit", "titleWrapperPaddingUnitMobile",
-          "titleWrapperPaddingUnitTablet", "verticalImageWidthUnit", "verticalImageWidthUnitMobile",
-          "verticalImageWidthUnitTablet", "withIconIcon", "withIconIconColor", "withIconIconFontSizeUnit",
-          "withIconIconFontSizeUnitMobile", "withIconIconFontSizeUnitTablet", "withIconItemBorderColor",
-          "withIconItemBorderStyle", "withIconItemBorderWidthUnit", "withIconItemPaddingUnit",
-          "withIconItemPaddingUnitMobile", "withIconItemPaddingUnitTablet", "withIconTopAreaPaddingUnit",
-          "withIconTopAreaPaddingUnitMobile", "withIconTopAreaPaddingUnitTablet"
+          "currencyTextDecoration", "currencyTextTransform", "excludedItemsColor", "featuredTable", "itemsColor",
+          "label", "labelBackgroundColor", "labelType", "period", "periodColor", "periodFontFamily",
+          "periodFontStyle", "periodFontWeight", "periodPosition", "periodTextDecoration", "periodTextTransform",
+          "price", "pricingTableItemsRepeater", "tableBackgroundColor", "tableBorderColor", "tableBorderStyle",
+          "tableBoxShadowColor", "tableBoxShadowPosition", "titleWrapperBackgroundAttachment",
+          "titleWrapperBackgroundColor", "titleWrapperBackgroundGradientColor1",
+          "titleWrapperBackgroundGradientColor2", "titleWrapperBackgroundGradientType",
+          "titleWrapperBackgroundGradientTypePosition", "titleWrapperBackgroundType", "withIconIcon",
+          "withIconIconColor", "withIconItemBorderColor", "withIconItemBorderStyle", "withIconItemBorderWidthUnit"
         ],
+        "attribute_bases": [
+          "currencyLetterSpacingUnit", "currencyLineHeightUnit", "currencyMarginUnit", "iconMarginRightUnit",
+          "iconVerticalOffsetUnit", "itemMarginBottomUnit", "labelBorderRadiusUnit", "labelPaddingUnit",
+          "labelUnit", "periodFontSizeUnit", "periodLetterSpacingUnit", "periodLineHeightUnit", "periodMarginUnit",
+          "priceMarginUnit", "tableBorderRadiusUnit", "tableBorderWidthUnit", "tableContentPaddingUnit",
+          "tablePaddingUnit", "titleWrapperBackgroundPosition", "titleWrapperBackgroundRepeat",
+          "titleWrapperBackgroundSize", "titleWrapperBackgroundSizeWidthUnit",
+          "titleWrapperBackgroundXPositionUnit", "titleWrapperBackgroundYPositionUnit",
+          "titleWrapperHorizontalAlignment", "titleWrapperPaddingUnit", "verticalImageWidthUnit",
+          "withIconIconFontSizeUnit", "withIconItemPaddingUnit", "withIconTopAreaPaddingUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -1786,66 +1650,47 @@
           "additionalHolderBackgroundAttachment", "additionalHolderBackgroundColor",
           "additionalHolderBackgroundGradientColor1", "additionalHolderBackgroundGradientColor2",
           "additionalHolderBackgroundGradientType", "additionalHolderBackgroundGradientTypePosition",
-          "additionalHolderBackgroundPosition", "additionalHolderBackgroundPositionMobile",
-          "additionalHolderBackgroundPositionTablet", "additionalHolderBackgroundRepeat",
-          "additionalHolderBackgroundRepeatMobile", "additionalHolderBackgroundRepeatTablet",
-          "additionalHolderBackgroundSize", "additionalHolderBackgroundSizeMobile",
-          "additionalHolderBackgroundSizeTablet", "additionalHolderBackgroundSizeWidthUnit",
-          "additionalHolderBackgroundSizeWidthUnitMobile", "additionalHolderBackgroundSizeWidthUnitTablet",
-          "additionalHolderBackgroundType", "additionalHolderBackgroundXPositionUnit",
-          "additionalHolderBackgroundXPositionUnitMobile", "additionalHolderBackgroundXPositionUnitTablet",
-          "additionalHolderBackgroundYPositionUnit", "additionalHolderBackgroundYPositionUnitMobile",
-          "additionalHolderBackgroundYPositionUnitTablet", "additionalHolderColor", "additionalHolderFontFamily",
-          "additionalHolderFontSizeUnit", "additionalHolderFontSizeUnitMobile",
-          "additionalHolderFontSizeUnitTablet", "additionalHolderFontStyle", "additionalHolderFontWeight",
-          "additionalHolderLetterSpacingUnit", "additionalHolderLetterSpacingUnitMobile",
-          "additionalHolderLetterSpacingUnitTablet", "additionalHolderLineHeightUnit",
-          "additionalHolderLineHeightUnitMobile", "additionalHolderLineHeightUnitTablet",
-          "additionalHolderPositionUnit", "additionalHolderPositionUnitMobile",
-          "additionalHolderPositionUnitTablet", "additionalHolderSizeUnit", "additionalHolderSizeUnitMobile",
-          "additionalHolderSizeUnitTablet", "additionalHolderTextDecoration", "additionalHolderTextTransform",
-          "itemBorderColor", "itemBorderRadiusUnit", "itemBorderRadiusUnitMobile", "itemBorderRadiusUnitTablet",
-          "itemBorderStyle", "itemBorderWidthUnit", "itemBorderWidthUnitMobile", "itemBorderWidthUnitTablet",
-          "itemColor", "itemHolderSizeUnit", "itemHolderSizeUnitMobile", "itemHolderSizeUnitTablet",
-          "itemOffsetUnit", "itemOffsetUnitMobile", "itemOffsetUnitTablet", "lineBorderColor", "lineBorderStyle",
-          "lineBorderWidthUnit", "lineBorderWidthUnitMobile", "lineBorderWidthUnitTablet",
-          "processColumnsResponsive", "processItemsRepeater", "processSpaceBetweenItemsUnit",
-          "processSpaceBetweenItemsUnitMobile", "processSpaceBetweenItemsUnitTablet"
+          "additionalHolderBackgroundType", "additionalHolderColor", "additionalHolderFontFamily",
+          "additionalHolderFontStyle", "additionalHolderFontWeight", "additionalHolderTextDecoration",
+          "additionalHolderTextTransform", "itemBorderColor", "itemBorderStyle", "itemColor", "lineBorderColor",
+          "lineBorderStyle", "processColumnsResponsive", "processItemsRepeater"
         ],
+        "attribute_bases": [
+          "additionalHolderBackgroundPosition", "additionalHolderBackgroundRepeat",
+          "additionalHolderBackgroundSize", "additionalHolderBackgroundSizeWidthUnit",
+          "additionalHolderBackgroundXPositionUnit", "additionalHolderBackgroundYPositionUnit",
+          "additionalHolderFontSizeUnit", "additionalHolderLetterSpacingUnit", "additionalHolderLineHeightUnit",
+          "additionalHolderPositionUnit", "additionalHolderSizeUnit", "itemBorderRadiusUnit", "itemBorderWidthUnit",
+          "itemHolderSizeUnit", "itemOffsetUnit", "lineBorderWidthUnit", "processSpaceBetweenItemsUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/product-list"],
         "attributes": [
-          "categoryColor", "categoryFontFamily", "categoryFontSizeUnit", "categoryFontSizeUnitMobile",
-          "categoryFontSizeUnitTablet", "categoryFontStyle", "categoryFontWeight", "categoryHoverColor",
-          "categoryLetterSpacingUnit", "categoryLetterSpacingUnitMobile", "categoryLetterSpacingUnitTablet",
-          "categoryLineHeightUnit", "categoryLineHeightUnitMobile", "categoryLineHeightUnitTablet",
-          "categoryMarginTopUnit", "categoryMarginTopUnitMobile", "categoryMarginTopUnitTablet",
-          "categoryTextDecoration", "categoryTextTransform", "columnClasses", "currencyTopOffsetUnit",
-          "currencyTopOffsetUnitMobile", "currencyTopOffsetUnitTablet", "filterBy", "imageHoverBackgroundColor",
-          "infoBelowHoverInsetImageOverlayInnerOffsetUnit",
-          "infoBelowHoverInsetImageOverlayInnerOffsetUnitMobile",
-          "infoBelowHoverInsetImageOverlayInnerOffsetUnitTablet", "infoBelowSwapAlignment",
-          "infoOnImageContentPosition", "itemPaddingUnit", "itemPaddingUnitMobile", "itemPaddingUnitTablet",
-          "markBorderRadiusUnit", "markBorderRadiusUnitMobile", "markBorderRadiusUnitTablet", "markFontFamily",
-          "markFontSizeUnit", "markFontSizeUnitMobile", "markFontSizeUnitTablet", "markFontStyle",
-          "markFontWeight", "markLetterSpacingUnit", "markLetterSpacingUnitMobile",
-          "markLetterSpacingUnitTablet", "markLineHeightUnit", "markLineHeightUnitMobile",
-          "markLineHeightUnitTablet", "markPaddingUnit", "markPaddingUnitMobile", "markPaddingUnitTablet",
-          "markTextDecoration", "markTextTransform", "markUnit", "markUnitMobile", "markUnitTablet",
-          "masonryClasses", "oldPriceColor", "paginationHoverBackgroundColor", "priceMarginTopUnit",
-          "priceMarginTopUnitMobile", "priceMarginTopUnitTablet", "ratingColor", "ratingIconsSizeUnit",
-          "ratingIconsSizeUnitMobile", "ratingIconsSizeUnitTablet", "ratingMarginTopUnit",
-          "ratingMarginTopUnitMobile", "ratingMarginTopUnitTablet", "saleMarkBackgroundColor", "saleMarkColor",
-          "showMark", "showRating", "soldMarkBackgroundColor", "soldMarkColor", "swapHolderMarginTopUnit",
-          "swapHolderMarginTopUnitMobile", "swapHolderMarginTopUnitTablet"
+          "categoryColor", "categoryFontFamily", "categoryFontStyle", "categoryFontWeight", "categoryHoverColor",
+          "categoryTextDecoration", "categoryTextTransform", "columnClasses", "filterBy",
+          "imageHoverBackgroundColor", "infoBelowSwapAlignment", "infoOnImageContentPosition", "markFontFamily",
+          "markFontStyle", "markFontWeight", "markTextDecoration", "markTextTransform", "masonryClasses",
+          "oldPriceColor", "paginationHoverBackgroundColor", "ratingColor", "saleMarkBackgroundColor",
+          "saleMarkColor", "showMark", "showRating", "soldMarkBackgroundColor", "soldMarkColor"
         ],
+        "attribute_bases": [
+          "categoryFontSizeUnit", "categoryLetterSpacingUnit", "categoryLineHeightUnit", "categoryMarginTopUnit",
+          "currencyTopOffsetUnit", "infoBelowHoverInsetImageOverlayInnerOffsetUnit", "itemPaddingUnit",
+          "markBorderRadiusUnit", "markFontSizeUnit", "markLetterSpacingUnit", "markLineHeightUnit",
+          "markPaddingUnit", "markUnit", "priceMarginTopUnit", "ratingIconsSizeUnit", "ratingMarginTopUnit",
+          "swapHolderMarginTopUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/progress-bar-circle"],
-        "attributes": ["circleFillColor", "circleSizeUnit", "circleSizeUnitMobile", "circleSizeUnitTablet"],
+        "attributes": ["circleFillColor"],
+        "attribute_bases": ["circleSizeUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -1856,144 +1701,115 @@
       {
         "blocks": ["qi-blocks/search"],
         "attributes": [
-          "buttonHoverFontFamily", "buttonHoverFontSizeUnit", "buttonHoverFontSizeUnitMobile",
-          "buttonHoverFontSizeUnitTablet", "buttonHoverFontStyle", "buttonHoverFontWeight",
-          "buttonHoverLetterSpacingUnit", "buttonHoverLetterSpacingUnitMobile",
-          "buttonHoverLetterSpacingUnitTablet", "buttonHoverLineHeightUnit", "buttonHoverLineHeightUnitMobile",
-          "buttonHoverLineHeightUnitTablet", "buttonHoverTextDecoration", "buttonHoverTextTransform",
-          "inputPlaceholder", "spaceBetweenInputAndButtonUnit", "spaceBetweenInputAndButtonUnitMobile",
-          "spaceBetweenInputAndButtonUnitTablet", "widgetTitle", "widgetTitleTag"
+          "buttonHoverFontFamily", "buttonHoverFontStyle", "buttonHoverFontWeight", "buttonHoverTextDecoration",
+          "buttonHoverTextTransform", "inputPlaceholder", "widgetTitle", "widgetTitleTag"
         ],
+        "attribute_bases": [
+          "buttonHoverFontSizeUnit", "buttonHoverLetterSpacingUnit", "buttonHoverLineHeightUnit",
+          "spaceBetweenInputAndButtonUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/section-title"],
         "attributes": [
-          "disableTitleBreakWords", "subtitleIcon", "subtitleIconColor", "subtitleIconFontSizeUnit",
-          "subtitleIconFontSizeUnitMobile", "subtitleIconFontSizeUnitTablet", "subtitleIconPosition",
+          "disableTitleBreakWords", "subtitleIcon", "subtitleIconColor", "subtitleIconPosition",
           "subtitleIconSpacingUnit", "subtitleIconStrokeWidthUnit", "subtitleIconVerticalPosition",
-          "subtitleMarginTopUnit", "subtitleMarginTopUnitMobile", "subtitleMarginTopUnitTablet",
-          "subtitlePaddingUnit", "subtitlePaddingUnitMobile", "subtitlePaddingUnitTablet", "subtitlePosition",
-          "titleDifferentColor", "titleLinkUnderlineDraw"
+          "subtitlePosition", "titleDifferentColor", "titleLinkUnderlineDraw"
         ],
+        "attribute_bases": ["subtitleIconFontSizeUnit", "subtitleMarginTopUnit", "subtitlePaddingUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/single-image"],
         "attributes": [
-          "imageAction", "imageBorderColor", "imageBorderStyle", "imageBorderWidthUnit",
-          "imageBorderWidthUnitMobile", "imageBorderWidthUnitTablet", "imageHeightUnit", "imageHeightUnitMobile",
-          "imageHeightUnitTablet", "imageHoverOpacityUnit", "imageMaxWidthUnit", "imageMaxWidthUnitMobile",
-          "imageMaxWidthUnitTablet", "imageOpacityUnit", "imageWidthUnit", "imageWidthUnitMobile",
-          "imageWidthUnitTablet", "transitionDurationUnit"
+          "imageAction", "imageBorderColor", "imageBorderStyle", "imageHoverOpacityUnit", "imageOpacityUnit",
+          "transitionDurationUnit"
         ],
+        "attribute_bases": ["imageBorderWidthUnit", "imageHeightUnit", "imageMaxWidthUnit", "imageWidthUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/spacer"],
-        "attributes": ["spaceUnit", "spaceUnitMobile", "spaceUnitTablet"],
+        "attribute_bases": ["spaceUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/table-of-contents"],
         "attributes": [
-          "excludedTags", "listHoverUnderline", "listItemsColor", "listItemsFontFamily", "listItemsFontSizeUnit",
-          "listItemsFontSizeUnitMobile", "listItemsFontSizeUnitTablet", "listItemsFontStyle",
-          "listItemsFontWeight", "listItemsHoverColor", "listItemsLetterSpacingUnit",
-          "listItemsLetterSpacingUnitMobile", "listItemsLetterSpacingUnitTablet", "listItemsLineHeightUnit",
-          "listItemsLineHeightUnitMobile", "listItemsLineHeightUnitTablet", "listItemsMarginBottomUnit",
-          "listItemsMarginBottomUnitMobile", "listItemsMarginBottomUnitTablet", "listItemsTextDecoration",
-          "listItemsTextTransform", "listMarginLeftUnit", "listMarginLeftUnitMobile", "listMarginLeftUnitTablet",
-          "listMarginTopUnit", "listMarginTopUnitMobile", "listMarginTopUnitTablet", "listStyleType"
+          "excludedTags", "listHoverUnderline", "listItemsColor", "listItemsFontFamily", "listItemsFontStyle",
+          "listItemsFontWeight", "listItemsHoverColor", "listItemsTextDecoration", "listItemsTextTransform",
+          "listStyleType"
         ],
+        "attribute_bases": [
+          "listItemsFontSizeUnit", "listItemsLetterSpacingUnit", "listItemsLineHeightUnit",
+          "listItemsMarginBottomUnit", "listMarginLeftUnit", "listMarginTopUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/tabs-horizontal"],
-        "attributes": [
-          "tabsHorizontalItemsRepeater", "titleUnderlineColor", "titleUnderlineDraw", "titleUnderlineHeightUnit",
-          "titleUnderlineHeightUnitMobile", "titleUnderlineHeightUnitTablet", "titleUnderlineOffsetUnit",
-          "titleUnderlineOffsetUnitMobile", "titleUnderlineOffsetUnitTablet", "titleWidthUnit",
-          "titleWidthUnitMobile", "titleWidthUnitTablet"
-        ],
+        "attributes": ["tabsHorizontalItemsRepeater", "titleUnderlineColor", "titleUnderlineDraw"],
+        "attribute_bases": ["titleUnderlineHeightUnit", "titleUnderlineOffsetUnit", "titleWidthUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/tabs-vertical"],
-        "attributes": [
-          "responsiveLayout", "tabsVerticalItemsRepeater", "titleSidelineColor", "titleSidelineDraw",
-          "titleSidelineOffsetUnit", "titleSidelineOffsetUnitMobile", "titleSidelineOffsetUnitTablet",
-          "titleSidelineWidthUnit", "titleSidelineWidthUnitMobile", "titleSidelineWidthUnitTablet"
-        ],
+        "attributes": ["responsiveLayout", "tabsVerticalItemsRepeater", "titleSidelineColor", "titleSidelineDraw"],
+        "attribute_bases": ["titleSidelineOffsetUnit", "titleSidelineWidthUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/tag-cloud"],
         "attributes": [
-          "hoverTextDecoration", "tagFontFamily", "tagFontSizeUnit", "tagFontSizeUnitMobile",
-          "tagFontSizeUnitTablet", "tagFontStyle", "tagFontWeight", "tagLetterSpacingUnit",
-          "tagLetterSpacingUnitMobile", "tagLetterSpacingUnitTablet", "tagLineHeightUnit",
-          "tagLineHeightUnitMobile", "tagLineHeightUnitTablet", "tagMarginUnit", "tagMarginUnitMobile",
-          "tagMarginUnitTablet", "tagTextDecoration", "tagTextTransform", "taxonomy"
+          "hoverTextDecoration", "tagFontFamily", "tagFontStyle", "tagFontWeight", "tagTextDecoration",
+          "tagTextTransform", "taxonomy"
         ],
+        "attribute_bases": ["tagFontSizeUnit", "tagLetterSpacingUnit", "tagLineHeightUnit", "tagMarginUnit"],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/team-member"],
         "attributes": [
-          "contentUnit", "contentUnitMobile", "contentUnitTablet", "hoverContentHorizontalAlignment",
-          "hoverContentVerticalAlignment", "iconRepeater", "iconsMarginRightUnit", "iconsMarginRightUnitMobile",
-          "iconsMarginRightUnitTablet", "infoBelowContentMarginTopUnit", "infoBelowContentMarginTopUnitMobile",
-          "infoBelowContentMarginTopUnitTablet", "infoBelowLeftContentMarginTopUnit",
-          "infoBelowLeftContentMarginTopUnitMobile", "infoBelowLeftContentMarginTopUnitTablet",
-          "infoFromBottomContentAlignment", "infoOnHoverInsetContentInsetUnit",
-          "infoOnHoverInsetContentInsetUnitMobile", "infoOnHoverInsetContentInsetUnitTablet", "insetText",
-          "name", "nameColor", "nameFontFamily", "nameFontSizeUnit", "nameFontSizeUnitMobile",
-          "nameFontSizeUnitTablet", "nameFontStyle", "nameFontWeight", "nameLetterSpacingUnit",
-          "nameLetterSpacingUnitMobile", "nameLetterSpacingUnitTablet", "nameLineHeightUnit",
-          "nameLineHeightUnitMobile", "nameLineHeightUnitTablet", "nameMarginBottomUnit",
-          "nameMarginBottomUnitMobile", "nameMarginBottomUnitTablet", "nameTag", "nameTextDecoration",
-          "nameTextTransform", "role", "roleColor", "roleFontFamily", "roleFontSizeUnit",
-          "roleFontSizeUnitMobile", "roleFontSizeUnitTablet", "roleFontStyle", "roleFontWeight",
-          "roleLetterSpacingUnit", "roleLetterSpacingUnitMobile", "roleLetterSpacingUnitTablet",
-          "roleLineHeightUnit", "roleLineHeightUnitMobile", "roleLineHeightUnitTablet", "roleMarginBottomUnit",
-          "roleMarginBottomUnitMobile", "roleMarginBottomUnitTablet", "roleTextDecoration", "roleTextTransform"
+          "hoverContentHorizontalAlignment", "hoverContentVerticalAlignment", "iconRepeater",
+          "infoFromBottomContentAlignment", "insetText", "name", "nameColor", "nameFontFamily", "nameFontStyle",
+          "nameFontWeight", "nameTag", "nameTextDecoration", "nameTextTransform", "role", "roleColor",
+          "roleFontFamily", "roleFontStyle", "roleFontWeight", "roleTextDecoration", "roleTextTransform"
         ],
+        "attribute_bases": [
+          "contentUnit", "iconsMarginRightUnit", "infoBelowContentMarginTopUnit",
+          "infoBelowLeftContentMarginTopUnit", "infoOnHoverInsetContentInsetUnit", "nameFontSizeUnit",
+          "nameLetterSpacingUnit", "nameLineHeightUnit", "nameMarginBottomUnit", "roleFontSizeUnit",
+          "roleLetterSpacingUnit", "roleLineHeightUnit", "roleMarginBottomUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
         "blocks": ["qi-blocks/testimonials-list"],
         "attributes": [
-          "authorOccupationColor", "authorOccupationFontFamily", "authorOccupationFontSizeUnit",
-          "authorOccupationFontSizeUnitMobile", "authorOccupationFontSizeUnitTablet",
-          "authorOccupationFontStyle", "authorOccupationFontWeight", "authorOccupationLetterSpacingUnit",
-          "authorOccupationLetterSpacingUnitMobile", "authorOccupationLetterSpacingUnitTablet",
-          "authorOccupationLineHeightUnit", "authorOccupationLineHeightUnitMobile",
-          "authorOccupationLineHeightUnitTablet", "authorOccupationTextDecoration",
-          "authorOccupationTextTransform", "authorTag", "boxedAuthorPositionMarginTopUnit",
-          "boxedAuthorPositionMarginTopUnitMobile", "boxedAuthorPositionMarginTopUnitTablet",
-          "boxedImageMarginBottomUnit", "boxedImageMarginBottomUnitMobile", "boxedImageMarginBottomUnitTablet",
-          "boxedPaddingUnit", "boxedPaddingUnitMobile", "boxedPaddingUnitTablet",
-          "boxedQuoteHorizontalPositionUnit", "boxedQuoteHorizontalPositionUnitMobile",
-          "boxedQuoteHorizontalPositionUnitTablet", "boxedQuotePositionUnit", "boxedQuotePositionUnitMobile",
-          "boxedQuotePositionUnitTablet", "infoBelowAuthorPositionMarginTopUnit",
-          "infoBelowAuthorPositionMarginTopUnitMobile", "infoBelowAuthorPositionMarginTopUnitTablet",
-          "infoBelowImageMarginBottomUnit", "infoBelowImageMarginBottomUnitMobile",
-          "infoBelowImageMarginBottomUnitTablet", "infoBelowQuoteMarginBottomUnit",
-          "infoBelowQuoteMarginBottomUnitMobile", "infoBelowQuoteMarginBottomUnitTablet", "quoteIcon",
-          "quoteIconColor", "quoteIconFontSizeUnit", "quoteIconFontSizeUnitMobile",
-          "quoteIconFontSizeUnitTablet", "sideImageBorderRadiusUnit", "sideImageBorderRadiusUnitMobile",
-          "sideImageBorderRadiusUnitTablet", "sideQuoteImageMarginRightUnit",
-          "sideQuoteImageMarginRightUnitMobile", "sideQuoteImageMarginRightUnitTablet",
-          "sideWithImageAuthorPositionMarginTopUnit", "sideWithImageAuthorPositionMarginTopUnitMobile",
-          "sideWithImageAuthorPositionMarginTopUnitTablet", "sideWithImageQuoteBackgroundColor",
-          "sideWithImageQuoteBorderRadiusUnit", "sideWithImageQuoteBorderRadiusUnitMobile",
-          "sideWithImageQuoteBorderRadiusUnitTablet", "sideWithImageQuoteBoxSizeUnit",
-          "sideWithImageQuoteBoxSizeUnitMobile", "sideWithImageQuoteBoxSizeUnitTablet",
-          "sideWithImageQuotePositionUnit", "sideWithImageQuotePositionUnitMobile",
-          "sideWithImageQuotePositionUnitTablet", "sideWithImageSideMarginRightUnit",
-          "sideWithImageSideMarginRightUnitMobile", "sideWithImageSideMarginRightUnitTablet"
+          "authorOccupationColor", "authorOccupationFontFamily", "authorOccupationFontStyle",
+          "authorOccupationFontWeight", "authorOccupationTextDecoration", "authorOccupationTextTransform",
+          "authorTag", "quoteIcon", "quoteIconColor", "sideWithImageQuoteBackgroundColor"
         ],
+        "attribute_bases": [
+          "authorOccupationFontSizeUnit", "authorOccupationLetterSpacingUnit", "authorOccupationLineHeightUnit",
+          "boxedAuthorPositionMarginTopUnit", "boxedImageMarginBottomUnit", "boxedPaddingUnit",
+          "boxedQuoteHorizontalPositionUnit", "boxedQuotePositionUnit", "infoBelowAuthorPositionMarginTopUnit",
+          "infoBelowImageMarginBottomUnit", "infoBelowQuoteMarginBottomUnit", "quoteIconFontSizeUnit",
+          "sideImageBorderRadiusUnit", "sideQuoteImageMarginRightUnit", "sideWithImageAuthorPositionMarginTopUnit",
+          "sideWithImageQuoteBorderRadiusUnit", "sideWithImageQuoteBoxSizeUnit", "sideWithImageQuotePositionUnit",
+          "sideWithImageSideMarginRightUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       },
       {
@@ -2004,23 +1820,16 @@
       {
         "blocks": ["qi-blocks/timeline"],
         "attributes": [
-          "dateMarginBottomUnit", "dateMarginBottomUnitMobile", "dateMarginBottomUnitTablet",
-          "horizontalContentWidthUnit", "horizontalContentWidthUnitMobile", "horizontalContentWidthUnitTablet",
-          "horizontalSideWidthUnit", "horizontalSideWidthUnitMobile", "horizontalSideWidthUnitTablet",
-          "lineColor", "lineThicknessUnit", "lineThicknessUnitMobile", "lineThicknessUnitTablet", "lineType",
-          "navigationColor", "navigationOffsetUnit", "navigationOffsetUnitMobile", "navigationOffsetUnitTablet",
-          "navigationSizeUnit", "navigationSizeUnitMobile", "navigationSizeUnitTablet", "nextIcon",
-          "pointBorderRadiusUnit", "pointBorderRadiusUnitMobile", "pointBorderRadiusUnitTablet", "pointColor",
-          "pointDiamondLinesSizeUnit", "pointDiamondLinesSizeUnitMobile", "pointDiamondLinesSizeUnitTablet",
-          "pointPositionUnit", "pointPositionUnitMobile", "pointPositionUnitTablet", "pointSizeUnit",
-          "pointSizeUnitMobile", "pointSizeUnitTablet", "pointType", "prevIcon", "spaceFromCenterUnit",
-          "spaceFromCenterUnitMobile", "spaceFromCenterUnitTablet", "timelineColumnsGap",
-          "timelineColumnsResponsive", "timelineSpaceBetweenItemsUnit", "timelineSpaceBetweenItemsUnitMobile",
-          "timelineSpaceBetweenItemsUnitTablet", "verticalSideImageMarginUnit",
-          "verticalSideImageMarginUnitMobile", "verticalSideImageMarginUnitTablet",
-          "verticalSideItemSidePaddingUnit", "verticalSideItemSidePaddingUnitMobile",
-          "verticalSideItemSidePaddingUnitTablet"
+          "lineColor", "lineType", "navigationColor", "nextIcon", "pointColor", "pointType", "prevIcon",
+          "timelineColumnsGap", "timelineColumnsResponsive"
         ],
+        "attribute_bases": [
+          "dateMarginBottomUnit", "horizontalContentWidthUnit", "horizontalSideWidthUnit", "lineThicknessUnit",
+          "navigationOffsetUnit", "navigationSizeUnit", "pointBorderRadiusUnit", "pointDiamondLinesSizeUnit",
+          "pointPositionUnit", "pointSizeUnit", "spaceFromCenterUnit", "timelineSpaceBetweenItemsUnit",
+          "verticalSideImageMarginUnit", "verticalSideItemSidePaddingUnit"
+        ],
+        "attribute_suffixes": ["", "Mobile", "Tablet"],
         "value": {"class": "authored", "plain_data": true}
       }
     ]

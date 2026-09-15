@@ -558,9 +558,16 @@
   ],
   "declaration_groups": {
     "groups": 177,
+    "attribute_name_products": 98,
+    "attribute_product_bases": 485,
+    "attribute_product_names": 1455,
     "expanded_attributes": 7497,
     "expanded_blocks": 49,
     "expanded_sha256": "5672b59ca5db32ed09c1a1c1798a08cf341b6d93bb3ab2650e10118134eafd27",
-    "source": "Canonical block_values map before lossless grouping; reference/media ownership must remain identical."
+    "manifest_bytes_before_name_products": 120737,
+    "manifest_bytes_with_name_products": 93299,
+    "manifest_lines_before_name_products": 2092,
+    "manifest_lines_with_name_products": 1901,
+    "source": "Canonical block_values map before lossless grouping and exact name products; reference/media ownership must remain identical."
   }
 }

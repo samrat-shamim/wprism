@@ -804,11 +804,33 @@ are absent. The existing block grammar normalizes this syntax for capture,
 compilation, lint, apply, reference-keyspace and derivative-ownership checks;
 manifest identity continues to bind the authored declaration.
 
+When an exact schema repeats a finite suffix family, also negotiate
+`block-attribute-name-products/v1`. A group may replace repeated names with
+paired `attribute_bases` and `attribute_suffixes` lists:
+
+```json
+{
+  "blocks": ["example/card"],
+  "attribute_bases": ["paddingUnit", "marginUnit"],
+  "attribute_suffixes": ["", "Mobile", "Tablet"],
+  "value": {"class": "authored", "plain_data": true}
+}
+```
+
+This declares six exact names. Either product list without the other refuses;
+duplicate bases, suffixes or expanded names refuse, including a collision with
+an `attributes` member in the same group. The empty suffix is explicit. There
+is no pattern match, runtime schema lookup or default rule. Use another group
+when a second suffix family needs the same value rule rather than hiding
+multiple products in one declaration.
+
 When compacting an existing declaration, pin the canonical expanded-map digest
 and verify it through `BlockValueGrammar::attribute_maps()`, then rerun the
 native fixture and hostile-reference tests. Store the compact capsule and the
-inventory digest. The Qi capsule reduces its declaration to 177 groups while
-preserving the exact original 7,497 field rules.
+inventory digest. The Qi capsule reduces its declaration to 177 groups, with
+98 exact name products covering 485 bases and 1,455 responsive attribute
+names. Its manifest falls from 120,737 to 93,299 bytes and from 2,092 to 1,901
+lines while preserving the exact original 7,497 field rules.
 
 Exercise the complete candidate's publication clearance as well as the block
 codec. Qi's native corpus exposed phone false positives in hyphenated numeric

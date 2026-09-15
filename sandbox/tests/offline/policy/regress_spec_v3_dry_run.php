@@ -838,6 +838,7 @@ wprism_check_same(
     [
         'attr-id-codecs/v1',
         'block-attribute-groups/v1',
+        'block-attribute-name-products/v1',
         'block-attribute-values/v1',
         'block-content-codecs/v1',
         'block-media-derivatives/v1',

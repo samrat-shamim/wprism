@@ -14,6 +14,9 @@ final class BlockValueGrammar {
     public const SECTION = 'block_values';
     public const GROUP_FEATURE = 'block-attribute-groups/v1';
     public const GROUP_FIELD = 'groups';
+    public const ATTRIBUTE_PRODUCT_FEATURE = 'block-attribute-name-products/v1';
+    public const ATTRIBUTE_BASES_FIELD = 'attribute_bases';
+    public const ATTRIBUTE_SUFFIXES_FIELD = 'attribute_suffixes';
     public const MAX_GROUPS = 256;
     public const MAX_GROUP_MEMBERS = 4096;
     public const MAX_GROUP_VALUES = 65536;
@@ -82,14 +85,29 @@ final class BlockValueGrammar {
 
     public static function group_grammar(): array {
         return [
-            'field' => 'block_values.groups', 'shape' => 'list of closed {blocks, attributes, value} groups',
+            'field' => 'block_values.groups', 'shape' => 'list of closed {blocks, attributes?, attribute_bases?, attribute_suffixes?, value} groups',
             'blocks' => 'nonempty list of distinct exact block names',
-            'attributes' => 'nonempty list of distinct exact top-level attribute names',
+            'attributes' => 'optional nonempty list of distinct exact top-level attribute names; required unless the paired product fields are present',
+            'attribute_bases' => 'optional nonempty exact-name list paired with attribute_suffixes and negotiated by block-attribute-name-products/v1',
+            'attribute_suffixes' => 'optional nonempty exact-suffix list paired with attribute_bases and negotiated by block-attribute-name-products/v1',
             'value' => self::section_grammar(),
             'expansion' => 'one value rule for each exact block/attribute pair; duplicate pairs refuse, including equal rules',
             'max_groups' => self::MAX_GROUPS, 'max_members_per_list' => self::MAX_GROUP_MEMBERS,
             'max_expanded_group_values' => self::MAX_GROUP_VALUES,
             'authority' => 'v3 manifest declaring both block-attribute-values/v1 and block-attribute-groups/v1',
+        ];
+    }
+
+    public static function attribute_product_grammar(): array {
+        return [
+            'fields' => 'paired block_values.groups[].attribute_bases and attribute_suffixes',
+            'attribute_bases' => 'nonempty list of distinct exact top-level attribute names',
+            'attribute_suffixes' => 'nonempty list of distinct exact ASCII [A-Za-z0-9_-]* suffixes; the empty suffix is explicit',
+            'expansion' => 'concatenate each exact base and suffix; every result must be an exact attribute name',
+            'collisions' => 'duplicate expanded names refuse within the product and against explicit attributes',
+            'max_members_per_list' => self::MAX_GROUP_MEMBERS,
+            'max_expanded_group_values' => self::MAX_GROUP_VALUES,
+            'authority' => 'v3 manifest declaring block-attribute-values/v1, block-attribute-groups/v1 and block-attribute-name-products/v1',
         ];
     }
 
@@ -121,32 +139,97 @@ final class BlockValueGrammar {
         }
         $count = 0;
         foreach ($groups as $group) {
-            if (!is_array($group) || count($group) !== 3 || array_diff_key($group, ['blocks' => true, 'attributes' => true, 'value' => true])
+            if (!is_array($group) || array_diff_key($group, [
+                'blocks' => true, 'attributes' => true, self::ATTRIBUTE_BASES_FIELD => true,
+                self::ATTRIBUTE_SUFFIXES_FIELD => true, 'value' => true,
+            ]) || !array_key_exists('blocks', $group) || !array_key_exists('value', $group)
                 || !is_array($group['value'] ?? null) || array_is_list($group['value'])) {
-                throw new \RuntimeException('wprism: block value groups require closed {blocks, attributes, value} objects');
+                throw new \RuntimeException('wprism: block value groups require closed declaration objects');
             }
-            foreach (['blocks', 'attributes'] as $field) {
-                $members = $group[$field] ?? null;
+            $blocks = $group['blocks'];
+            if (!is_array($blocks) || !array_is_list($blocks) || $blocks === [] || count($blocks) > self::MAX_GROUP_MEMBERS) {
+                throw new \RuntimeException('wprism: block value group blocks requires a bounded nonempty exact-name list');
+            }
+            $seenBlocks = [];
+            foreach ($blocks as $block) {
+                if (!is_string($block) || preg_match('/^[a-z][a-z0-9_-]*\/[a-z][a-z0-9_-]*$/D', $block) !== 1
+                    || isset($seenBlocks[$block])) {
+                    throw new \RuntimeException('wprism: block value group blocks requires distinct exact names');
+                }
+                $seenBlocks[$block] = true;
+            }
+            $attributes = [];
+            $seenAttributes = [];
+            if (array_key_exists('attributes', $group)) {
+                $members = $group['attributes'];
                 if (!is_array($members) || !array_is_list($members) || $members === [] || count($members) > self::MAX_GROUP_MEMBERS) {
-                    throw new \RuntimeException("wprism: block value group $field requires a bounded nonempty exact-name list");
+                    throw new \RuntimeException('wprism: block value group attributes requires a bounded nonempty exact-name list');
                 }
-                $seen = [];
                 foreach ($members as $member) {
-                    $pattern = $field === 'blocks' ? '/^[a-z][a-z0-9_-]*\/[a-z][a-z0-9_-]*$/D' : '/^[A-Za-z_][A-Za-z0-9_-]*$/D';
-                    if (!is_string($member) || preg_match($pattern, $member) !== 1 || isset($seen[$member])) {
-                        throw new \RuntimeException("wprism: block value group $field requires distinct exact names");
+                    if (!is_string($member) || preg_match('/^[A-Za-z_][A-Za-z0-9_-]*$/D', $member) !== 1
+                        || isset($seenAttributes[$member])) {
+                        throw new \RuntimeException('wprism: block value group attributes requires distinct exact names');
                     }
-                    $seen[$member] = true;
+                    $seenAttributes[$member] = true;
+                    $attributes[] = $member;
                 }
             }
-            $count += count($group['blocks']) * count($group['attributes']);
-            if ($count > self::MAX_GROUP_VALUES) throw new \RuntimeException('wprism: block value groups exceed their expanded field bound');
-            foreach ($group['blocks'] as $block) {
+            $hasBases = array_key_exists(self::ATTRIBUTE_BASES_FIELD, $group);
+            $hasSuffixes = array_key_exists(self::ATTRIBUTE_SUFFIXES_FIELD, $group);
+            if ($hasBases !== $hasSuffixes) {
+                throw new \RuntimeException('wprism: block attribute name products require paired base and suffix lists');
+            }
+            if ($hasBases) {
+                if (!in_array(self::ATTRIBUTE_PRODUCT_FEATURE, (array) ($manifest['engine_features'] ?? []), true)) {
+                    throw new \RuntimeException('wprism: block attribute name products require their negotiated engine feature');
+                }
+                foreach ([self::ATTRIBUTE_BASES_FIELD, self::ATTRIBUTE_SUFFIXES_FIELD] as $field) {
+                    $members = $group[$field];
+                    if (!is_array($members) || !array_is_list($members) || $members === []
+                        || count($members) > self::MAX_GROUP_MEMBERS) {
+                        throw new \RuntimeException("wprism: block $field requires a bounded nonempty exact list");
+                    }
+                    $seen = [];
+                    foreach ($members as $member) {
+                        $pattern = $field === self::ATTRIBUTE_BASES_FIELD ? '/^[A-Za-z_][A-Za-z0-9_-]*$/D' : '/^[A-Za-z0-9_-]*$/D';
+                        if (!is_string($member) || preg_match($pattern, $member) !== 1 || isset($seen[$member])) {
+                            throw new \RuntimeException("wprism: block $field requires distinct exact fragments");
+                        }
+                        $seen[$member] = true;
+                    }
+                }
+                if (count($group[self::ATTRIBUTE_BASES_FIELD]) > intdiv(
+                    self::MAX_GROUP_VALUES - count($attributes),
+                    count($group[self::ATTRIBUTE_SUFFIXES_FIELD])
+                )) {
+                    throw new \RuntimeException('wprism: block value groups exceed their expanded field bound');
+                }
+                foreach ($group[self::ATTRIBUTE_BASES_FIELD] as $base) {
+                    foreach ($group[self::ATTRIBUTE_SUFFIXES_FIELD] as $suffix) {
+                        $attribute = $base . $suffix;
+                        if (preg_match('/^[A-Za-z_][A-Za-z0-9_-]*$/D', $attribute) !== 1
+                            || isset($seenAttributes[$attribute])) {
+                            throw new \RuntimeException("wprism: block attribute products duplicate or invalidate exact attribute '$attribute'");
+                        }
+                        $seenAttributes[$attribute] = true;
+                        $attributes[] = $attribute;
+                    }
+                }
+            }
+            if ($attributes === []) {
+                throw new \RuntimeException('wprism: block value group requires attributes or an attribute name product');
+            }
+            $remaining = self::MAX_GROUP_VALUES - $count;
+            if (count($attributes) > intdiv($remaining, count($blocks))) {
+                throw new \RuntimeException('wprism: block value groups exceed their expanded field bound');
+            }
+            $count += count($blocks) * count($attributes);
+            foreach ($blocks as $block) {
                 $values[$block] ??= [];
                 if (!is_array($values[$block]) || ($values[$block] !== [] && array_is_list($values[$block]))) {
                     throw new \RuntimeException('wprism: block_values requires exact attribute maps');
                 }
-                foreach ($group['attributes'] as $attribute) {
+                foreach ($attributes as $attribute) {
                     if (array_key_exists($attribute, $values[$block])) {
                         throw new \RuntimeException("wprism: block value groups duplicate '$block.$attribute'; every field requires one declaration");
                     }

@@ -19,7 +19,7 @@
     "content": {
       "script": "tests/offline/regress_native_content.php",
       "exit": 0,
-      "assertions": 478,
+      "assertions": 486,
       "native_block_types": 49,
       "native_instances": 52,
       "native_media_coordinates": 222
@@ -56,11 +56,14 @@
     "declaration_groups": {
       "script": "sandbox/tests/offline/grammar/regress_block_attribute_groups.php",
       "exit": 0,
-      "assertions": 223,
-      "scope": "43 group grammar, ownership and identity assertions plus the complete 180-assertion block capture/compiler/SQL/rollback/widget suite. The historical 7497-rule inventory is unchanged apart from three explicitly pinned gallery record projections.",
+      "assertions": 393,
+      "scope": "65 group and exact-name-product grammar, ownership and identity assertions plus the complete 328-assertion block capture/compiler/SQL/rollback/widget suite. The historical 7497-rule inventory is unchanged apart from three explicitly pinned gallery record projections.",
       "groups": 177,
-      "manifest_bytes": 120737,
-      "manifest_lines": 2092,
+      "attribute_name_products": 98,
+      "attribute_product_bases": 485,
+      "attribute_product_names": 1455,
+      "manifest_bytes": 93299,
+      "manifest_lines": 1901,
       "expanded_rules": 7497,
       "expanded_sha256": "fe99a8e3e8c58c58bb060560808f2c0c161f6a64d5933f69b161625337d834e5",
       "original_expanded_sha256": "5672b59ca5db32ed09c1a1c1798a08cf341b6d93bb3ab2650e10118134eafd27"

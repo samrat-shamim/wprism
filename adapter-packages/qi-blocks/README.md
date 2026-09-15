@@ -4,8 +4,11 @@ Experimental authoring capsule for the exact free Qi Blocks 1.5.2 artifact.
 Production qualification is incomplete. The package contains declarations only;
 block values, PHP containers and media effects use shared engine machinery.
 Its 177 exact declaration groups expand to 7,497 field rules across 49 blocks.
-The native inventory pins the pre-compaction expansion digest, and the content
-regression proves that grouping changes no ownership or value rule. Three
+Ninety-eight groups use the shared exact-name product grammar to spell 1,455
+responsive attributes as 485 bases times the explicit empty, Mobile and Tablet
+suffixes. The native inventory pins the pre-compaction expansion digest, and
+the content regression proves that neither grouping nor name products change
+ownership or value rules. Three
 gallery rules additionally declare the four fields consumed by the native saver;
 shared `block-record-fields/v1` excludes their attachment-response caches.
 
@@ -22,7 +25,7 @@ an array. The adapter must preserve native storage types and must not manufactur
 successful native writer evidence.
 
 The current draft is not ready to merge. Its native content regression passes
-478 assertions. Its native option regression
+486 assertions. Its native option regression
 now uses the shared `key-bound-strings/v1` codec to rebind all 88 saved CSS page
 identity frames with their owning map key. Capture refuses selectors that name
 a different page, and the checked option transaction preserves native types,

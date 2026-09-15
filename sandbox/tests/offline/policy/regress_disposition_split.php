@@ -402,7 +402,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
     'paid-memberships-pro' => 'e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253',
     'polylang' => 'a6917aa60ccc7e5fdfd432182939f5e42128456038ceb00cd92f938babb87fa7',
-    'qi-blocks' => 'aa1ebb130a1c6883d802252e4a33e83200a7da1b2a8ae7b1bd1b4622a5cd2550',
+    'qi-blocks' => '4d2d8da95524f4d4a0d7aeea6ce3fe74346510e441de589fb8e7278fd6ab18ae',
     'rank-math' => 'f0a86cc0bf1b4c9360cc58d68c6e3914f1f7fd0c501b3340f8fceb8cce97b116',
     'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
     'the-events-calendar' => '0a06d5cadb9d4ed797c36bb1b2aba3c9f5518095e3a6a9ea8d1848a43be658f5',
@@ -413,20 +413,17 @@ const WPRISM_CURRENT_DIGESTS = [
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => '5bd472b9e1959fae0d51cc72f7beab8d2efc49c3a94f3fcaebff0a268d392c4f',
 ];
-// Declaring the native pa_* hierarchy moves only Woo manifest identity; its
-// disposition and whole-registry address stay unchanged. Earlier 11.1.0 admission
-// moved that one capsule's manifest and disposition
-// rows. The five current aggregates below, and the three PRE_*_REGISTRY_SHA
-// reconstructions above, all fold every shipped row, so each is re-pinned here.
-// What licenses a re-pin rather than a paste is the per-subject map beside them:
-// WPRISM_CURRENT_DIGESTS and every 'moves only <subject>' assertion still hold, so
-// woocommerce is measurably the only identity that moved. The same five numbers are
-// independently re-pinned in regress_spec_v3_digest_neutrality.php and agree there.
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = 'dcd81ea6184670f6b2c9e89f7a262d16b7540da312ce2a389cd70ec13e142d43';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'cf99174a69ab377c55438f9d0b3753f32c70338ebe09b44eacba0df5e448c0d8';
+// Exact attribute-name products move only Qi manifest identity; its
+// disposition and whole-registry address stay unchanged. The four current
+// aggregates below fold Qi's row, so each is deliberately re-pinned here.
+// WPRISM_CURRENT_DIGESTS and every historical 'moves only <subject>' assertion
+// prove that no neighbouring capsule moved. The same four numbers are
+// independently pinned in regress_spec_v3_digest_neutrality.php.
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '077496c9de9f256b48248536d8b543f0489e7970d87f210cf30e26d1505cfa17';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '44599b2a3966aa73e0c53a054ba428fdb84de960a65c0051051d9f9dd93be853';
 const WPRISM_CURRENT_REGISTRY_SHA = 'ab45dd77fb0e1c80d36121bd45fdf7da559467d3ec961f837eef5c04923485c7';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '5e5711da82585882b8f9f14976144bd6715dbd85dea0a8adb0ed366feb2b5dc5';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = 'acb63ab75ba74c2cd5cd4fd2313fad1f828002ecdf6559ffc0fd3bd6058d7beb';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '926c7e84e95a4ef7568ed42a39c8803c709a9e3c715236e9c9eacebc22013d41';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = 'c6d9124efece8919c777e33162ae58cb187c0a08d8d2300eaf45a7f707e0e3f4';
 
 $liveRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(

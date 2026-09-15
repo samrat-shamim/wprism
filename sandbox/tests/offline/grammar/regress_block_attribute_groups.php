@@ -37,6 +37,39 @@ wprism_check_same(BlockValueGrammar::project([$expanded]), BlockValueGrammar::pr
 wprism_check_same($before, Canon::encode($compact), 'normalization never changes manifest identity inputs');
 $reordered = $compact; $reordered['block_values']['groups'] = array_reverse($reordered['block_values']['groups']);
 wprism_check_same(BlockValueGrammar::project([$compact]), BlockValueGrammar::project([$reordered]), 'declaration group order cannot change effective field ownership or codec order');
+$productExpanded = $expanded;
+$product = $compact;
+$product['engine_features'][] = BlockValueGrammar::ATTRIBUTE_PRODUCT_FEATURE;
+sort($product['engine_features'], SORT_STRING);
+$product['block_values']['groups'][0]['attribute_bases'] = ['widthUnit', 'heightUnit'];
+$product['block_values']['groups'][0]['attribute_suffixes'] = ['', 'Mobile', 'Tablet'];
+$product['block_values']['groups'][] = [
+    'blocks' => ['fixture/one', 'fixture/two'],
+    'attribute_bases' => ['gapUnit'],
+    'attribute_suffixes' => ['', 'Mobile', 'Tablet'],
+    'value' => $plain,
+];
+foreach (['fixture/one', 'fixture/two'] as $block) {
+    foreach (['widthUnit', 'heightUnit', 'gapUnit'] as $base) {
+        foreach (['', 'Mobile', 'Tablet'] as $suffix) $productExpanded['block_values'][$block][$base . $suffix] = $plain;
+    }
+    ksort($productExpanded['block_values'][$block], SORT_STRING);
+}
+BlockValueGrammar::validate($product);
+$productBefore = Canon::encode($product);
+wprism_check_same($productExpanded['block_values'], BlockValueGrammar::attribute_maps($product),
+    'exact attribute name products expand beside explicit attributes and in product-only groups');
+wprism_check_same(BlockValueGrammar::project([$productExpanded]), BlockValueGrammar::project([$product]),
+    'exact attribute name products preserve the complete runtime rule list');
+wprism_check_same($productBefore, Canon::encode($product), 'name-product normalization never changes manifest identity inputs');
+$reorderedProduct = $product;
+$reorderedProduct['block_values']['groups'][0]['attribute_bases'] = ['heightUnit', 'widthUnit'];
+$reorderedProduct['block_values']['groups'][0]['attribute_suffixes'] = ['Tablet', '', 'Mobile'];
+wprism_check_same(BlockValueGrammar::attribute_maps($product), BlockValueGrammar::attribute_maps($reorderedProduct),
+    'base and suffix declaration order cannot change exact expanded ownership');
+wprism_check_same(\WPrism\AdapterContractGrammar::admitted_feature_key_arms($compact),
+    \WPrism\AdapterContractGrammar::admitted_feature_key_arms($product),
+    'name-product syntax preserves the existing block_values certificate arm');
 $literalGroupsAttribute = $compact; $literalGroupsAttribute['block_values']['fixture/three'] = ['groups' => $plain];
 BlockValueGrammar::validate($literalGroupsAttribute);
 wprism_check_same($plain, BlockValueGrammar::attribute_maps($literalGroupsAttribute)['fixture/three']['groups'], 'a native attribute named groups remains an ordinary exact field');
@@ -98,6 +131,44 @@ foreach (['feature', 'base-feature', 'spec', 'empty', 'non-list', 'open', 'empty
     }
     wprism_check_throws(static fn() => FrozenPolicy::policy([$bad], FrozenPolicy::site([$bad], WPRISM_SPEC_VERSION)), RuntimeException::class,
         "frozen manifest validation rejects $fault group declarations");
+}
+foreach (['feature', 'missing-attributes', 'empty-attributes', 'unpaired-bases', 'unpaired-suffixes', 'non-list-bases',
+    'non-list-suffixes', 'empty-bases', 'empty-suffixes', 'bad-base', 'bad-suffix', 'duplicate-base', 'duplicate-suffix',
+    'duplicate-expanded', 'duplicate-explicit', 'member-limit', 'product-expansion-limit'] as $fault) {
+    $bad = $product;
+    if ($fault === 'feature') $bad['engine_features'] = array_values(array_diff($bad['engine_features'], [BlockValueGrammar::ATTRIBUTE_PRODUCT_FEATURE]));
+    if ($fault === 'missing-attributes') {
+        unset($bad['block_values']['groups'][0]['attributes'], $bad['block_values']['groups'][0]['attribute_bases'],
+            $bad['block_values']['groups'][0]['attribute_suffixes']);
+    }
+    if ($fault === 'empty-attributes') $bad['block_values']['groups'][0]['attributes'] = [];
+    if ($fault === 'unpaired-bases') unset($bad['block_values']['groups'][0]['attribute_suffixes']);
+    if ($fault === 'unpaired-suffixes') unset($bad['block_values']['groups'][0]['attribute_bases']);
+    if ($fault === 'non-list-bases') $bad['block_values']['groups'][0]['attribute_bases'] = ['named' => 'widthUnit'];
+    if ($fault === 'non-list-suffixes') $bad['block_values']['groups'][0]['attribute_suffixes'] = ['named' => 'Mobile'];
+    if ($fault === 'empty-bases') $bad['block_values']['groups'][0]['attribute_bases'] = [];
+    if ($fault === 'empty-suffixes') $bad['block_values']['groups'][0]['attribute_suffixes'] = [];
+    if ($fault === 'bad-base') $bad['block_values']['groups'][0]['attribute_bases'] = ['width*'];
+    if ($fault === 'bad-suffix') $bad['block_values']['groups'][0]['attribute_suffixes'] = ['', '*'];
+    if ($fault === 'duplicate-base') $bad['block_values']['groups'][0]['attribute_bases'] = ['widthUnit', 'widthUnit'];
+    if ($fault === 'duplicate-suffix') $bad['block_values']['groups'][0]['attribute_suffixes'] = ['', 'Mobile', 'Mobile'];
+    if ($fault === 'duplicate-expanded') {
+        $bad['block_values']['groups'][0]['attribute_bases'] = ['widthUnit', 'widthUnitMobile'];
+        $bad['block_values']['groups'][0]['attribute_suffixes'] = ['', 'Mobile'];
+    }
+    if ($fault === 'duplicate-explicit') $bad['block_values']['groups'][0]['attributes'][] = 'widthUnit';
+    if ($fault === 'member-limit') {
+        $bad['block_values']['groups'][0]['attribute_bases'] = array_map(
+            static fn(int $i): string => 'base' . $i,
+            range(0, BlockValueGrammar::MAX_GROUP_MEMBERS)
+        );
+    }
+    if ($fault === 'product-expansion-limit') {
+        $bad['block_values']['groups'][0]['attribute_bases'] = array_map(static fn(int $i): string => 'base' . $i, range(0, 256));
+        $bad['block_values']['groups'][0]['attribute_suffixes'] = array_map(static fn(int $i): string => 'S' . $i, range(0, 255));
+    }
+    wprism_check_throws(static fn() => FrozenPolicy::policy([$bad], FrozenPolicy::site([$bad], WPRISM_SPEC_VERSION)), RuntimeException::class,
+        "frozen manifest validation rejects $fault attribute product declarations");
 }
 foreach (['same-path', 'whole-block', 'foreign-owner'] as $fault) {
     $bad = $compact;
