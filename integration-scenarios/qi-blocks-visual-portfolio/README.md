@@ -24,9 +24,9 @@ The wrapper resolves and validates its physical worktree, acquires the complete
 pair namespace, and proves teardown before publishing its sole final PASS.
 
 The exact-source run at commit
-`6e31d9194bd05d31482c0c46720ae69feff13bf2` passed on 2026-09-15. Its retained
+`044756bc69de280e2c5c6f26ff887d52fdfbcaff` passed on 2026-09-15. Its retained
 local transcript was 2,327,433 bytes (527 lines), SHA-256
-`c5ab3b0af17b2f41624f52218ef9833394740a9eb85c093528f9e34119905591`.
+`9e3e6c5cb967e34a8ce2947e070995ce6500414efeece8610f31e4dce0d74712`.
 Capture selected 13 posts, 11 terms, and three media blobs. Initial Apply
 reported 22 creates, two updates, two adoptions, one verified provider action,
 26 applied/live entities, and no drift. The target retained all 40 deliberately
