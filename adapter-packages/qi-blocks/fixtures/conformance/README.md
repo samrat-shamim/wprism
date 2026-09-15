@@ -1,4 +1,4 @@
-# Native source conformance
+# Native standalone agent roundtrip
 
 This source workflow retains all 47 standalone block types and 50 instances
 from the native Save corpus. The Contact Form 7 and Product List blocks are
@@ -23,12 +23,19 @@ diagnostics guard correctly refused. This fixture keeps both writes native
 and retains the strict diagnostics guard.
 
 Retained query preview caches deliberately contain historical fixture IDs;
-capture must omit those derived attributes. This is REST writer and source
-transport evidence, not editor Save/reopen, native target rendering, complete
-settings, lifecycle, recovery or host-promotion qualification. The conformance
-entry uses the experimental capture-plan mode. Its target hook exits with an
-explicit failure, so changing the mode alone cannot create a passing claim.
+capture must omit those derived attributes. The shared `agent-roundtrip`
+profile proves that host production promotion refuses the experimental claim,
+then exercises public target activation and Apply. Eight target-local trash
+rows force every post and attachment ID to diverge. The target hooks compare
+the complete native body, ordered PHP style container, all options, attachment
+metadata and upload bytes; canonical recapture must be byte-identical. Repeat
+Apply writes zero, and both frontends must emit the same complete stylesheet
+after rebinding all 204 owning-page frames.
 
-The complete source conformance passed on engine commit `202d7f85` with
-WordPress 7.1 and the exact Qi Blocks 1.5.2 archive. Its receipt and limits are
-recorded in `evidence/authoring-progress.json` at the capsule root.
+This is bounded experimental deploy/Apply evidence for the standalone page
+fixture. It does not qualify editor Save/reopen, selected crop and gallery
+controls, widgets/templates, retirement/reactivation, recovery, other versions,
+participant combinations or production promotion. The complete roundtrip
+passed on engine commit `56caef3f` with WordPress 7.1 and the exact Qi Blocks
+1.5.2 archive. Its receipt and limits are recorded in
+`evidence/authoring-progress.json` at the capsule root.

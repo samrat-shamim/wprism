@@ -24,7 +24,7 @@ style storage uses stdClass while Qi's frontend configured-style guard requires
 an array. The adapter must preserve native storage types and must not manufacture
 successful native writer evidence.
 
-The current draft is not ready to merge. Its native content regression passes
+The adapter remains experimental. Its native content regression passes
 486 assertions. Its native option regression
 now uses the shared `key-bound-strings/v1` codec to rebind all 88 saved CSS page
 identity frames with their owning map key. Capture refuses selectors that name
@@ -53,19 +53,20 @@ php adapter-packages/qi-blocks/tests/offline/regress_native_contexts.php
 
 Manifest grammar and structural package validation pass. The artifact lock
 pins 1.5.2 as an exercise fixture and 1.5.1 as an unexecuted refusal fixture.
-The twelve-family readiness ledger is explicitly unready. The source
-conformance run passes on WordPress 7.1 with Qi Blocks 1.5.2: it exercises the
+The twelve-family readiness ledger is explicitly unready. The shared
+agent roundtrip passes on WordPress 7.1 with Qi Blocks 1.5.2: it exercises the
 47 standalone block types through native REST writers and independently
 compares complete canonical content and styles, then verifies clean lint,
-deterministic recapture, compilation and planning. The two integration blocks require a
-participant-declared combination scenario. The separate native Apply runner
-passes on `44c3cf3f`: all four target IDs diverge, all 204 emitted CSS page
+deterministic capture, compilation, public target activation, Apply and exact
+recapture. All four target IDs diverge, all 204 emitted CSS page
 selectors match their native owner, eight target-local trash rows and every Qi
 runtime option remain intact, and repeat Apply writes nothing. Complete native
 media observations and independently retained per-site media catalogs converge;
-the source's unused 333×211 crop correctly stays absent on the target. See
+the source's unused 333×211 crop correctly stays absent on the target. Host
+production promotion remains refused because the adapter is experimental. The
+two integration blocks require a participant-declared scenario. See
 [the native Apply workflow](fixtures/native-apply/README.md) for its command and
-scope. Its new crop phase passes on `b98d450b`: the unchanged attachment supplies
+scope. The extended crop phase passes on `b98d450b`: the unchanged attachment supplies
 four selected files, all four HTTP images match native decoded dimensions and
 pixels, and repeat Apply writes zero. The target editor recognizes all 51 blocks
 and the browser decodes all four images. The Parallax item previously returned
@@ -101,9 +102,8 @@ keep the frontend at 32px on both the source and target. This upstream behavior
 remains a qualification limit; no plugin executable or storage workaround was
 added. Broader widget/template media controls remain separate obligations.
 
-The promotion conformance target hook still refuses; broader editor,
-inline template, broader widget/template media, crop failure/removal, lifecycle,
-host, version and combination qualification remain
+Broader editor, inline template, widget/template media, crop failure/removal,
+retirement/reactivation, version and combination qualification remain
 unfinished. See
 [evidence/authoring-progress.json](evidence/authoring-progress.json) for the
 observed results and qualification limits.

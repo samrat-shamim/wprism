@@ -1,5 +1,11 @@
 # Native content-only Apply
 
+The capsule's shared `sandbox/conformance/run.sh qi-blocks` entry now owns the
+repeatable standalone page roundtrip: public target activation, complete native
+Apply, canonical equality, zero-write repeat and HTTP CSS. This longer private
+runner remains the extension fixture for selected gallery controls and four
+native crop recipes.
+
 `tests/live/regress_native_apply.sh` uses one fresh, exact-source leased pair.
 Both sides install the locked free Qi Blocks 1.5.2 archive. The repository never
 declares managed code. WordPress REST writes the retained 47 standalone block

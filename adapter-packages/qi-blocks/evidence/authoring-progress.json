@@ -45,7 +45,7 @@
       "command": "php tools/adapter-package-validate.php --adapter=qi-blocks",
       "exit": 0,
       "checks": 15,
-      "scope": "Structure, grammar, artifact and evidence ownership checks; readiness is explicitly unready and native conformance is not yet qualified."
+      "scope": "Structure, grammar, artifact and evidence ownership checks; readiness remains explicitly unready while the shared native agent roundtrip qualifies bounded experimental deploy and Apply."
     },
     "shared_codec": {
       "script": "sandbox/tests/offline/grammar/regress_key_bound_strings.php",
@@ -71,11 +71,11 @@
     "conformance_corpus": {
       "script": "tests/offline/regress_conformance_corpus.php",
       "exit": 0,
-      "assertions": 98,
+      "assertions": 103,
       "native_block_types": 47,
       "native_instances": 50,
       "native_selector_frames": 84,
-      "scope": "Independent standalone native corpus preparation, complete block capture and final publication clearance; hostile private prose refuses and the target hook remains explicitly unqualified."
+      "scope": "Independent standalone native corpus preparation, complete block capture and final publication clearance; hostile private prose refuses, and static pins bind the target hooks, exact adoption policy and reviewed agent-roundtrip operations."
     },
     "shared_clearance": {
       "script": "sandbox/tests/offline/capture/regress_capture_safety_gates.php",
@@ -86,8 +86,8 @@
     "native_apply_evidence": {
       "script": "tests/offline/regress_native_apply_evidence.php",
       "exit": 0,
-      "assertions": 91,
-      "scope": "Complete product block materialization plus hostile native, HTTP, command-receipt and transport admission. Executes the live snapshot operation with different per-site catalogs; these doubles do not qualify native execution."
+      "assertions": 93,
+      "scope": "Complete product block materialization plus hostile native, HTTP, command-receipt and transport admission. Both shared-conformance CLI admissions execute with the block parser and validate the native postimage and fixed point."
     },
     "native_media": {
       "script": "tests/offline/regress_native_media.php",
@@ -111,31 +111,31 @@
   "quality_gates": {
     "regress-offline-all": {
       "exit": 0,
-      "shared_suites": 375,
-      "packages": 20,
-      "package_tests": 92,
-      "scenario_gates": 9,
-      "scenarios": 5
+      "shared_suites": 406,
+      "packages": 29,
+      "package_tests": 142,
+      "scenario_gates": 11,
+      "scenarios": 6
     },
     "composer check": {
       "exit": 0,
-      "phpunit_tests": 1324,
-      "phpunit_assertions": 37027
+      "phpunit_tests": 1404,
+      "phpunit_assertions": 40289
     },
     "release-gate": {
       "exit": 0
     },
-    "scope": "Full local gates passed on the named candidate before the focused gallery pair. Later documentation changes receive structural and canonical aggregate checks; current results are reported in PR #594.",
-    "tested_engine_commit": "4d50d712593d208e5db98bb440cb9968e0058fec"
+    "scope": "Full local gates passed with the shared Qi agent-roundtrip implementation and its package, identity and evidence updates. The recorded live pair is pinned separately to the exact implementation commit.",
+    "tested_engine_commit": "56caef3f00106b3d9bb8d32daddcea93d6cf3bfc"
   },
   "limitations": [
     "This is an experimental draft, not a production qualification. Twelve readiness families remain open.",
-    "Native content-only page Apply, four selected crops, six-widget typography transfer, zero-write repeats, complete recapture and HTTP CSS pass. Target page editor recognizes 51 valid blocks; widget native Save/reopen is separately exercised. Template discovery/rendering, broader widget/media interactions, lifecycle, host, version-matrix and hostile families remain incomplete.",
+    "The shared standalone agent roundtrip covers public target activation, native page Apply, divergent identities, zero-write repeat, complete recapture and HTTP CSS. Selected crops, gallery editing, widget and FSE contexts have separate scoped evidence; their combination, broader lifecycle, version-matrix and hostile families remain incomplete.",
     "Signature, progress-bar images and all three galleries have actual source picker Save/reopen fixtures. Three gallery response caches are now projected by the shared engine; corrected target Apply, real Edit Gallery/Select/Save, reopen and recapture pass. Signature/progress target editing remains outside that result. Crop controls expose no responsive image selection; registration-only placeholders do not authorize file work.",
     "The crop fixture has uniform PNG pixels. Native multi-format/asymmetric crop, removal, collision, recovery, scope and co-install cases remain outside this capsule result."
   ],
   "source_engine_base_commit": "202d7f85a90587af16fa194b3025f0b5b1580c34",
-  "source_engine_state": "Native source capture-plan, content-only target Apply, four native crop consumers, three native gallery editor round trips, widget contexts and scoped core-profile FSE template transfer pass on their named commits. Qi remains experimental; complete production qualification is pending.",
+  "source_engine_state": "Shared native agent roundtrip, four native crop consumers, three native gallery editor round trips, widget contexts and scoped core-profile FSE template transfer pass on their named commits. Qi remains experimental; complete production qualification is pending.",
   "native_source_conformance": {
     "status": "source-capture-plan-passed",
     "first_attempt": {
@@ -235,6 +235,55 @@
       "owned pair, site roots and lease destroyed"
     ],
     "scope": "Content-only Apply, repeat, complete native body/options/media and HTTP CSS. No browser, selected custom crop, lifecycle, host, version or combination qualification."
+  },
+  "native_agent_roundtrip": {
+    "status": "experimental-agent-roundtrip-passed",
+    "source_commit": "56caef3f00106b3d9bb8d32daddcea93d6cf3bfc",
+    "command": "CONF_PAIR=codexqiapply3 CONF1_PORT=9966 CONF2_PORT=9967 CONF_EXPECTED_SOURCE_SHA=56caef3f00106b3d9bb8d32daddcea93d6cf3bfc WPRISM_SOURCE_ROOT=<candidate-worktree> bash sandbox/conformance/run.sh qi-blocks",
+    "exit": 0,
+    "wordpress": "7.1",
+    "qi_blocks": "1.5.2",
+    "artifact_sha256": "6168357231ad0d39e41bcf71b1a0d4ad0fa08a5cc4263cc708dfe198b1f1f887",
+    "adapter_digest": "f8653dbdf712bee4bdb404eacf0fc29d4b767ce4f9335f119c72981e5e3a15e2",
+    "source_ids": {
+      "image": 1,
+      "first": 2,
+      "second": 3,
+      "page": 4
+    },
+    "target_ids": {
+      "image": 9,
+      "first": 10,
+      "second": 11,
+      "page": 12
+    },
+    "native_block_types": 47,
+    "native_instances": 50,
+    "saved_selector_frames": 84,
+    "emitted_selector_frames": 204,
+    "compiled_entities": 7,
+    "preserved_target_trash_rows": 8,
+    "source_uploads": 9,
+    "target_uploads": 8,
+    "source_body_sha256": "7a444b3f1ab7551150fcb4529bee04a79a57af3b774c71d8b494222a7bc152d9",
+    "target_body_sha256": "8aa7c40c642eba09644342856f487b00f8d1e09316b8e2adfe14bf4a262f363b",
+    "source_styles_sha256": "7701949ddb6aec694a1d19fe80287baa590f58167952b24c315374bb3321a06e",
+    "target_styles_sha256": "f73f73f78a263b0c2cc4b1af1236951b05203add58f41e552cfd22fd7d6c6974",
+    "log_sha256": "ecd9747c452ef5756c7689d08f8f9bf83309dd635958e9a6cbef50be61b99d47",
+    "verified": [
+      "exact-source and exact-artifact clean-room pair",
+      "native WordPress content writers and Qi style writer",
+      "clean lint and deterministic source capture",
+      "experimental host promotion refusal before promotion begin",
+      "public agent deploy activates Qi and matches the canonical theme and plugin set",
+      "full Apply with clean canary and canonical recapture verifier",
+      "complete native target body, ordered PHP styles, divergent identities, media and target-local witnesses",
+      "byte-identical source and target canonical state",
+      "zero-write repeat and stable complete target observation",
+      "complete frontend CSS with all 204 page-owner frames",
+      "owned pair and databases destroyed"
+    ],
+    "scope": "Standalone 47-block-type page and styles through generic agent-roundtrip. Experimental deploy and Apply only; no production promotion, native editor Save/reopen, selected crop/gallery, widget/template, recovery, other-version or combination qualification."
   },
   "native_media_conformance": {
     "source_engine_commit": "b98d450b5f796e534199e75afcdd4670fb81bc65",
