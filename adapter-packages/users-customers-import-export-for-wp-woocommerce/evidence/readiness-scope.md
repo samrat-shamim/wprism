@@ -4,8 +4,9 @@ The [readiness contract](../../../docs/agents/adapter-production-readiness.md)
 qualifies each scenario family against the adapter's declared surface. The
 current surface is nine settings and exact `user/import` and `user/export`
 mapping-template rows at the locked 2.7.5 artifact. This audit closes the
-clean-target, dirty-target and reference families and identifies why derived-state repair does not apply to
-that surface. It does not qualify the remaining families or promote the adapter.
+clean-target, dirty-target, reference and contract/dependency families and
+identifies why derived-state repair does not apply to that surface. It does not
+qualify the remaining families or promote the adapter.
 
 ## Identity and references
 
@@ -25,6 +26,26 @@ canonical equality alone is not the reference proof. The native resave and
 recapture checks also establish that rebuilding a local selection cursor does
 not create authored drift. Lifecycle and failure/recovery remain separate
 qualification work; their absence does not undo the demonstrated reference kinds.
+
+## Contract and dependency
+
+The [artifact lock](artifacts.lock.json) pins the official 2.7.5 exercise release
+and official 2.7.4 refusal release. The [dependency lane](../tests/live/regress_dependency_apply.sh)
+uses the generic deployment and Apply preflights to exercise exact active and
+inactive 2.7.5, missing code, inactive 2.7.4, a deterministic max-exclusive
+2.7.6 header, an unreadable Version header, and exact 2.7.5 code moved to an
+actively loaded wrong basename. Each hostile premise is checked before the
+public command and in its complete before/after image.
+
+Every refusal binds the exact private `LifecyclePlanner` cause and preserves the
+full SQL dump, canonical tree, site policy, entry-file hash, backup hash,
+basename and activation state. The fixture restores the original 2.7.5 bytes,
+expected basename and native active lifecycle, removes its backup, then requires
+clean deployment, Apply, native admin loading and byte-identical recapture. The
+[offline oracle](../tests/offline/regress_dependency_evidence.php) derives those
+same messages through the product planner and rejects mutations to every native
+premise field. This closes the readiness contract's exact dependency matrix;
+upgrade migration behavior remains in the separate lifecycle family.
 
 ## Clean target
 
@@ -171,9 +192,9 @@ listener as an adapter repair would destroy target-local operational state.
 The required derived-state repair family is therefore structurally
 `not_applicable` for the declared surface, rather than an unimplemented action.
 
-Eight families remain gaps in [the readiness record](production-readiness.json).
+Seven families remain gaps in [the readiness record](production-readiness.json).
 The existing positive and refusal evidence stays useful, but it does not establish
-every dependency/lifecycle/platform boundary, a warning-free omitted-password
-existing-user merge, signed deletion and remaining recovery cases, concurrency,
-or all difficult-value/data boundaries. Those require their own concrete evidence
-before promotion.
+every lifecycle/platform boundary, a warning-free omitted-password existing-user
+merge, signed deletion and remaining recovery cases, concurrency, or all
+difficult-value/data boundaries. Those require their own concrete evidence before
+promotion.

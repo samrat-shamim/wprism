@@ -92,12 +92,15 @@ bootstrap must observe the same state. Four saved templates, four completed
 exports and their files survive the tested lifecycle transitions.
 
 Inactive-code Apply and missing-code/prior-2.7.4 deployment refuse with the
-exact private cause, preserving complete native database dumps, canonical state
-and policy. The first-Apply case includes initially empty identity ledgers, so
-preparation cannot silently enroll a template before refusing. Offline checks
-also cover declared version limits and the wrong plugin basename. These 41
-native assertions qualify the named paths; unreadable-code handling, upgrade
-migrations and broader lifecycle/platform combinations remain open.
+exact private cause. Deterministic entry-file faults also prove active 2.7.6,
+an unreadable Version header, and actively loaded exact 2.7.5 code under the
+wrong basename all refuse deployment. Every refusal preserves complete native
+database dumps, canonical state, policy and the exact code-file state. The
+fixture then restores the official entry bytes, basename and active lifecycle;
+public deployment, Apply, native loading and recapture pass again. The 76 live
+assertions and their offline mutation controls close the contract/dependency
+family. Upgrade migrations and broader lifecycle/platform combinations remain
+open.
 
 Package identity changes with this declaration: existing installations must
 recompile and update their manifest content pin using `wp wprism manifest-pin`.
@@ -111,7 +114,8 @@ full Apply and scoped Apply.
 Successful signed template-deletion promotion, remaining crash/recovery and
 lifecycle boundaries remain open. The production-readiness record remains
 unready: clean-target, dirty-target and identity/references are covered; derived-state
-repair is structurally inapplicable to the declared surface, and eight families retain gaps. The
+repair is structurally inapplicable to the declared surface, contract/dependency is covered,
+and seven families retain gaps. The
 [readiness scope audit](evidence/readiness-scope.md) maps these decisions to the
 manifest and native/offline evidence.
 
