@@ -8,8 +8,8 @@ cp "$VP_CAPSULE/fixtures/native/"* "$VP_NATIVE/"
 capture_wprism_json_success VP_MIGRATION_BEFORE 'Visual Portfolio source migration premise' wp_conf1 eval-file /siterepo/.tmp-vp-capture/migration.php observe --use-include --user=admin
 jq -e '.format == "wprism-vp-native-migration/v1" and .state.cursor == null' <<<"$VP_MIGRATION_BEFORE" >/dev/null \
   || fail 'Visual Portfolio source did not begin at the natural missing migration cursor'
-capture_wprism_json_success VP_MIGRATION_SOURCE 'Visual Portfolio source native migration' wp_conf1 eval-file /siterepo/.tmp-vp-capture/migration.php settle --use-include --user=admin
-jq -e '.format == "wprism-vp-native-migration/v1" and .before.cursor == null and .after.cursor == "3.8.1" and .bounded_observed_fixed_point == true' \
+capture_wprism_json_success VP_MIGRATION_SOURCE 'Visual Portfolio source native migration' wp_conf1 eval-file /siterepo/.tmp-vp-capture/migration.php native-settle --use-include --user=admin
+jq -e '.format == "wprism-vp-native-migration/v1" and .mode == "native-settle" and .before.cursor == null and .after.cursor == "3.8.1" and .bounded_observed_fixed_point == true' \
   <<<"$VP_MIGRATION_SOURCE" >/dev/null || fail 'Visual Portfolio source migration did not reach the bounded observed migration-surface fixed point'
 pass 'Visual Portfolio source storage is current before native authoring'
 capture_wprism_json_success VP_PADDING 'Visual Portfolio native identity divergence' wp_conf1 eval-file /siterepo/.tmp-vp-capture/setup.php pad-target --use-include --user=admin

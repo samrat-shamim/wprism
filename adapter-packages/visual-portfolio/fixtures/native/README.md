@@ -17,10 +17,12 @@ post and postmeta migration surface. The target starts with
 plugin files only, and agent activation naturally leaves the cursor absent. A
 real public Apply then returns the value-free `storage_prerequisite_unmet`
 envelope without changing the bounded migration surface. The same refusal and
-non-mutation proof runs for a stale 3.8.0 cursor. In both cases only the plugin's
-own migration procedure advances storage; the fixture never writes a current
-cursor directly. Automatic host settlement when installed code is already
-current remains a platform follow-up.
+non-mutation proof runs for a stale 3.8.0 cursor. In both cases the dedicated
+lifecycle provider invokes the plugin's own procedure through the engine provider
+phase, under its declared database transaction and two fresh WordPress boots; the
+fixture never writes a current cursor directly. The same-manifest effect declaration
+makes storage-only host settlement discoverable. Certified host promotion remains
+blocked by the experimental disposition and is a separate qualification milestone.
 
 After storage settles, 32 trash posts and 32 inserted/deleted categories advance
 target identity spaces. The term padding leaves no authored target-only

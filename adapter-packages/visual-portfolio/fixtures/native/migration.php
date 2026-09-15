@@ -69,18 +69,62 @@ if ($mode === 'observe') {
     echo json_encode(['format' => 'wprism-vp-native-migration/v1', 'state' => $observe()], JSON_THROW_ON_ERROR), "\n";
     return;
 }
-$check($mode === 'settle', 'known fixture mode');
+$check(in_array($mode, ['native-settle', 'provider-settle'], true), 'known fixture mode');
 $before = $observe();
-$migration = new Visual_Portfolio_Migrations();
-$migration->init();
-$after = $observe();
-$migration->init();
-$fixed = $observe();
+$provider = null;
+$replayActions = null;
+if ($mode === 'native-settle') {
+    $migration = new Visual_Portfolio_Migrations();
+    $migration->init();
+    $after = $observe();
+    $migration->init();
+    $fixed = $observe();
+} else {
+    $repo = '/siterepo';
+    $artifactPath = __DIR__ . '/migration-compiled.json';
+    $policy = WPrism\Policy::load($repo);
+    WPrism\RepositoryCompiler::compile($repo, $policy)->write($artifactPath);
+    try {
+        $policy = WPrism\Policy::load($repo);
+        WPrism\RepositoryCompiler::read_artifact($artifactPath, $policy);
+        $readiness = WPrism\StoragePrerequisites::readiness($policy->manifests);
+        $actions = WPrism\StoragePrerequisiteSettlement::actions_for_readiness(
+            $policy->manifests,
+            $readiness
+        );
+        $receipts = WPrism\ProviderPhaseExecutor::run(
+            $policy,
+            $actions,
+            'Visual Portfolio conformance migration settlement',
+            static function (): void {}
+        );
+        WPrism\StoragePrerequisites::assert_ready($policy->manifests);
+        $after = $observe();
+        $replayActions = WPrism\StoragePrerequisiteSettlement::actions_for_readiness(
+            $policy->manifests,
+            WPrism\StoragePrerequisites::readiness($policy->manifests)
+        );
+        $fixed = $observe();
+        $provider = [
+            'actions' => count($actions),
+            'receipts' => array_map(static fn(array $row): array => [
+                'manifest' => $row['manifest'],
+                'provider' => $row['provider'],
+                'capability' => $row['capability'],
+            ], $receipts),
+        ];
+    } finally {
+        if (is_file($artifactPath)) unlink($artifactPath);
+    }
+}
 $check($after['cursor'] === VISUAL_PORTFOLIO_VERSION, 'native procedure advances exact cursor');
 $check($after === $fixed, 'native procedure reaches a bounded observed migration-surface fixed point');
 echo json_encode([
     'format' => 'wprism-vp-native-migration/v1',
+    'mode' => $mode,
     'before' => $before,
     'after' => $after,
     'bounded_observed_fixed_point' => true,
+    'provider' => $provider,
+    'replay_actions' => is_array($replayActions) ? count($replayActions) : null,
 ], JSON_THROW_ON_ERROR), "\n";

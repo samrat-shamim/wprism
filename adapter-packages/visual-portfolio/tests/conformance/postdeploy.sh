@@ -20,9 +20,11 @@ jq -e '.format == "wprism-command-refusal/v1" and .command == "apply" and
 capture_wprism_json_success VP_MIGRATION_AFTER_REFUSAL 'Visual Portfolio missing-cursor refusal postimage' wp_conf2 eval-file /siterepo/.tmp-vp-capture/migration.php observe --use-include --user=admin
 [ "$(jq -cS '.state' <<<"$VP_MIGRATION_BEFORE")" = "$(jq -cS '.state' <<<"$VP_MIGRATION_AFTER_REFUSAL")" ] \
   || fail 'Visual Portfolio missing-cursor refusal changed a native migration surface'
-capture_wprism_json_success VP_MIGRATION_SETTLED 'Visual Portfolio target native migration' wp_conf2 eval-file /siterepo/.tmp-vp-capture/migration.php settle --use-include --user=admin
-jq -e '.before.cursor == null and .after.cursor == "3.8.1" and .bounded_observed_fixed_point == true' <<<"$VP_MIGRATION_SETTLED" >/dev/null \
-  || fail 'Visual Portfolio target migration did not settle the natural missing cursor'
+capture_wprism_json_success VP_MIGRATION_SETTLED 'Visual Portfolio target provider migration' wp_conf2 eval-file /siterepo/.tmp-vp-capture/migration.php provider-settle --use-include --user=admin
+jq -e '.mode == "provider-settle" and .before.cursor == null and .after.cursor == "3.8.1" and
+  .bounded_observed_fixed_point == true and .provider.actions == 1 and .replay_actions == 0 and
+  .provider.receipts == [{"manifest":"visual-portfolio","provider":"visual-portfolio-migrations","capability":"settle_storage"}]' \
+  <<<"$VP_MIGRATION_SETTLED" >/dev/null || fail 'Visual Portfolio provider did not settle the natural missing cursor through its exact action'
 
 wp_conf2 option update vpf_db_version 3.8.0 >/dev/null
 capture_wprism_json_success VP_STALE_BEFORE 'Visual Portfolio stale migration premise' wp_conf2 eval-file /siterepo/.tmp-vp-capture/migration.php observe --use-include --user=admin
@@ -36,9 +38,11 @@ jq -e '.reason_code == "storage_prerequisite_unmet" and .diagnostics[0].manifest
 capture_wprism_json_success VP_STALE_AFTER 'Visual Portfolio stale-cursor refusal postimage' wp_conf2 eval-file /siterepo/.tmp-vp-capture/migration.php observe --use-include --user=admin
 [ "$(jq -cS '.state' <<<"$VP_STALE_BEFORE")" = "$(jq -cS '.state' <<<"$VP_STALE_AFTER")" ] \
   || fail 'Visual Portfolio stale-cursor refusal changed a native migration surface'
-capture_wprism_json_success VP_STALE_SETTLED 'Visual Portfolio stale target native migration' wp_conf2 eval-file /siterepo/.tmp-vp-capture/migration.php settle --use-include --user=admin
-jq -e '.before.cursor == "3.8.0" and .after.cursor == "3.8.1" and .bounded_observed_fixed_point == true' <<<"$VP_STALE_SETTLED" >/dev/null \
-  || fail 'Visual Portfolio native procedure did not settle the stale cursor'
-pass 'Visual Portfolio missing and stale storage refuse without mutation, then settle through the native migration procedure'
+capture_wprism_json_success VP_STALE_SETTLED 'Visual Portfolio stale target provider migration' wp_conf2 eval-file /siterepo/.tmp-vp-capture/migration.php provider-settle --use-include --user=admin
+jq -e '.mode == "provider-settle" and .before.cursor == "3.8.0" and .after.cursor == "3.8.1" and
+  .bounded_observed_fixed_point == true and .provider.actions == 1 and .replay_actions == 0 and
+  .provider.receipts == [{"manifest":"visual-portfolio","provider":"visual-portfolio-migrations","capability":"settle_storage"}]' \
+  <<<"$VP_STALE_SETTLED" >/dev/null || fail 'Visual Portfolio provider did not settle the stale cursor through its exact action'
+pass 'Visual Portfolio missing and stale storage refuse without mutation, then settle through the engine provider phase'
 capture_wprism_json_success VP_TARGET_PADDING 'Visual Portfolio divergent target identities' wp_conf2 eval-file /siterepo/.tmp-vp-capture/roundtrip-native.php pad-target --use-include --user=admin
 printf '%s\n' "$VP_TARGET_PADDING"
