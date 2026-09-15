@@ -1,6 +1,6 @@
 {
   "status": "experimental",
-  "reason": "Experimental exact Qi Blocks 1.5.2 declarations follow native schemas, saved content and option writers. Deterministic capture/compiler/recapture and native corpus preparation checks pass. Source conformance is an authoring workflow, not completed native editor, lifecycle or host-promotion qualification; no production authorization.",
+  "reason": "Experimental exact Qi Blocks 1.5.2 declarations follow native schemas, saved content and option writers. Shared agent-roundtrip evidence exercises target activation, full standalone native Apply, deterministic recapture, zero-write repeat and HTTP CSS with divergent identities while host production promotion remains blocked. Broader editor, lifecycle, version and combination qualification remains open; no production authorization.",
   "supported_versions": {
     "plugin": "qi-blocks/class-qi-blocks.php",
     "range": {
@@ -18,6 +18,9 @@
     "operations": [
       "capture",
       "compile",
+      "plan",
+      "deploy",
+      "apply",
       "recapture"
     ],
     "lifecycle_phases": [],
@@ -34,14 +37,16 @@
     "tests": [
       "regress-native-content",
       "regress-native-options",
-      "regress-conformance-corpus"
+      "regress-native-apply-evidence",
+      "regress-conformance-corpus",
+      "conformance-qi-blocks"
     ]
   },
   "unsupported": [
     {
       "operation": "all",
       "surface": "production-qualification",
-      "reason": "Native plugin round trip, hostile cases, combinations and exact-version conformance are still being authored."
+      "reason": "The shared agent round trip covers the standalone native page/style corpus. Broader editor and media controls, hostile families, lifecycle combinations, exact-version matrix and plugin combinations remain under authoring."
     },
     {
       "operation": "all",

@@ -108,7 +108,7 @@ wprism_check_throws(static fn() => $admit($records['source'], $records['target']
 
 $plan = ['create' => array_map(static fn(string $uuid): array => ['uuid' => $uuid], array_values($uuids)), 'update' => [[], []],
     'adopt' => [['type' => 'term', 'env_id' => 1, 'title' => 'Uncategorized', 'uuid' => '22222222-2222-4222-8222-222222222222', 'path' => 'terms/category/native.json']],
-    'adapter_dispositions' => [['code' => 'authored_state_not_certified'], ['code' => 'operation_not_certified']]];
+    'adapter_dispositions' => [['code' => 'authored_state_not_certified']]];
 foreach (['warnings', 'provider_problems', 'drift', 'conflict', 'collision', 'delete', 'delete_conflict', 'deleted', 'code_mismatch',
     'code_drift', 'incomplete_apply', 'incomplete_lifecycle', 'missing_user', 'skipped_user_meta', 'selected_actions', 'regen_pending', 'regen_context', 'env_missing'] as $field) $plan[$field] = [];
 $apply = ['applied' => 7, 'warnings' => ['adopted env term 1 as 22222222-2222-4222-8222-222222222222 (terms/category/native.json)'],
@@ -159,6 +159,29 @@ $remove = static function (string $path) use (&$remove): void {
     rmdir($path);
 };
 register_shutdown_function(static fn() => $remove($scratch));
+$write = static function (string $name, mixed $value) use ($scratch): string {
+    $path = $scratch . '/' . $name;
+    file_put_contents($path, is_string($value) ? $value : json_encode($value, JSON_THROW_ON_ERROR));
+    return $path;
+};
+$runAdmission = static function (array $arguments): array {
+    $process = proc_open($arguments, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (!is_resource($process)) throw new RuntimeException('cannot execute Qi roundtrip admission');
+    $stdout = stream_get_contents($pipes[1]); fclose($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]); fclose($pipes[2]);
+    return [proc_close($process), $stdout, $stderr];
+};
+$evidenceCli = $capsule . '/fixtures/native-apply/evidence.php';
+[$exit, $output, $diagnostics] = $runAdmission([PHP_BINARY, $evidenceCli, '--admit-roundtrip-native',
+    $write('source.json', $records['source']), $write('target.json', $records['target']), $write('before.json', $before),
+    $write('seed.json', $seed), $capsule . '/fixtures/native-blocks.html', $capsule . '/fixtures/native-options.json']);
+wprism_check($exit === 0 && $diagnostics === '' && json_decode($output, true, flags: JSON_THROW_ON_ERROR)['result'] === 'pass',
+    'shared conformance native admission boots its block parser and accepts the complete independent postimage');
+[$exit, $output, $diagnostics] = $runAdmission([PHP_BINARY, $evidenceCli, '--admit-roundtrip-fixed-point',
+    $write('apply.json', $apply), $write('repeat.json', $repeat), $write('source.html', $sourceHtml), $write('target.html', $targetHtml),
+    $scratch . '/source.json', $scratch . '/target.json', $scratch . '/target.json']);
+wprism_check($exit === 0 && $diagnostics === '' && json_decode($output, true, flags: JSON_THROW_ON_ERROR)['result'] === 'pass',
+    'shared conformance fixed-point admission accepts repeat Apply, native stability and complete HTTP CSS');
 $streams = static function (string $stdout, string $stderr = '', string $exit = "0\n") use ($scratch): void {
     foreach (['stdout' => $stdout, 'stderr' => $stderr, 'exit' => $exit] as $suffix => $value) {
         file_put_contents($scratch . '/native.' . $suffix, $value); chmod($scratch . '/native.' . $suffix, 0600);

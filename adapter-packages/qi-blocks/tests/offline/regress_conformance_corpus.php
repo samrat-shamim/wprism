@@ -65,11 +65,18 @@ foreach ($styles as $style) foreach ($style->values as $value) {
 }
 wprism_check_same(84, $frames, 'standalone corpus retains exactly 84 native owning-page frames after removing both integration blocks');
 wprism_check(!str_contains(serialize($styles), 'body[class*="-13"]'), 'prepared native CSS names only the newly authored page');
-$process = proc_open(['bash', $capsule . '/tests/conformance/check.sh'],
-    [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes);
-if (!is_resource($process)) throw new RuntimeException('cannot run target qualification refusal');
-fclose($pipes[0]); $out = stream_get_contents($pipes[1]); fclose($pipes[1]);
-wprism_check_same(1, proc_close($process), 'unqualified target conformance is an explicit failure');
-wprism_check(str_contains($out, 'remain unqualified'), 'target hook explains the missing qualification instead of producing empty success');
+$entry = Canon::decode(file_get_contents($capsule . '/tests/conformance/entry.json'));
+$disposition = Canon::decode(file_get_contents($capsule . '/package/disposition.json'));
+wprism_check_same('agent-roundtrip', $entry['entry']['mode'] ?? null, 'shared conformance uses the generic experimental deploy and Apply profile');
+wprism_check_same(['terms', 'posts'], $entry['entry']['adopt_by_slug'] ?? null, 'shared conformance declares its exact adoption fixture policy');
+wprism_check_same(['capture', 'compile', 'plan', 'deploy', 'apply', 'recapture'],
+    $disposition['capabilities']['operations'] ?? null, 'reviewed operations match the paths exercised by shared conformance');
+foreach (['postdeploy.sh', 'postapply.sh', 'check.sh'] as $hook) {
+    wprism_check(is_file($capsule . '/tests/conformance/' . $hook), "target roundtrip owns its $hook hook");
+}
+$checkSource = file_get_contents($capsule . '/tests/conformance/check.sh');
+wprism_check(str_contains($checkSource, '. tests/lib/conformance_private_command.sh')
+    && str_contains($checkSource, '--admit-roundtrip-fixed-point') && str_contains($checkSource, 'QI_REPEAT'),
+    'target hook loads the shared private-command ABI and requires the native oracle plus a zero-write repeated Apply');
 if (wprism_check_failed() > 0) exit(1);
 echo 'PASS: Qi conformance corpus (' . wprism_check_stats()['passed'] . " assertions)\n";
