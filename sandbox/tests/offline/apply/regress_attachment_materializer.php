@@ -1770,11 +1770,8 @@ namespace {
             'one' => ['width' => 16384, 'height' => 16384, 'crop' => true],
         ];
         $GLOBALS['wprism_attachment_size_calls'] = 0;
-        $throws(
-            static fn() => $generator->generate(41, $standalone),
-            'aggregate pixel-work bound',
-            'a syntactically valid registered-size roster cannot exceed the bounded output-pixel work authority'
-        );
+        $generator->preflight('image/png', $standalone);
+        $check(true, 'an oversized crop request on a one-pixel original is bounded by the source area');
         $GLOBALS['wprism_attachment_size_roster'] = [
             'thumbnail' => ['width' => 300, 'height' => 300, 'crop' => ['middle', 'everywhere']],
         ];
@@ -1805,10 +1802,33 @@ namespace {
             'inferred-width' => ['width' => 0, 'height' => 16384, 'crop' => false],
         ];
         $GLOBALS['wprism_attachment_size_calls'] = 0;
+        $generator->preflight('image/png', $widePath);
+        $check(true, 'an unconstrained width on a wide original cannot upscale beyond the source area');
+
+        $squareImage = imagecreatetruecolor(2048, 2048);
+        if ($squareImage === false) {
+            throw new \RuntimeException('could not create the aggregate-budget PNG fixture');
+        }
+        $squarePath = $repository . '/budget-square.png';
+        imagepng($squareImage, $squarePath);
+        unset($squareImage);
+        $GLOBALS['wprism_attachment_size_roster'] = [];
+        for ($i = 0; $i < 64; $i++) {
+            $GLOBALS['wprism_attachment_size_roster']['budget-' . $i] = [
+                'width' => 1024, 'height' => 1024, 'crop' => true,
+            ];
+        }
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
+        $generator->preflight('image/png', $squarePath);
+        $check(true, '64 actual one-megapixel downsizes fit the exact 67108864-pixel aggregate budget');
+        $GLOBALS['wprism_attachment_size_roster']['budget-excess'] = [
+            'width' => 1024, 'height' => 1024, 'crop' => true,
+        ];
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
         $throws(
-            static fn() => $generator->preflight('image/png', $widePath),
+            static fn() => $generator->preflight('image/png', $squarePath),
             'aggregate pixel-work bound',
-            'a zero registered width is charged at Core\'s source-aspect-ratio output bound rather than zero pixels'
+            '65 actual one-megapixel downsizes still exceed the aggregate pixel-work authority'
         );
         $GLOBALS['wprism_attachment_size_roster'] = [
             'thumbnail' => ['width' => 300, 'height' => 300, 'crop' => true],

@@ -1,0 +1,47 @@
+# Native authoring round trip
+
+The capsule conformance profile exercises the exact free 3.8.1 artifact through
+experimental agent deployment and Apply. The shared harness still requires the
+host production-deployment refusal; this profile does not promote readiness.
+The experimental disposition explicitly declares `deploy` as well as `apply`.
+This shipped claim changes adapter identity, so existing deployments must
+recompile and re-pin; the conformance guard is never bypassed.
+
+The retained native gallery and legacy archive bodies, settings and images are
+written on source through the existing fixture's WordPress/REST paths. Four
+projects have distinct native dates so archive order does not depend on local ID
+allocation. The target starts with plugin files only. After native deployment,
+32 trash posts and 32 inserted/deleted categories advance target identity spaces.
+The term padding leaves no authored target-only categories.
+
+The shared harness checks complete canonical recapture. Independent fresh native
+observations additionally bind eight post roles and two category roles to distinct
+local IDs and unchanged durable UUIDs, archive/placeholder settings, four featured
+images, two ordered gallery attachments and original image bytes. Host HTTP checks
+require both gallery image elements to name their target attachment IDs and image
+URLs to return decodable PNGs. Harbor's custom URL disables its image popup; its
+title must link to the native archive. Garden's popup link and JSON payload must
+name its original image. Lazy images
+and their native `noscript` fallbacks are checked independently. Both legacy
+archives must render the two projects selected by descending native date.
+
+The shared native geometry probe exercises 96 Core resize cases, including
+unconstrained dimensions, extreme aspect ratios and positional crops. The image
+engine charges each registered size no more than the original's pixel area:
+Core/GD cannot upscale, so a `9999` height does not imply a giant output. The
+existing aggregate budget remains enforced by the offline materializer suite.
+
+Run from a clean exact checkout with a unique disposable pair:
+
+```sh
+CONF_PAIR=<unique-pair> CONF1_PORT=<even-port> CONF2_PORT=<successor-port> \
+WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) \
+bash adapter-packages/visual-portfolio/tests/live/regress_native_roundtrip.sh
+```
+
+The wrapper uses shared artifact, conformance and owned-pair machinery. Offline
+oracle mutations must pass before a live run. HTTP bodies and their bounded role
+records stay in `sandbox/tmp/vp-native-http.<pair>.*` for diagnosis after pair
+cleanup; private command diagnostics also stay in `sandbox/tmp`.
+Browser editor Save/reopen, interactive filtering/lightbox, destructive recovery,
+additional plugin combinations and other readiness gaps remain separate work.

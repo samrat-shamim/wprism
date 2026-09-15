@@ -1248,7 +1248,10 @@ final class AttachmentNativeMetadataGenerator {
                     intdiv(($row['width'] * $sourceHeight) + $sourceWidth - 1, $sourceWidth)
                 )
                 : $row['height'];
-            $pixels = $width * $height;
+            // The closed Core/GD resize path cannot upscale past the source area,
+            // including sentinel requests such as 9999px unconstrained heights.
+            // Charge each size independently so the aggregate work limit remains.
+            $pixels = min($sourceWidth * $sourceHeight, $width * $height);
             if ($pixels > self::MAX_OUTPUT_PIXELS - $outputPixels) {
                 throw new \RuntimeException(
                     'wprism: native attachment metadata registered image sizes exceed their aggregate pixel-work bound'
