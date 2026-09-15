@@ -143,6 +143,7 @@ foreach ([
     'tmp-qi-image-500x333.png',
     'tmp-qi-image-800x533.png',
     '$targetUploads === $sourceUploads',
+    "\$warnings[4] === 'provider capability fired: visual-portfolio-settings@1.0.0 reconcile_settings ('",
     '$visualPortfolioBefore === $visualPortfolioStable',
     'QiNativeApplyEvidence::css',
 ] as $boundary) {

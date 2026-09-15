@@ -93,9 +93,8 @@ final class QiVisualPortfolioEvidence
             && preg_match('~^adopted env term 1 as ([a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}) \\(terms/category/\\1--uncategorized\\.json\\)$~D', $warnings[1]) === 1
             && ($warnings[2] ?? null) === "option vp_images: no live value to sub-key-merge into — creating it containing ONLY the declared sub-keys (its owning plugin's own defaults are absent; expected if that plugin has not been deployed/activated on this target yet)"
             && ($warnings[3] ?? null) === "option vp_popup_gallery: no live value to sub-key-merge into — creating it containing ONLY the declared sub-keys (its owning plugin's own defaults are absent; expected if that plugin has not been deployed/activated on this target yet)"
-            && is_string($warnings[4] ?? null)
-            && preg_match('/^provider capability fired: visual-portfolio-settings@1\\.0\\.0 reconcile_settings \\([0-9]+\\.[0-9]{3}s, verified\\)$/D', $warnings[4]) === 1,
-            'initial receipt lost an adoption, option-creation or provider boundary');
+            && is_string($warnings[4] ?? null),
+            'initial receipt lost an adoption or option-creation boundary');
 
         $actions = $result['actions'] ?? null;
         $action = is_array($actions) && count($actions) === 1 ? $actions[0] : null;
@@ -105,9 +104,12 @@ final class QiVisualPortfolioEvidence
             && ($action['kind'] ?? null) === 'provider'
             && ($action['provider_version'] ?? null) === '1.0.0'
             && (is_int($action['duration_seconds'] ?? null) || is_float($action['duration_seconds'] ?? null))
-            && $action['duration_seconds'] > 0
+            && is_finite((float) $action['duration_seconds']) && $action['duration_seconds'] > 0
             && ($action['verified'] ?? null) === true,
             'initial receipt lost the verified Visual Portfolio provider action');
+        self::check($warnings[4] === 'provider capability fired: visual-portfolio-settings@1.0.0 reconcile_settings ('
+            . $action['duration_seconds'] . 's, verified)',
+            'provider warning disagrees with its typed action receipt');
         $before = $action['before'] ?? null;
         $after = $action['after'] ?? null;
         $hashKeys = ['derived_sha256', 'files_sha256', 'inputs_sha256', 'remainder_sha256'];
