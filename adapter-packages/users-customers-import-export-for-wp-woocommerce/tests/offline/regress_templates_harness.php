@@ -33,4 +33,23 @@ foreach (['ready', 'php-stdout', 'php-stderr', 'unexpected-stderr', 'nonzero'] a
     wprism_check_same($fault === 'ready', $status === 0, "actual template command capture admits only expected exit and clean streams: $fault");
     if ($fault === 'ready') wprism_check(str_contains($out, 'ok: probe'), 'native template capture reaches its positive completion helper');
 }
+$limitation = [
+    'phase' => 'consume', 'history_id' => 17,
+    'run' => ['response' => true, 'finished' => 1, 'total_success' => 1],
+    'display_name' => 'Generated target', 'existing_user' => true,
+    'password_hash_nonempty' => true, 'password_preserved' => true,
+];
+$path = '/var/www/html/wp-content/plugins/users-customers-import-export-for-wp-woocommerce/admin/modules/user/import/import.php';
+$logged = '[15-Sep-2026 18:09:23 UTC] PHP Warning:  Undefined array key "user_pass" in ' . $path . ' on line 640';
+$displayed = 'Warning: Undefined array key "user_pass" in ' . $path . ' on line 640';
+$warning = " Container wprism-templatesprobe-cli2-run-0123456789ab Created \n$logged\n$displayed\n$logged\n$displayed\n";
+$limitationScript = $common = substr($script, 0, strrpos($script, 'capture probe fixture_command'));
+$limitationScript .= 'capture_omitted_password_limitation probe fixture_command' . "\n";
+foreach (['expected' => [0, $warning], 'missing-warning' => [0, ''], 'failed-command' => [1, $warning]] as $case => [$exit, $stderr]) {
+    [$status, $out] = WPrismTest\ShellProbe::run($limitationScript,
+        [$root, $capsule, json_encode($limitation, JSON_THROW_ON_ERROR), $stderr, (string) $exit], $root);
+    wprism_check_same($case === 'expected', $status === 0, 'actual limitation capture admits only the exact native warning: ' . $case);
+    if ($case === 'expected') wprism_check(str_contains($out, 'records the exact upstream warning boundary'),
+        'native limitation capture reaches its explicit positive completion helper');
+}
 wprism_check_summary('importer templates harness');

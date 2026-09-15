@@ -74,8 +74,12 @@ Changing a target binding can select a canonically equal template for Apply.
 The combined native lane covers import Save, Update and Save As, a blank draft,
 independent target adoption/creation, complete native reopen, full Apply,
 scoped pointer rotation, request replay and exact recapture after native resave.
-Three real mapped-password import jobs consume the applied mapping and target
-CSV bytes. Configuration Apply itself preserves user records, sessions, history,
+Three real mapped-password import jobs and a generated-password import consume
+the applied mappings and target CSV bytes. Repeating the generated-password job
+as an existing-user merge preserves its password while reproducing the pinned
+plugin's two `user_pass` undefined-key warnings. The retained-stream oracle makes
+that upstream limitation explicit; it is never accepted as a warning-free pass.
+Configuration Apply itself preserves user records, sessions, history,
 export templates and operational files. The offline capsule test additionally
 covers same-name import/export identities, missing inputs before insertion,
 post-write rollback, private/disabled literals and malformed owned imports.
@@ -98,11 +102,14 @@ migrations and broader lifecycle/platform combinations remain open.
 Package identity changes with this declaration: existing installations must
 recompile and update their manifest content pin using `wp wprism manifest-pin`.
 Complete template qualification remains pending. Generated CSVs/logs, users and
-customers are operational data. The native importer warns when `user_pass` is
-omitted from mappings; the mapped-password control does not qualify that case.
-Remote-adapter extensions and broader import-job behavior remain unqualified.
+customers are operational data. A password-omitting mapping now creates a new
+target user cleanly and retains its generated hash on merge; exact 2.7.5 still
+emits two warnings during that merge, so the readiness family stays open.
+Premium remote modes remain outside this local-file declaration. The participant
+scenario covers native Importer plus WooCommerce behavior under both load orders,
+full Apply and scoped Apply.
 Successful signed template-deletion promotion, remaining crash/recovery and
-lifecycle boundaries and plugin combinations remain open. The production-readiness record remains
+lifecycle boundaries remain open. The production-readiness record remains
 unready: clean-target, dirty-target and identity/references are covered; derived-state
 repair is structurally inapplicable to the declared surface, and eight families retain gaps. The
 [readiness scope audit](evidence/readiness-scope.md) maps these decisions to the

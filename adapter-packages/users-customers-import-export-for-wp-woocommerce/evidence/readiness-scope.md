@@ -23,9 +23,8 @@ declaration.
 The native checks inspect complete saved forms and rendered wizard controls;
 canonical equality alone is not the reference proof. The native resave and
 recapture checks also establish that rebuilding a local selection cursor does
-not create authored drift. Lifecycle, failure/recovery and plugin combinations
-remain separate qualification work; their absence does not undo the demonstrated
-reference kinds.
+not create authored drift. Lifecycle and failure/recovery remain separate
+qualification work; their absence does not undo the demonstrated reference kinds.
 
 ## Clean target
 
@@ -75,6 +74,36 @@ lost local values, incomplete raw observations, unintended Plan diagnostics,
 identity rebinding and incomplete refusal preservation. Source observations use
 the shared owned cron window while retaining every cron row in comparisons.
 Signed deletion, failure/recovery and concurrency remain separate open families.
+
+## Native behavior and combinations
+
+The dedicated [native template Apply lane](../tests/live/regress_templates_apply.sh)
+now transfers a sixth saved template without expanding the clean-target,
+dirty-target or recovery fixtures. The added import template disables
+`user_pass` through the native two-member mapping tuple and omits it from
+selected fields. Public Apply creates the target row and binds an independent
+target CSV. Native reopen returns the complete applied form, and the first
+import creates a new user with a nonempty generated password without any runtime
+diagnostic.
+
+The same target template then exercises the existing-user merge branch. The
+job completes and preserves the generated password, but exact 2.7.5 dereferences
+the absent `user_pass` at `admin/modules/user/import/import.php:640` twice. The
+[retained-stream oracle](../fixtures/omitted-password-evidence.php) admits only
+those two warnings and their CLI display copies, the exact successful job result,
+and an unchanged password hash. Its [offline controls](../tests/offline/regress_omitted_password_evidence.php)
+reject missing, moved, changed or additional diagnostics and misleading job
+outcomes. This is an upstream limitation in the exact locked WordPress.org
+release; suppressing it in WPrism would cross the engine/plugin boundary and
+turn a warning into hollow green evidence.
+
+The participant-declared [Importer plus WooCommerce scenario](../../../integration-scenarios/importer-woocommerce-customers/)
+already proves both plugin load orders, native customer/order/catalog behavior,
+full Apply and scoped Apply with excluded state preserved. All three live lanes
+are now named by the package's external-evidence record. Premium remote import
+modes are refused by the manifest and remain outside this local-file declaration.
+The exact existing-user warning keeps `native-behavior` open. Plugin combinations
+are qualified, and remote extensions are excluded from the declared surface.
 
 ## Transaction failure and retry
 
@@ -144,6 +173,7 @@ The required derived-state repair family is therefore structurally
 
 Eight families remain gaps in [the readiness record](production-readiness.json).
 The existing positive and refusal evidence stays useful, but it does not establish
-every dependency/lifecycle/platform boundary, the omitted-password native case, signed deletion and remaining recovery cases,
-concurrency, or all difficult-value/data boundaries. Those require their own
-concrete evidence before promotion.
+every dependency/lifecycle/platform boundary, a warning-free omitted-password
+existing-user merge, signed deletion and remaining recovery cases, concurrency,
+or all difficult-value/data boundaries. Those require their own concrete evidence
+before promotion.
