@@ -83,7 +83,7 @@ php tools/adapter-package-tests.php --adapter=visual-portfolio
 ```
 
 The package-owned native workflow uses the shared conformance driver in
-`capture-plan` mode. From a clean, committed candidate, select an unused pair and
+`agent-apply-roundtrip` mode. From a clean, committed candidate, select an unused pair and
 ports, then run:
 
 ```sh
@@ -95,9 +95,10 @@ bash sandbox/bin/pair.sh destroy vpcap01
 
 This workflow rebases the retained block bodies onto fresh native media IDs,
 saves through WordPress REST and plugin source writers, then exercises public
-Capture and immutable compilation. It compares complete canonical files, seven
-native tables, the block registry and upload hashes across repeated Capture.
-It stops before target deploy or Apply.
+Capture, immutable compilation and experimental agent Apply. It pins both host
+and target deployment refusals, proves the target's migration boundaries, and
+compares complete canonical files, seven native tables, the block registry,
+upload hashes and rendered native pages across the roundtrip.
 
 The separate settings lane owns and destroys its pair automatically:
 
