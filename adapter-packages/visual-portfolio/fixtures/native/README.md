@@ -18,8 +18,10 @@ The shared harness checks complete canonical recapture. Independent fresh native
 observations additionally bind eight post roles and two category roles to distinct
 local IDs and unchanged durable UUIDs, archive/placeholder settings, four featured
 images, two ordered gallery attachments and original image bytes. Host HTTP checks
-require both gallery image elements to name their target attachment IDs, popup
-links to name the originals, and image URLs to return decodable PNGs. Lazy images
+require both gallery image elements to name their target attachment IDs and image
+URLs to return decodable PNGs. Harbor's custom URL disables its image popup; its
+title must link to the native archive. Garden's popup link and JSON payload must
+name its original image. Lazy images
 and their native `noscript` fallbacks are checked independently. Both legacy
 archives must render the two projects selected by descending native date.
 

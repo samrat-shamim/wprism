@@ -37,11 +37,18 @@ final class VisualPortfolioRoundtripEvidence
             $media = $record['media'][$name];
             $images = $xpath->query('.//img[not(ancestor::noscript)]', $node);
             $fallbacks = $xpath->query('.//noscript//img', $node);
-            $links = $xpath->query('.//a[@data-vp-popup]', $node);
-            self::check($images !== false && $images->length === 1 && $links !== false && $links->length === 1, 'one image and native popup trigger per item');
+            $links = $xpath->query('.//a', $node);
+            self::check($images !== false && $images->length === 1, 'one active image per item');
+            // class-get-portfolio.php:870 disables popup for the custom-URL
+            // Harbor item; item-title carries its authored archive navigation.
+            self::check($links !== false && $links->length === ($name === 'garden' ? 1 : 0), 'native custom-URL versus popup click behavior');
             self::check($fallbacks !== false && $fallbacks->length <= 1, 'at most one native noscript fallback');
-            $link = $links->item(0);
-            self::check($link->getAttribute('href') === $media['url'] && $link->getAttribute('data-vp-popup') !== '', 'popup binds the physical original');
+            if ($name === 'garden') {
+                $link = $links->item(0);
+                $popup = json_decode($link->getAttribute('data-vp-popup'), true);
+                self::check($link->getAttribute('href') === $media['url'] && is_array($popup)
+                    && ($popup['type'] ?? null) === 'image' && ($popup['src'] ?? null) === $media['url'], 'popup link and native payload bind the physical original');
+            }
             foreach ([$images, $fallbacks] as $variant => $imageNodes) foreach ($imageNodes as $img) {
                 self::check(in_array('wp-image-' . $media['id'], preg_split('/\s+/', trim($img->getAttribute('class'))), true), 'rendered attachment role');
                 self::check($variant === 0 || !$img->hasAttribute('data-src'), 'noscript fallback has an immediately loadable source');
@@ -52,6 +59,11 @@ final class VisualPortfolioRoundtripEvidence
             }
             $assets[] = $media['url'];
         }
+        $titles = $xpath->query('//*[contains(concat(" ",normalize-space(@class)," ")," wp-block-visual-portfolio-item-title ")]');
+        self::check($titles !== false && $titles->length === 1 && trim($titles->item(0)->textContent) === 'Harbor — আলো', 'native custom image title');
+        $navigation = $xpath->query('.//a', $titles->item(0));
+        self::check($navigation !== false && $navigation->length === 1
+            && $navigation->item(0)->getAttribute('href') === $record['home'] . '/vp-alternate-archive/', 'authored title navigation binds the native archive');
         return array_values(array_unique($assets));
     }
 

@@ -41,7 +41,11 @@ foreach (['empty', 'version', 'home', 'missing-role', 'alias-id', 'alias-uuid', 
 $html = '<!doctype html><html><body>' . str_repeat(' ', 1100);
 foreach (['harbor', 'garden'] as $name) {
     $m = $target['media'][$name];
-    $html .= '<figure class="wp-block-visual-portfolio-item-image"><a data-vp-popup="image" href="' . $m['url'] . '"><img class="wp-image-' . $m['id'] . '" src="' . $m['url'] . '"></a></figure>';
+    $image = '<img class="wp-image-' . $m['id'] . '" src="' . $m['url'] . '">';
+    $popup = htmlspecialchars(json_encode(['type' => 'image', 'src' => $m['url']], JSON_THROW_ON_ERROR), ENT_QUOTES);
+    $html .= '<figure class="wp-block-visual-portfolio-item-image">'
+        . ($name === 'garden' ? '<a data-vp-popup="' . $popup . '" href="' . $m['url'] . '">' . $image . '</a>' : $image) . '</figure>';
+    if ($name === 'harbor') $html .= '<h3 class="wp-block-visual-portfolio-item-title"><a href="' . $target['home'] . '/vp-alternate-archive/">Harbor — আলো</a></h3>';
 }
 $html .= '</body></html>';
 wprism_check_same(array_column($target['media'], 'url'), VisualPortfolioRoundtripEvidence::rendered($html, $target, 'gallery'), 'real gallery selectors bind both downloadable originals');
@@ -59,13 +63,16 @@ foreach (['fallback-id', 'fallback-url', 'duplicate-active', 'duplicate-fallback
     if ($fault === 'duplicate-fallback') $bad = str_replace('</noscript>', '<img class="wp-image-101" src="' . $target['media']['harbor']['url'] . '"></noscript>', $bad);
     wprism_check_throws(static fn() => VisualPortfolioRoundtripEvidence::rendered($bad, $target, 'gallery'), RuntimeException::class, "lazy render rejects $fault");
 }
-foreach (['empty', 'missing-image', 'wrong-id', 'wrong-url', 'missing-popup', 'warning'] as $fault) {
+foreach (['empty', 'missing-image', 'wrong-id', 'wrong-url', 'missing-popup', 'wrong-popup-payload', 'wrong-title-navigation', 'unexpected-popup', 'warning'] as $fault) {
     $bad = $html;
     if ($fault === 'empty') $bad = '';
     if ($fault === 'missing-image') $bad = str_replace('<img ', '<not-an-image ', $bad);
     if ($fault === 'wrong-id') $bad = str_replace('wp-image-101', 'wp-image-999', $bad);
     if ($fault === 'wrong-url') $bad = str_replace($target['home'], $source['home'], $bad);
     if ($fault === 'missing-popup') $bad = str_replace('data-vp-popup', 'data-irrelevant', $bad);
+    if ($fault === 'wrong-popup-payload') $bad = str_replace('&quot;type&quot;:&quot;image&quot;', '&quot;type&quot;:&quot;video&quot;', $bad);
+    if ($fault === 'wrong-title-navigation') $bad = str_replace('/vp-alternate-archive/', '/wrong-page/', $bad);
+    if ($fault === 'unexpected-popup') $bad = str_replace('<img class="wp-image-101"', '<a data-vp-popup="image" href="wrong"></a><img class="wp-image-101"', $bad);
     if ($fault === 'warning') $bad .= 'Warning: broken render';
     wprism_check_throws(static fn() => VisualPortfolioRoundtripEvidence::rendered($bad, $target, 'gallery'), RuntimeException::class, "render rejects $fault");
 }
