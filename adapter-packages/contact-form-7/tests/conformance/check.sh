@@ -108,6 +108,28 @@ cf7_target_hash() {
   '
 }
 
+# The main form's stored body against CF7's own derivation of the properties
+# apply wrote, computed on conf2 by CF7's loader and flattener. Only digests,
+# a length and booleans leave the target: the derivation holds mail addresses.
+cf7_target_body_evidence() {
+  local out
+  out=$(wp_conf2 eval '
+    $post = get_page_by_path("conformance-contact-form", OBJECT, "wpcf7_contact_form");
+    $form = $post ? WPCF7_ContactForm::get_instance($post->ID) : null;
+    $stored = $post ? (string) $post->post_content : "";
+    $derived = $form ? trim(implode("\n", wpcf7_array_flatten($form->get_properties()))) : null;
+    echo wp_json_encode([
+      "stored_sha256" => $post ? hash("sha256", $stored) : null,
+      "derived_sha256" => is_string($derived) ? hash("sha256", $derived) : null,
+      "length" => strlen($stored),
+      "stale" => str_contains($stored, "Hostile target main form"),
+      "target_home" => str_contains($stored, home_url("/")),
+    ]), "\n";
+  ' | awk 'NF { line=$0 } END { print line }')
+  require_observed_nonempty "conf2 CF7 main form body evidence" "$out"
+  printf '%s\n' "$out"
+}
+
 SOURCE=$(observe_cf7 conf1)
 TARGET=$(observe_cf7 conf2)
 TARGET_PREMISE=$(cat "${CONF_REPO2:-siterepo/conf2}/.tmp-cf7-target.json")
@@ -146,12 +168,13 @@ printf '%s\n' "$TARGET" | jq -e '
 #  - published state carries an EMPTY body for every form. Carrying it published
 #    a second, undeclared copy of that state -- the copy whose source admin
 #    address capture's clearance refused;
-#  - the adopted target form keeps the body ITS OWN save() derived in
-#    postdeploy.sh ("Hostile target main form"). Carrying the body replaces it
-#    with the source dump (source-only recipient/sender); an apply that wrote the
-#    empty canonical body blanks it.
-# The failure text projects the body (length, one boolean) rather than printing
-# it: the target's derivation holds the target admin address.
+#  - the adopted target form's body is CF7's own derivation of the properties
+#    apply wrote: the contact-form-7-form-content provider rebuilt it. Without
+#    the provider it is still the stale body postdeploy.sh's save() derived
+#    ("Hostile target main form"); a carried source body holds the SOURCE home
+#    URL the target's rebound mail body does not, so it cannot equal the
+#    target's derivation; an apply that wrote the empty canonical body fails
+#    the length floor.
 CF7_STATE_BODIES=$(wp_conf1 eval '
   $bodies = [];
   foreach (glob("/siterepo/state/posts/wpcf7_contact_form/*.md") ?: [] as $file) {
@@ -167,19 +190,13 @@ jq -e '
   (to_entries | all(.value == 0))
 ' <<<"$CF7_STATE_BODIES" >/dev/null \
   || fail "CF7 published state carries a non-empty derived form body: $CF7_STATE_BODIES"
-CF7_TARGET_BODY=$(wp_conf2 eval '
-  $post = get_page_by_path("conformance-contact-form", OBJECT, "wpcf7_contact_form");
-  echo wp_json_encode(["content" => $post ? (string) $post->post_content : null]), "\n";
-' | awk 'NF { line=$0 } END { print line }')
-require_observed_nonempty "CF7 adopted target form body" "$CF7_TARGET_BODY"
+CF7_TARGET_BODY=$(cf7_target_body_evidence)
 jq -e '
-  (.content | type == "string") and
-  (.content | contains("Hostile target main form")) and
-  (.content | contains("main-recipient@example.test") | not) and
-  (.content | contains("main-sender@example.test") | not)
+  (.stored_sha256 | type == "string") and .stored_sha256 == .derived_sha256 and
+  .length > 25000 and .stale == false and .target_home == true
 ' <<<"$CF7_TARGET_BODY" >/dev/null \
-  || fail "CF7 apply did not leave the adopted target form its own derived body: $(jq -c '{length: ((.content // "") | length), own_derivation: ((.content // "") | contains("Hostile target main form"))}' <<<"$CF7_TARGET_BODY")"
-pass "derived form body: published state carries none, and apply leaves the adopted target form its own derivation"
+  || fail "CF7 apply did not rebuild the adopted target form body from its applied properties: $CF7_TARGET_BODY"
+pass "derived form body: published state carries none, and the target rebuilds it from the properties apply wrote"
 
 SOURCE_MAIN=$(jq -r '.main.id' <<<"$SOURCE")
 TARGET_MAIN=$(jq -r '.main.id' <<<"$TARGET")
@@ -511,6 +528,10 @@ printf '%s\n' "$RETRIED" | jq -e '
   (.main.mail.subject | contains("CF7 transaction subject 東京 🚀")) and
   (.main.messages.mail_sent_ok | contains($observed.home))
 ' >/dev/null || fail "CF7 retry did not converge through its native API: $RETRIED"
+# The failed apply committed nothing, so no rebuild ran; the retry's must.
+CF7_RETRY_BODY=$(cf7_target_body_evidence)
+jq -e '.stored_sha256 == .derived_sha256 and .stale == false' <<<"$CF7_RETRY_BODY" >/dev/null \
+  || fail "CF7 retry did not rebuild the form body from its converged properties: $CF7_RETRY_BODY"
 pass "late CF7 metadata failure rolls back every write, retains authority, and retries cleanly"
 
 # Two real processes race one new repository intent. One may wait and observe

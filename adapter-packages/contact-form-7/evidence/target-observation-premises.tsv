@@ -6,7 +6,7 @@ observation	tests/conformance/check.sh	require_observed_nonempty "conf2 Contact 
 observation	tests/conformance/check.sh	require_observed_nonempty "conf1 post-count before CF7 submission"
 observation	tests/conformance/check.sh	require_observed_nonempty "conf2 CF7 unit tag"
 observation	tests/conformance/check.sh	require_observed_nonempty "CF7 published form bodies"
-observation	tests/conformance/check.sh	require_observed_nonempty "CF7 adopted target form body"
+observation	tests/conformance/check.sh	require_observed_nonempty "conf2 CF7 main form body evidence"
 observation	tests/conformance/seed.sh	require_observed_nonempty "conf1 Contact Form 7 seed output"
 observation	tests/certify/version-matrix.sh	require_observed_nonempty "CF7 $CF7_VERSION target legacy page"
 fixture	tests/conformance/check.sh	require_fixture_ids SOURCE_MAIN TARGET_MAIN SOURCE_LEGACY TARGET_LEGACY

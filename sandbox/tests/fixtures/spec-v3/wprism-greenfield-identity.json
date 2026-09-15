@@ -5,7 +5,7 @@
         "change-wp-admin-login": "d40c6a95254de737ac2c42080a5f79daf4c5d75901df2f5f436669b88e43a415",
         "classic-editor": "908c6cd00f9cd389b40105bbb1f906ae5271ad13dfafcbc65d4face4ff2156ea",
         "code-snippets": "f3c1dd976c6fee9ab0d3287053dadf8a38f1976c180121439481ee9a7602402e",
-        "contact-form-7": "d8eaad6a6914c60058a7081cc1e0f66de2cff0d0edf2000a58a2b225f9184651",
+        "contact-form-7": "2d725ef62bd0157170c5839392aabbbe0ee32791d5f728cd63cdf15565d6e7aa",
         "core": "9f9a23cfb2be0b8dd693cecd1df6adb4e9082ca8d589675ce95bfae85c185b63",
         "elementor": "5383779c98b51bb94e2aab363d72729fd55003798656f7d025f8773ae5793d64",
         "ninja-forms": "35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011",
@@ -29,7 +29,7 @@
         "change-wp-admin-login": "dc1bea5571e1783f4957f9d7558014a1d3a52b5b37a100b5e54f51221925abd5",
         "classic-editor": "ffad6256c34fd74538c4beba7f29299cd7fe3312d4b551795668bfeab8bb475b",
         "code-snippets": "8011eeffb6e4e246dac3ceb5128677be7debca08102101a9a39d336b9c62fd46",
-        "contact-form-7": "a73c1f82be5db918acdc42918f15259bff174dc14c6d2d768c941a4129cf4830",
+        "contact-form-7": "a12d1223bf400f923ad2f68b74e8958a760a4aade7c3c398159e4ec43456d6bc",
         "core": "76dc95aa88bc7861301c28b5647607ea6c3722475f5ae76d3993b330b105baa4",
         "elementor": "e8968ca8c55f41cbabd6a5672ab6084d45631312bb8a44605cfe169b086c258c",
         "ninja-forms": "7127febed3e8b907cd05d30b62ba5788a5c9157c8163e766d4453557c7e3d017",
@@ -56,14 +56,14 @@
             "snapshot_sha256": "a4964b419ef1b3132bfa3117873d219a9f8511e5905be576bbe62e28c6cb398b"
         },
         "core+elementor+yoast+contact-form-7": {
-            "manifest_hash": "1d3a5c3971c6024a9aeaa221f88ba7e75b524c3d1b146ecc66c779369efdabb6",
+            "manifest_hash": "06801dd7089f2760ce3d42b99010d8b927a174b37347078fba5136e92ddfbfba",
             "pins": [
                 "contact-form-7",
                 "core",
                 "elementor",
                 "yoast"
             ],
-            "snapshot_sha256": "8af7c28258f47a29e0c73bd34b1923a35800a524c3c29f9a32b4db2fdc0b3611"
+            "snapshot_sha256": "d14aaf20acfae3aab88e500c41c2dc377e1ac23bd6e2a8afac9fff560877847e"
         },
         "core+paid-memberships-pro+code-snippets": {
             "manifest_hash": "d00e9a468515d7458b2a4a654fcb931a0ddf35afd194cea4e243dda90f0a390a",
@@ -108,7 +108,7 @@
             "snapshot_sha256": "bfa725a681d1eef7dd80254a916a7e6f0c38fe1d8914968f3bc247854a19ed06"
         },
         "rank-world": {
-            "manifest_hash": "b1848ac01e7a79e385ce71772ed4d5cbdaa189c81cf34d32870dc03d88fe5f1a",
+            "manifest_hash": "e49b603763d5530c7f4593d072ee34d8ab8163456b3058972e655f365292b2cf",
             "pins": [
                 "acf",
                 "advanced-editor-tools",
@@ -130,7 +130,7 @@
                 "wps-hide-login",
                 "yoast-duplicate-post"
             ],
-            "snapshot_sha256": "c435e2acfbd44c395693af057824295661e174c3edc6f404513aa040c083c8c6"
+            "snapshot_sha256": "6ca6c7af2392377e4056c4ca7812f864a85b4e54692695b1f446c5491a676bb6"
         },
         "wprism-agency-cpt-only": {
             "manifest_hash": "b2fc37062cf77e4725ca4b2cb723636cfe53563cad9040d62b490835ccb3d1bf",
@@ -140,7 +140,7 @@
             "snapshot_sha256": "8a518c3533178fd06a862468947f15608beede9170eb07c5c74d6303196ac24e"
         },
         "yoast-world": {
-            "manifest_hash": "bbdf5d265644c07f65a498eab671483c9f3ecabb6f3721a9bab00e648ae7afda",
+            "manifest_hash": "b760b00a09dfe0d85d658a8564cbde0a9fbdd1e1884fdcfcc0cb5a948a78788f",
             "pins": [
                 "acf",
                 "advanced-editor-tools",
@@ -162,7 +162,7 @@
                 "yoast",
                 "yoast-duplicate-post"
             ],
-            "snapshot_sha256": "7c1d3925bb3ba7fbf487d71494070216e07164974d1e3823e98c6dc5240ac301"
+            "snapshot_sha256": "b455d077f0ddf0251b1c3231845998d5ba1993888bd6f88123ca698aa0296f53"
         }
     },
     "registry_sha256": "6448cabb56ddb12ffc0a4beb3ecd2bb0d15e33807eed91c4b465dcea1478cb4a"

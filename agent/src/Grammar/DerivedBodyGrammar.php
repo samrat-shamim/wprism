@@ -39,7 +39,10 @@ namespace WPrism;
  * `contact-forms?search=` (includes/rest-api.php:172) pass `s` to find(), and
  * WP_Query searches post_content by default (wp-includes/class-wp-query.php:1465
  * on 7.1). So on a target with no rebuild action, searching forms by body text
- * sees that site's own last derivation; search by title is unaffected.
+ * sees that site's own last derivation; search by title is unaffected. CF7
+ * therefore declares one: its contact-form-7-form-content provider re-derives
+ * the body on the target after apply, through CF7's own loader and flattener
+ * (adapter-packages/contact-form-7/package/runtime/providers/).
  *
  * WHY NOT allow_pii
  * -----------------

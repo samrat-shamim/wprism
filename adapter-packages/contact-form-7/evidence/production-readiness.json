@@ -34,6 +34,11 @@
       "adapter-packages/contact-form-7/tests/conformance/check.sh",
       "adapter-packages/contact-form-7/tests/offline/regress_contact_form_7_production_readiness.php"
     ],
+    "derived-state": [
+      "adapter-packages/contact-form-7/package/runtime/providers/contact-form-7-form-content.php",
+      "adapter-packages/contact-form-7/tests/offline/regress_contact_form_7_form_content_provider.php",
+      "adapter-packages/contact-form-7/tests/conformance/check.sh"
+    ],
     "failure-recovery": [
       "adapter-packages/contact-form-7/tests/conformance/check.sh",
       "adapter-packages/contact-form-7/tests/offline/regress_contact_form_7_production_readiness.php",
@@ -63,7 +68,5 @@
   },
   "gaps": {},
   "blocked": {},
-  "not_applicable": {
-    "derived-state": "The declared CF7 surface has no separately repaired adapter-owned derived-state store."
-  }
+  "not_applicable": {}
 }

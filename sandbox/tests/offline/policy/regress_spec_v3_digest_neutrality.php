@@ -40,12 +40,12 @@ use WPrism\Policy;
 // their containing worlds. TEC's disposition also moves the cohort registry,
 // so every registry-addressed snapshot changes. Polylang was already re-pinned
 // by PR #613; its digest, all other capsule addresses and every pin order stay.
-const BASELINE_FIXTURE_SHA256 = '929827246d71b1a9101582572807b7f44706136b7402e0ff4f301420375cf112';
-const RANK_WORLD_MANIFEST_HASH = 'b1848ac01e7a79e385ce71772ed4d5cbdaa189c81cf34d32870dc03d88fe5f1a';
-const YOAST_WORLD_MANIFEST_HASH = 'bbdf5d265644c07f65a498eab671483c9f3ecabb6f3721a9bab00e648ae7afda';
+const BASELINE_FIXTURE_SHA256 = 'ee33e3cdb8db606dcae93f020576f11c9193c383fdc5102aa55fe4adaa6399c0';
+const RANK_WORLD_MANIFEST_HASH = 'e49b603763d5530c7f4593d072ee34d8ab8163456b3058972e655f365292b2cf';
+const YOAST_WORLD_MANIFEST_HASH = 'b760b00a09dfe0d85d658a8564cbde0a9fbdd1e1884fdcfcc0cb5a948a78788f';
 const REGISTRY_SHA256 = '6448cabb56ddb12ffc0a4beb3ecd2bb0d15e33807eed91c4b465dcea1478cb4a';
-const RANK_WORLD_SNAPSHOT_SHA256 = 'c435e2acfbd44c395693af057824295661e174c3edc6f404513aa040c083c8c6';
-const YOAST_WORLD_SNAPSHOT_SHA256 = '7c1d3925bb3ba7fbf487d71494070216e07164974d1e3823e98c6dc5240ac301';
+const RANK_WORLD_SNAPSHOT_SHA256 = '6ca6c7af2392377e4056c4ca7812f864a85b4e54692695b1f446c5491a676bb6';
+const YOAST_WORLD_SNAPSHOT_SHA256 = 'b455d077f0ddf0251b1c3231845998d5ba1993888bd6f88123ca698aa0296f53';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';

@@ -1063,7 +1063,9 @@ each one closed and the coordinates that stayed open beside it.
   which the default form's sender holds and which the capsule's reviewed `_mail` `allow_pii` rule is the
   one declaration permitted to carry. CF7 reads the body only implicitly, through `WP_Query` search (its
   admin forms list and REST `contact-forms?search=`), so on a target with no rebuild action, body-text
-  search sees that site's own last derivation while title search is unaffected.
+  search would see that site's own last derivation while title search is unaffected. CF7 therefore pairs
+  the mode with a rebuild action: its `contact-form-7-form-content` provider re-derives the body on the
+  target after apply, through CF7's own loader and flattener, writing only that column.
 
 
 A feature need not claim a key at all. WP-6.2 is the worked example: `invalidate-vocabulary/v1` widens a

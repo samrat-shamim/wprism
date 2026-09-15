@@ -1424,7 +1424,9 @@ check(
 
 echo "\n== purely declarative adapters keep the pre-change behavior exactly ==\n";
 
-foreach (['acf', 'contact-form-7'] as $name) {
+// contact-form-7 left this roster when it gained its form-content rebuild
+// provider; classic-editor is a shipped adapter that is still purely declarative.
+foreach (['acf', 'classic-editor'] as $name) {
     $declarative = $shippedPolicies[$name] ?? null;
     check($declarative !== null, "purely declarative manifest '$name' loads");
     if ($declarative === null) {
