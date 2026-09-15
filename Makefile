@@ -18,7 +18,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-plan-explain
 .PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup regress-scope-chain-stability
 .PHONY: regress-init-command regress-init-contract regress-wprism-init regress-bound-helper
-.PHONY: regress-plan-view regress-local-bootstrap regress-local-bootstrap-live regress-local-verified-rollback-live
+.PHONY: regress-plan-view regress-local-bootstrap regress-docker-bootstrap regress-docker-tooling regress-docker-database-setup regress-local-bootstrap-live regress-local-verified-rollback-live
 .PHONY: regress-identity-token-codec
 .PHONY: regress-live-pair-ownership regress-pair-budget-lock regress-pair-compose-unit regress-pair-db-engine regress-proof-legacy-pair
 .PHONY: regress-text-tokenizer
@@ -2286,6 +2286,15 @@ regress-adopt-rollback:
 
 regress-local-bootstrap:
 	php sandbox/tests/offline/cli/regress_local_bootstrap.php
+
+regress-docker-bootstrap:
+	php sandbox/tests/offline/cli/regress_docker_bootstrap.php
+
+regress-docker-tooling:
+	php sandbox/tests/offline/cli/regress_docker_tooling.php
+
+regress-docker-database-setup:
+	php sandbox/tests/offline/cli/regress_docker_database_setup.php
 
 # issue #3365: one disposable pair supplies a real installed WordPress volume,
 # then an out-of-band controller container proves local adopt -> init from a

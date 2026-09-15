@@ -4,11 +4,16 @@ declare(strict_types=1);
 namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
+require_once __DIR__ . '/../Transport/DockerTransport.php';
 require_once __DIR__ . '/../Onboarding/Init.php';
+require_once __DIR__ . '/../Onboarding/DockerDatabaseSetup.php';
 require_once __DIR__ . '/../Code/CodeClassifier.php';
 
 /** Host command handler for the digest-bound initialization workflow. */
 final class InitCommand {
+    /** Init committed its baseline, but its final managed-scope status proof is not yet clean. */
+    public const BASELINE_COMMITTED_READINESS_PENDING_EXIT = 4;
+
     /**
      * Run init's host orchestration while leaving proposal/confirmation
      * validation and target protocol ownership in Init.
@@ -32,6 +37,8 @@ final class InitCommand {
         $offline = false;
         $cacheDir = null;
         $archiveInterruptedTo = null;
+        $configureDatabase = false;
+        $databaseService = null;
         foreach ($extra as $arg) {
             if ($arg === '--yes') {
                 $yes = true;
@@ -47,6 +54,22 @@ final class InitCommand {
             }
             if ($arg === '--offline') {
                 $offline = true;
+                continue;
+            }
+            if ($arg === DockerDatabaseSetup::CONFIGURE_FLAG) {
+                if ($configureDatabase) {
+                    fwrite(STDERR, "wprism: init --configure-database was supplied more than once\n");
+                    return 1;
+                }
+                $configureDatabase = true;
+                continue;
+            }
+            if (is_string($arg) && str_starts_with($arg, DockerDatabaseSetup::SERVICE_FLAG)) {
+                if ($databaseService !== null) {
+                    fwrite(STDERR, "wprism: init --database-service was supplied more than once\n");
+                    return 1;
+                }
+                $databaseService = substr($arg, strlen(DockerDatabaseSetup::SERVICE_FLAG));
                 continue;
             }
             if (is_string($arg) && str_starts_with($arg, '--cache-dir=')) {
@@ -87,13 +110,27 @@ final class InitCommand {
                 STDERR,
                 'wprism: init accepts only --yes, ' . Init::ALLOW_UNMANAGED_PLUGINS . ', '
                     . CodeClassifier::FIRST_PARTY_FLAG . '<root>/<slug>, --offline and --cache-dir=<path>; '
+                    . '--configure-database with --database-service=<name>; '
                     . '--archive-interrupted-to=<absolute-sibling>; '
                     . "unsupported argument '$arg'\n"
             );
             return 1;
         }
+        if ($configureDatabase !== ($databaseService !== null)) {
+            fwrite(STDERR, "wprism: init --configure-database and --database-service=<name> must be supplied together\n");
+            return 1;
+        }
+        if ($databaseService !== null) {
+            try {
+                DockerDatabaseSetup::assertServiceName($databaseService);
+            } catch (\Throwable $e) {
+                fwrite(STDERR, 'wprism: init: ' . $e->getMessage() . "\n");
+                return 1;
+            }
+        }
         if ($archiveInterruptedTo !== null) {
-            if ($allowUnmanagedPlugins || $firstPartyValues !== [] || $offline || $cacheDir !== null) {
+            if ($allowUnmanagedPlugins || $firstPartyValues !== [] || $offline || $cacheDir !== null
+                || $configureDatabase) {
                 fwrite(STDERR, "wprism: init --archive-interrupted-to is exclusive with discovery and classification flags\n");
                 return 1;
             }
@@ -146,6 +183,66 @@ final class InitCommand {
             return 1;
         }
 
+        $databaseGrantChanged = false;
+        $databaseGrantUncertain = false;
+        $databaseGrantAccount = null;
+        if ($configureDatabase) {
+            if (!$transport instanceof DockerTransport) {
+                fwrite(STDERR, "wprism: --configure-database is supported only for a machine-local Docker environment\n");
+                return 1;
+            }
+            try {
+                $databasePlan = DockerDatabaseSetup::plan(
+                    $transport,
+                    (string) $databaseService,
+                    $proposal
+                );
+                $databaseGrantAccount = $databasePlan['account'];
+                if ($databasePlan['required'] === true) {
+                    echo "Database setup will grant only direct PROCESS on *.* to the exact WordPress account.\n";
+                    echo 'PROCESS is server-wide because the complete InnoDB foreign-key census is server-wide; '
+                        . "no user, password, schema, table privilege, ALL, or GRANT OPTION will change.\n";
+                    echo 'Target: Compose project ' . $databasePlan['compose_project']
+                        . ', service ' . $databasePlan['database_service']
+                        . ', schema ' . $databasePlan['schema']
+                        . ', account ' . $databasePlan['account']['user'] . '@' . $databasePlan['account']['host']
+                        . ', server ' . substr((string) $databasePlan['server_identity'], 0, 12) . "...\n";
+                    if (!$yes) {
+                        $account = (string) $databasePlan['account']['user'] . '@'
+                            . (string) $databasePlan['account']['host'];
+                        fwrite(
+                            STDOUT,
+                            "Grant server-wide PROCESS to $account through Docker Compose service "
+                                . $databasePlan['database_service'] . '? [y/N] '
+                        );
+                        $answer = $readLine();
+                        if (!is_string($answer) || !in_array(strtolower(trim($answer)), ['y', 'yes'], true)) {
+                            echo "Database setup cancelled; no privilege was changed.\n";
+                            return 1;
+                        }
+                    }
+                    $databaseReceipt = DockerDatabaseSetup::apply($transport, $databasePlan, $proposal);
+                    $databaseGrantChanged = $databaseReceipt['changed'];
+                    if ($databaseGrantChanged) {
+                        echo "Granted direct server-wide PROCESS; the grant is durable and is not transactionally reversible.\n";
+                    }
+                } else {
+                    echo "Database setup: the exact WordPress account already has direct global PROCESS; no privilege changed.\n";
+                }
+                // This is the product's authoritative capture boundary through
+                // the actual WordPress account, not the admin connection's view.
+                $proposal = Init::proposal($transport, $allowUnmanagedPlugins);
+            } catch (\Throwable $e) {
+                fwrite(STDERR, 'wprism: Docker database setup failed: ' . $e->getMessage() . "\n");
+                $databaseGrantUncertain = $e instanceof DockerDatabaseSetupException
+                    && $e->grantMayHaveSucceeded();
+                if ($databaseGrantChanged || $databaseGrantUncertain) {
+                    self::renderDurableDatabaseGrantNotice($databaseGrantAccount, $databaseGrantUncertain);
+                }
+                return 1;
+            }
+        }
+
         $lockPlan = null;
         if (!empty($proposal['ready'])) {
             try {
@@ -160,9 +257,15 @@ final class InitCommand {
             } catch (InitRefusalException $e) {
                 fwrite(STDERR, 'wprism: ' . $e->getMessage() . "\n");
                 $renderRefusal($e->refusal);
+                if ($databaseGrantChanged) {
+                    self::renderDurableDatabaseGrantNotice($databaseGrantAccount);
+                }
                 return 1;
             } catch (\Throwable $e) {
                 fwrite(STDERR, 'wprism: init code classification failed: ' . $e->getMessage() . "\n");
+                if ($databaseGrantChanged) {
+                    self::renderDurableDatabaseGrantNotice($databaseGrantAccount);
+                }
                 return 1;
             }
         } elseif ($firstParty !== []) {
@@ -176,6 +279,9 @@ final class InitCommand {
             echo $line . "\n";
         }
         if (empty($proposal['ready'])) {
+            if ($databaseGrantChanged) {
+                self::renderDurableDatabaseGrantNotice($databaseGrantAccount);
+            }
             return 2;
         }
         $digest = (string) ($proposal['digest'] ?? '');
@@ -183,7 +289,12 @@ final class InitCommand {
             fwrite(STDOUT, "Initialize '{$transport->name()}' from proposal $digest? [y/N] ");
             $answer = $readLine();
             if (!is_string($answer) || !in_array(strtolower(trim($answer)), ['y', 'yes'], true)) {
-                echo "Initialization cancelled; no configuration, state, identity, or ledger mutation was made.\n";
+                if ($databaseGrantChanged) {
+                    echo "Initialization cancelled; no WPrism configuration, state, identity, or ledger mutation was made.\n";
+                    self::renderDurableDatabaseGrantNotice($databaseGrantAccount);
+                } else {
+                    echo "Initialization cancelled; no configuration, state, identity, or ledger mutation was made.\n";
+                }
                 return 1;
             }
         }
@@ -196,9 +307,15 @@ final class InitCommand {
         } catch (InitRefusalException $e) {
             fwrite(STDERR, 'wprism: ' . $e->getMessage() . "\n");
             $renderRefusal($e->refusal);
+            if ($databaseGrantChanged) {
+                self::renderDurableDatabaseGrantNotice($databaseGrantAccount);
+            }
             return 1;
         } catch (\Throwable $e) {
             fwrite(STDERR, 'wprism: ' . $e->getMessage() . "\n");
+            if ($databaseGrantChanged) {
+                self::renderDurableDatabaseGrantNotice($databaseGrantAccount);
+            }
             return 1;
         }
 
@@ -215,8 +332,18 @@ final class InitCommand {
         echo "Verifying selected managed scope:\n";
         $status = $statusRunner($transport);
         if ($status !== 0) {
-            fwrite(STDERR, "wprism: initialization captured a baseline, but the selected managed scope is not clean\n");
-            return $status;
+            fwrite(
+                STDERR,
+                "wprism: initialization committed its baseline, but post-init managed-scope readiness is not clean; do not rerun init\n"
+            );
+            if ($databaseGrantChanged) {
+                self::renderCommittedBaselineDatabaseGrantNotice($databaseGrantAccount);
+            }
+            // Standalone init has always exposed the status command's exact
+            // exit. Onboard suppresses init's generic next steps and needs a
+            // state marker so it cannot mislabel this committed baseline as
+            // init_failed or prescribe an unsafe second initialization.
+            return $renderNextSteps ? $status : self::BASELINE_COMMITTED_READINESS_PENDING_EXIT;
         }
         if ($renderNextSteps) {
             foreach (Init::nextSteps(
@@ -228,6 +355,32 @@ final class InitCommand {
             }
         }
         return 0;
+    }
+
+    private static function renderDurableDatabaseGrantNotice(mixed $account, bool $uncertain = false): void {
+        $identity = is_array($account)
+            ? (string) ($account['user'] ?? '?') . '@' . (string) ($account['host'] ?? '?')
+            : 'the WordPress account';
+        fwrite(
+            STDERR,
+            'wprism: direct PROCESS ' . ($uncertain ? 'may remain' : 'remains') . " granted to $identity; "
+                . 'database grants are not transactionally reversible. '
+                . 'Resolve the reported init blocker and rerun init. Revoke PROCESS only after verifying no WPrism '
+                . "transactional operation still requires the complete foreign-key census.\n"
+        );
+    }
+
+    private static function renderCommittedBaselineDatabaseGrantNotice(mixed $account): void {
+        $identity = is_array($account)
+            ? (string) ($account['user'] ?? '?') . '@' . (string) ($account['host'] ?? '?')
+            : 'the WordPress account';
+        fwrite(
+            STDERR,
+            "wprism: direct PROCESS remains granted to $identity; database grants are not transactionally reversible. "
+                . 'The baseline is committed: resolve the reported post-init readiness blocker without rerunning init. '
+                . 'Revoke PROCESS only after verifying no WPrism transactional operation still requires the complete '
+                . "foreign-key census.\n"
+        );
     }
 
     /**
@@ -283,7 +436,11 @@ final class InitCommand {
             echo 'wprism: --offline: no release registry is contacted; wp.org components lock only from the host cache, '
                 . "imported archives as usual.\n";
         }
-        $plan = CodeClassifier::make($cacheDir, $offline)->classify($inventory, $firstParty);
+        $wordpressVersion = $proposal['environment']['wordpress'] ?? null;
+        if (!is_string($wordpressVersion)) {
+            throw new \RuntimeException('the init proposal carries no WordPress core version for code classification');
+        }
+        $plan = CodeClassifier::make($cacheDir, $offline)->classify($inventory, $firstParty, $wordpressVersion);
         $unsourced = CodeClassifier::unsourced($plan);
         if ($unsourced !== []) {
             echo 'wprism: ' . count($unsourced) . ' component(s) could not be sourced; the proposal below is blocked on each '

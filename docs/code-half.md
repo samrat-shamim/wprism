@@ -829,11 +829,16 @@ What changed, and why each piece is shaped the way it is:
   component locks from the host cache or is unsourced, an imported archive
   works as usual.
 - **Classification is composed, not monolithic.** `WpOrgReleases` keeps the
-  wp.org leg (`verifiedRelease()`); `ImportedArchives` is the store;
+  separately published component leg (`verifiedRelease()`) and the distinct
+  core-bundled theme leg (`verifiedCoreBundledComponent()`); `ImportedArchives` is the store;
   `CodeClassifier` composes the two with the first-party declarations and is
-  the one decision `wprism init` and `wprism code-classify` share. wp.org is tried
-  before the import store when a component could match both: public provenance
-  beats a private copy of the same bytes.
+  the one decision `wprism init` and `wprism code-classify` share. The direct
+  component release is tried first, then the exact theme nested in the target
+  WordPress version's canonical core archive, then the import store: public
+  provenance beats a private copy of the same bytes. The core archive is not a
+  declaration that two releases are equivalent: the lock records its canonical
+  core URL, archive digest and exact nested `archive_root`, while the component
+  still has to match by its independently computed `tree_sha256`.
 
 What did NOT change: the egress rule (nothing fetches on a target; the agent is
 never told a registry or a store exists), the compile gate's non-forceability,

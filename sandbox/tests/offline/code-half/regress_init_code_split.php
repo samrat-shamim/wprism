@@ -7,9 +7,10 @@
  * decision rather than a convenience, and this suite pins each:
  *
  *   1. classification happens on the HOST, against real archive bytes, and a
- *      component is locked only when a release — published on wp.org, or
- *      imported on this host with `wprism code-import` — actually unpacks to the
- *      tree that is installed, never because a slug and a version look right;
+ *      component is locked only when a release — published separately on
+ *      wp.org, bundled exactly in the verified WordPress core release, or
+ *      imported on this host with `wprism code-import` — actually unpacks to
+ *      the tree that is installed, never because a slug and a version look right;
  *   2. the agent verifies rather than trusts: a classification naming a
  *      component this site does not have, at a version it does not have, or
  *      leaving one component unclassified, is refused;
@@ -53,6 +54,7 @@ $cache = $scratch . '/cache';
 $site = $scratch . '/site/code/wp-content';
 mkdir($registry . '/plugin', 0775, true);
 mkdir($registry . '/theme', 0775, true);
+mkdir($registry . '/release', 0775, true);
 mkdir($cache, 0775, true);
 
 /** @param array<string,string> $files */
@@ -118,6 +120,21 @@ if ($zipAvailable) {
     write_archive($registry . '/plugin/woocommerce.11.0.0.zip', 'woocommerce', $wooFiles);
     write_archive($registry . '/theme/storefront.4.6.0.zip', 'storefront', $themeFiles);
     write_archive($registry . '/plugin/akismet.5.3.0.zip', 'akismet', ['akismet.php' => $driftFiles['akismet.php']]);
+
+    $coreThemeFiles = [
+        'style.css' => "/*\nTheme Name: Twenty Twenty-Five\nVersion: 1.5\nTested up to: 7.1\n*/\n",
+        'readme.txt' => "Twenty Twenty-Five bundled with WordPress 7.1\n",
+    ];
+    write_archive(
+        $registry . '/theme/twentytwentyfive.1.5.zip',
+        'twentytwentyfive',
+        array_replace($coreThemeFiles, ['style.css' => str_replace('7.1', '7.0', $coreThemeFiles['style.css'])])
+    );
+    write_archive(
+        $registry . '/release/wordpress-7.1.zip',
+        'wordpress/wp-content/themes/twentytwentyfive',
+        $coreThemeFiles
+    );
 }
 
 $inventory = CodeDescriptorCompiler::component_inventory($site);
@@ -179,6 +196,48 @@ if ($zipAvailable) {
     wprism_check(
         !array_key_exists('origin', $byKey['plugins/akismet']) && !array_key_exists('origin', $byKey['plugins/wprism-agency']),
         'an unsourced row carries no origin: nothing claims provenance it did not verify'
+    );
+
+    $coreThemeProbe = $scratch . '/core-theme-probe';
+    write_tree($coreThemeProbe, $coreThemeFiles);
+    $coreThemeTree = WpOrgReleases::treeDigest($coreThemeProbe);
+    $coreCandidate = [[
+        'root' => 'themes', 'component' => 'twentytwentyfive', 'version' => '1.5',
+        'tree_sha256' => $coreThemeTree,
+    ]];
+    $corePlan = $classifier->classify($coreCandidate, [], '7.1');
+    wprism_check_same('locked', $corePlan[0]['classification'] ?? null, 'a component release mismatch can lock against its exact WordPress core-bundled tree');
+    wprism_check_same(
+        [
+            'kind' => 'wp-org-release',
+            'url' => 'https://downloads.wordpress.org/release/wordpress-7.1.zip',
+            'archive_sha256' => hash_file('sha256', $registry . '/release/wordpress-7.1.zip'),
+            'archive_root' => 'wordpress/wp-content/themes/twentytwentyfive',
+        ],
+        $corePlan[0]['origin'] ?? null,
+        'the core-bundle lock records canonical public provenance, archive bytes, and the exact nested component root'
+    );
+    wprism_check(
+        str_contains((string) ($corePlan[0]['reason'] ?? ''), 'WordPress 7.1 core release bundles themes/twentytwentyfive at exactly these bytes'),
+        'the classification names core-bundle provenance rather than treating the mismatched component release as equal'
+    );
+    $coreMismatch = $classifier->classify([array_replace($coreCandidate[0], ['tree_sha256' => str_repeat('f', 64)])], [], '7.1');
+    wprism_check_same('unsourced', $coreMismatch[0]['classification'] ?? null, 'a core bundle with different bytes remains unsourced');
+    wprism_check(
+        str_contains((string) ($coreMismatch[0]['reason'] ?? ''), 'not the installed tree ' . str_repeat('f', 64)),
+        'the core-bundle mismatch names the independently computed tree digest'
+    );
+    $directWithCoreAvailable = $classifier->classify([$inventory[3]], [], '7.1');
+    wprism_check_same(
+        WpOrgReleases::canonicalUrl('themes', 'storefront', '4.6.0'),
+        $directWithCoreAvailable[0]['origin']['url'] ?? null,
+        'an exact component release keeps precedence over the WordPress core-bundle fallback'
+    );
+    wprism_check_throws(
+        static fn() => $classifier->classify($coreCandidate, [], '../../7.1'),
+        RuntimeException::class,
+        'a malformed WordPress version cannot redirect core-bundle sourcing',
+        'cannot name a verified release archive'
     );
 
     // The operator's declaration is the one thing that makes Git carry a
@@ -656,7 +715,11 @@ wprism_check_throws(
     'has no lockable plugin or theme component'
 );
 
-$proposal = ['ready' => true, 'code' => ['component_inventory' => $inventory]];
+$proposal = [
+    'ready' => true,
+    'environment' => ['wordpress' => '7.1'],
+    'code' => ['component_inventory' => $inventory],
+];
 wprism_check_throws(
     static fn() => $classify->invoke(null, $driver, $proposal, false, ['plugins/ghost'], false, $cache),
     RuntimeException::class,

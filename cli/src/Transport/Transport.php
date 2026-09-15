@@ -34,6 +34,20 @@ interface AdoptionTransport {
     public function uploadFile(string $localPath, string $remotePath): array;
 }
 
+/** Transport whose fresh target processes require the archive on durable storage. */
+interface PersistentAdoptionArchiveTransport extends AdoptionTransport {
+    public function adoptionArchivePath(string $token): string;
+}
+
+/** Adoption upload whose cleanup remains bound to the exclusively created file. */
+interface IdentityBoundAdoptionTransport extends AdoptionTransport {
+    /** @param array{exit:int,stdout:string,stderr:string} $upload */
+    public function uploadedFileIdentity(array $upload): string;
+
+    /** @return array{exit:int,stdout:string,stderr:string} */
+    public function cleanupUploadedFile(string $path, string $identity): array;
+}
+
 /**
  * A transport knows how to run `wp <args...>` and arbitrary shell snippets
  * against one environment (local shell, docker compose, ssh) and how to

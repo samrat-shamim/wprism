@@ -2,7 +2,10 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Adapter/AdapterSources.php';
+require_once __DIR__ . '/../Capture/CaptureTransaction.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Kernel/DatabaseLockBoundary.php';
+require_once __DIR__ . '/../Kernel/DatabaseTablePresence.php';
 require_once __DIR__ . '/../Code/Code.php';
 require_once __DIR__ . '/../Code/CodeSourceLock.php';
 require_once __DIR__ . '/InitAttemptJournal.php';
@@ -24,6 +27,14 @@ require_once __DIR__ . '/../Repository/SidebarState.php';
  */
 final class InitPlanner {
     public const FORMAT = InitProtocol::PLAN_FORMAT;
+
+    private const INITIAL_BASELINE_DATABASE_BLOCKER = [
+        'code' => 'initial_baseline_database_boundary_unavailable',
+        'extension' => 'wordpress-database',
+        'kind' => 'platform',
+        'reason' => 'the initial baseline cannot prove that every database mutation remains inside one rollback-safe InnoDB boundary',
+        'remediation' => 'ensure the baseline mutation tables are ordinary InnoDB tables with no triggers or escaping referential actions; grant the current WordPress database account direct TRIGGER visibility on those tables and direct PROCESS on *.*, ensure information_schema.INNODB_FOREIGN (MySQL) or information_schema.INNODB_SYS_FOREIGN (MariaDB) is available, then request a fresh init proposal',
+    ];
 
     /**
      * The operator's explicit decision to initialize a site whose active
@@ -234,6 +245,14 @@ final class InitPlanner {
         $capabilities = $policy->capability_report(['operation' => 'capture']);
         foreach ($capabilities['blockers'] ?? [] as $blocker) {
             $unsupported[] = self::capability_blocker_row(is_array($blocker) ? $blocker : []);
+        }
+        $databaseBlocker = self::initial_baseline_database_blocker(
+            self::initial_baseline_existing_database_tables(
+                CaptureTransaction::database_profile($policy)->write_tables()
+            )
+        );
+        if ($databaseBlocker !== null) {
+            $unsupported[] = $databaseBlocker;
         }
 
         $adapterScope = self::adapter_scope($selected, $manifests);
@@ -548,6 +567,31 @@ final class InitPlanner {
         ];
         $proposal['digest'] = hash('sha256', Canon::encode($proposal));
         return $proposal;
+    }
+
+    /** @param list<string> $tables @return ?array<string,string> */
+    private static function initial_baseline_database_blocker(array $tables): ?array {
+        try {
+            // CaptureTransaction supplies the exact write profile that Db::establish_profile()
+            // proves again when confirmation starts the real transaction. This read-only pass
+            // exists only so a known authority failure is reviewable before any init write.
+            DatabaseLockBoundary::assert_atomic_mutation_tables($tables, 'init baseline readiness');
+        } catch (\RuntimeException) {
+            return self::INITIAL_BASELINE_DATABASE_BLOCKER;
+        }
+        return null;
+    }
+
+    /** @param list<string> $tables @return list<string> */
+    private static function initial_baseline_existing_database_tables(array $tables): array {
+        global $wpdb;
+        $core = array_fill_keys([$wpdb->postmeta, $wpdb->termmeta], true);
+        return array_values(array_filter($tables, static function (string $table) use ($core): bool {
+            // Core metadata tables must exist before init. The three WPrism-owned
+            // ledger tables are created later by the existing baseline lifecycle;
+            // prove them here only when this supposedly fresh site already has them.
+            return isset($core[$table]) || DatabaseTablePresence::base_table_exists($table);
+        }));
     }
 
     /**

@@ -37,12 +37,14 @@ wprism adapter-observe <env> [--out=<local-file>|--format=json]
 wprism doctor <env>
 wprism driver-capabilities <env> [--operation=<workflow>] [--format=json]
 wprism connect <env> --workspace=<path> --transport=ssh --host=<host> --wp-path=<path> --repo-path=<path> [--format=json]
+wprism connect <env> --workspace=<path> --transport=docker --compose-file=<path> --wordpress-service=<name> --tooling=managed [--compose-env-file=<path>] [--profile=<name>] [--format=json]
+wprism connect <env> --workspace=<path> --transport=docker --compose-file=<path> --wordpress-service=<name> --service=<wp-cli-service> --wp-path=<path> --repo-path=<path> [--mode=run|exec] [--compose-env-file=<path>] [--profile=<name>] [--format=json]
 wprism onboard <env> [--git-url=<empty-url>] [init flags...] [--format=json]
 wprism onboard <env> --handoff-only --git-url=<url> [--format=json]
 wprism onboard <env> status --git-url=<same-url> --format=json
 wprism adopt  <env>
 wprism unadopt <env> --archive-to=<absolute-path> [--yes]
-wprism init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
+wprism init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>] [--configure-database --database-service=<name>]
 wprism code-classify <env> [--dry-run] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
 wprism code-resolve  <env> [--dry-run] [--offline] [--cache-dir=<path>]
 wprism code-import <archive.zip> [--component=<slug>] [--root=plugins|themes] [--cache-dir=<path>] [--format=json]
@@ -109,11 +111,13 @@ a target-only comment. A red assessment blocks this guided journey.
 pair budget and digest-pinned artifact resolver as the live test estate;
 `demo stop` removes only the named demo's pair resources and repositories.
 
-`wprism connect` issues no explicit mutation. It checks raw reachability,
-installed WordPress, and single-site topology before creating a dedicated local Git
-root containing the shared adoption seed and a mode-`0600`, ignored
-`.wprism-envs.json`; topology inspection boots WordPress, so site startup code may
-have its own effects. `wprism onboard` then composes the existing `adopt`, `assess`,
+`wprism connect` does not mutate the WordPress application or its Compose
+service. Its native target checks are raw reachability, installed WordPress, and
+single-site topology. Explicit `--tooling=managed` also builds or reuses the
+pinned helper image and creates WPrism-owned private overlay/repository resources
+before creating a dedicated local Git root containing the shared adoption seed
+and a mode-`0600`, ignored `.wprism-envs.json`; topology inspection boots
+WordPress, so site startup code may have its own effects. `wprism onboard` then composes the existing `adopt`, `assess`,
 and `init` gates in that order. `--git-url` must be empty and accessible with
 Git credentials from both controller and target; WPrism preflights both before
 target mutation, publishes the target's current branch, and replaces only
@@ -313,10 +317,12 @@ semantics remain the rehearsal implementation's.
   Built-in local, container, and SSH drivers all attach to configured
   pre-existing targets and use the same control/code/database proof
   requirements. SSH declares its explicit `adopt` upload/bootstrap path.
-  Local declares that mechanism only when the exact bootstrap opt-in came from
-  the untracked machine-local registry; this target-free declaration is not a
-  target-safety attestation, and `adopt` still runs the separate eligibility
-  report. Docker does not declare delivery. None of the built-ins claims host
+  Local and Docker declare initial delivery only when the exact bootstrap
+  opt-in came from the untracked machine-local registry; this target-free
+  declaration is not a target-safety attestation, and `adopt` still runs the
+  separate eligibility report. Docker additionally proves a local daemon, a
+  running application container, exact shared durable WordPress storage, and
+  durable repository storage. None of the built-ins claims host
   provisioning, destroy/TTL, media snapshot, maintenance-mode, URL mutation,
   or driver-owned operation receipts. Those stay visibly unsupported until a
   driver implements them; provider provisioning remains an optional driver
@@ -399,7 +405,8 @@ semantics remain the rehearsal implementation's.
   static capability reporting remains target-free, and `adopt` then obtains a
   separate read-only eligibility proof before allocating or changing target
   paths. Local bootstrap refuses an already-installed WPrism control plane;
-  installed-target updates use the existing update path. Docker delivery remains unsupported. See the operator procedure and
+  installed-target updates use the existing update path. Authorized local
+  Docker delivery is also initial-only and uses the same transaction. See the operator procedure and
   safety/update contract in [docs/adoption.md](../docs/adoption.md).
 
 - **`wprism unadopt <env> --archive-to=<absolute-path> [--yes]`** — performs the
@@ -424,12 +431,34 @@ semantics remain the rehearsal implementation's.
   use `wprism adopt` first, while Docker targets must already expose the agent
   through their control plane.
 
+  Baseline confirmation completes before that final status proof. If the proof
+  reports readiness blockers, the baseline is committed: do not rerun init.
+  Resolve every reported blocker; for each `env_missing` row, supply its
+  binding with `wprism env-set <env> --name=<name> --stdin`. Then verify
+  `wprism status <env>` and use `wprism onboard <env> --handoff-only
+  --git-url=<same-url>` when Git publication is pending.
+
+  A local Docker baseline blocked because the WordPress database account lacks
+  direct global `PROCESS` can be resumed explicitly with `wprism init <env>
+  --configure-database --database-service=<compose-service>`; the same flags
+  may be passed to a fresh `wprism onboard`. This opt-in proves that the
+  selected running official MySQL/MariaDB container is the exact server
+  WordPress uses and grants only `PROCESS ON *.*` to the exact authenticated
+  WordPress account. `PROCESS` is server-wide; no user, password, schema/table
+  privilege, `ALL`, or `GRANT OPTION` changes. Ordinary `--yes` never enables
+  setup. MariaDB setup additionally requires immutable `server_uid` identity
+  (11.1.6, 11.2.5, 11.4.3, 11.5.2, or 11.6.1+); this narrower setup prerequisite
+  does not narrow ordinary read-only onboarding's platform range. Other
+  database safety blockers remain refusals.
+
   Init also **classifies the code half**, and Git never carries third-party
   code. It asks the target for each active component's `{root, component,
   version, tree_sha256, bytes, files}` — the target reaches no registry, ever
   — then, on THIS host, LOCKS each component whose installed tree is
-  hash-identical to its published wp.org release archive (resolved into a
-  content-addressed cache and unpacked) or to an archive imported with
+  hash-identical to its published wp.org component archive, or each bundled
+  theme whose tree is hash-identical to its exact nested path in the target's
+  verified WordPress core release archive (both resolved into a
+  content-addressed cache and unpacked), or to an archive imported with
   `wprism code-import`; records each component named by `--first-party=<root>/<slug>`
   as the site's own code, which Git carries by that declaration; and BLOCKS the
   proposal on anything else (`code_component_unsourced`, naming both remedies).
@@ -440,7 +469,8 @@ semantics remain the rehearsal implementation's.
   agent publishes `code/wprism-code.lock.json` (`wprism-code-lock/v2`: the locked
   `components` and the `first_party` declarations) and the root-anchored
   `.gitignore` lines for the locked trees. `--offline` contacts no registry, so
-  a wp.org component locks only from the host cache; `--cache-dir=<path>`
+  a wp.org component or core-bundled theme locks only from the host cache;
+  `--cache-dir=<path>`
   overrides the default cache (`$XDG_CACHE_HOME/wprism/code-artifacts`, else
   `~/.cache/wprism/code-artifacts`), which also holds the imported-archive store.
 
@@ -463,9 +493,10 @@ semantics remain the rehearsal implementation's.
   `wprism contract`, and writes only into that local checkout:
   `code/wprism-code.lock.json`, the root-anchored `.gitignore` lines, `code`
   format 2 in `site.wprism.json`, and `git rm --cached` for each NEWLY locked
-  tree. `<env>` is used for exactly one thing — asking the target for its own
-  `wp wprism code-inventory` so a checkout that disagrees with the target it
-  deploys to is refused before anything is untracked. A format-2 repository is
+  tree. `<env>` is used to ask the target for its own `wp wprism code-inventory`
+  and exact WordPress core version, so a checkout that disagrees with the
+  target it deploys to is refused before anything is untracked and a bundled
+  theme can be compared with the right core archive. A format-2 repository is
   re-classified rather than refused — run it again after importing an archive,
   to add a declaration, or to upgrade a v1 lock — and the declarations it
   already holds carry forward.
@@ -1623,7 +1654,7 @@ Per-transport required keys:
 | Transport | Required keys | Optional keys |
 |---|---|---|
 | `local` | `wp_path`, `repo_path` | machine-local-only exact `bootstrap: {"format":"wprism-local-control-plane/v1"}` |
-| `docker` | `compose_file`, `service`, `repo_path` | `compose_env_file`, `profile`, `mode` (`"run"` default, or `"exec"` — issue #3513, see Transports below) |
+| `docker` | attachment: `compose_file`, `service`, `repo_path`; existing-service bootstrap adds `wordpress_service`, `wp_path`; managed bootstrap uses `compose_file`, `wordpress_service`, `tooling: "managed"` and generates the helper fields | `compose_env_file`, `profile`, `mode` (`"run"` default, or `"exec"` for an existing service) |
 | `ssh` | `host`, `wp_path`, `repo_path` | `ssh_config`, paired `rollback_key_id` + `rollback_signing_key`, `rollback_recovery`, `verified_rollback` |
 
 A missing required key is a loud, specific error naming the environment,
@@ -1634,13 +1665,22 @@ the key, and the transport — never a guess.
 whose project name, mounts, or ports must remain fixed across fresh `run --rm`
 calls; the path must exist when the registry entry is loaded.
 
-The local `bootstrap` member grants only the delivery mechanism. It is accepted
+The local/Docker `bootstrap` member grants only the delivery mechanism. It is accepted
 only from an untracked `.wprism-envs.json` entry whose provenance is assigned by
 the registry loader; the same bytes in checked-in `site.wprism.json` remain
 unsupported. A present bootstrap object is closed and exact—`null`, another
 format, or any extra key is a configuration error. `wprism driver-capabilities`
 does not contact WordPress. The later `wprism adopt` command emits and binds a
 `wprism-bootstrap-eligibility/v1` report for the exact target before installation.
+For Docker, use `connect --tooling=managed` when the application Compose file
+has no WP-CLI service. WPrism builds its pinned controller-owned helper image,
+writes a private generated overlay without copying resolved environment values,
+and gives it a separate durable repository volume. The original Compose file is
+not edited, application services are never started or stopped, and helper runs
+use `--no-deps`. The running official WordPress service must have a writable
+persistent `/var/www/html`; custom images and mounts that shadow the MU control
+path refuse. Advanced users may name an existing WP-CLI/Git-capable service;
+the same local-daemon, running-web, storage, and initial-authority checks apply.
 
 ### Optional branch-environment provider
 

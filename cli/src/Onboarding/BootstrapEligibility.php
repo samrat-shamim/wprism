@@ -70,7 +70,8 @@ PHP;
         private array $checks,
         private string $repoPath,
         private ?string $muDir,
-        private bool $initialRecoveryAuthority = false
+        private bool $initialRecoveryAuthority = false,
+        private ?string $initialRepositoryIdentity = null
     ) {}
 
     /**
@@ -89,7 +90,17 @@ PHP;
         }
         $program = <<<'PHP'
 $repo = $arguments[0];
-if (@lstat($repo) !== false || !is_dir(dirname($repo))) {
+$allowEmptyRoot = ($arguments[1] ?? '') === 'allow-empty-root';
+$repoStat = @lstat($repo);
+if ($repoStat !== false) {
+    $entries = is_array($repoStat) && ($repoStat['mode'] & 0170000) === 0040000 && !is_link($repo)
+        ? @scandir($repo)
+        : false;
+    if (!$allowEmptyRoot || !is_array($entries) || $entries !== ['.', '..']
+        || !is_readable($repo) || !is_writable($repo) || !is_executable($repo)) {
+        return ['exit' => 76, 'stdout' => '', 'stderr' => 'initial adoption repository is neither absent nor an authorized empty Docker mount root'];
+    }
+} elseif (!is_dir(dirname($repo))) {
     return ['exit' => 76, 'stdout' => '', 'stderr' => 'initial adoption repository is not absent'];
 }
 for ($parent = dirname($repo); $parent !== '/'; $parent = dirname($parent)) {
@@ -99,7 +110,7 @@ for ($parent = dirname($repo); $parent !== '/'; $parent = dirname($parent)) {
         return ['exit' => 76, 'stdout' => '', 'stderr' => 'initial adoption repository ancestor is unsafe'];
     }
 }
-$mu = $arguments[1] ?? '';
+$mu = $arguments[2] ?? '';
 if ($mu !== '') {
     foreach ([$mu . '/wprism', $mu . '/wprism-loader.php', $mu . '/wprism-control'] as $path) {
         if (@lstat($path) !== false) {
@@ -118,39 +129,69 @@ if ($mu !== '') {
         }
     }
 }
-return ['exit' => 0, 'stdout' => 'initial-adoption-absent', 'stderr' => ''];
+$identity = is_array($repoStat)
+    ? (string) $repoStat['dev'] . ':' . (string) $repoStat['ino'] . ':' . (string) ($repoStat['mode'] & 0170000)
+    : 'absent';
+return ['exit' => 0, 'stdout' => 'initial-adoption-' . $identity, 'stderr' => ''];
 PHP;
-        $absent = static function (array $result): bool {
-            return ($result['verified'] ?? false) === true
+        $allowEmptyRoot = $transport instanceof DockerTransport;
+        $initialIdentity = null;
+        $absent = static function (array $result) use (&$initialIdentity): bool {
+            $stdout = $result['stdout'] ?? null;
+            $ok = ($result['verified'] ?? false) === true
                 && ($result['exit'] ?? null) === 0
-                && ($result['stdout'] ?? null) === 'initial-adoption-absent'
+                && is_string($stdout)
+                && preg_match('/^initial-adoption-(absent|[0-9]+:[0-9]+:16384)$/D', $stdout, $match) === 1
                 && ($result['stderr'] ?? null) === '';
+            if ($ok) {
+                $initialIdentity = $match[1] === 'absent' ? null : $match[1];
+            }
+            return $ok;
         };
         // Prove absence before isolated WordPress discovery; an unreadable or
         // existing managed repository never reaches a bootstrap WP request.
         if (!$absent(self::capture(static fn(): array => $transport->captureRawFramed(
-            $program, [$transport->repoPath()], 30000, 1024, 1024
+            $program,
+            [$transport->repoPath(), $allowEmptyRoot ? 'allow-empty-root' : 'absent-only'],
+            30000,
+            1024,
+            1024
         )))) {
             return null;
         }
+        $firstIdentity = $initialIdentity;
         $report = self::inspect($transport, $transport->name(), $transport->driverId(), $sourceRoot);
         if (!$report->ready() || !$absent(self::capture(static fn(): array => $transport->captureRawFramed(
-            $program, [$transport->repoPath(), $report->muDir()], 30000, 1024, 1024
+            $program,
+            [$transport->repoPath(), $allowEmptyRoot ? 'allow-empty-root' : 'absent-only', $report->muDir()],
+            30000,
+            1024,
+            1024
         )))) {
+            return null;
+        }
+        if ($initialIdentity !== $firstIdentity) {
             return null;
         }
         return self::finish(
             $transport->name(), $transport->driverId(), $transport->repoPath(),
             array_merge($report->checks(), [self::check(
                 'initial_recovery_authority', true,
-                'the repository and every WPrism control-plane or transaction authority are absent', ''
+                $initialIdentity === null
+                    ? 'the repository and every WPrism control-plane or transaction authority are absent'
+                    : 'the empty Docker repository mount and every WPrism control-plane or transaction authority are absent and identity-bound',
+                ''
             )]),
-            $report->muDir(), true
+            $report->muDir(), true, $initialIdentity
         );
     }
 
     public function isInitialRecoveryAuthority(): bool {
         return $this->initialRecoveryAuthority;
+    }
+
+    public function initialRepositoryIdentity(): ?string {
+        return $this->initialRepositoryIdentity;
     }
 
     public static function inspect(
@@ -174,6 +215,26 @@ PHP;
         );
         if (!$sourceOk) {
             return self::finish($environment, $driverId, '[invalid]', $checks, null);
+        }
+
+        if ($transport instanceof DockerTransport) {
+            try {
+                $transport->assertLocalBootstrapControlPlane();
+                $checks[] = self::check(
+                    'docker_control_plane',
+                    true,
+                    'the authorized local daemon, running WordPress service, and persistent WordPress/repository storage are proven',
+                    ''
+                );
+            } catch (\Throwable $error) {
+                $checks[] = self::check(
+                    'docker_control_plane',
+                    false,
+                    $error->getMessage(),
+                    'use a local Docker context and a running WordPress service whose writable persistent WordPress storage is shared with the configured CLI service'
+                );
+                return self::finish($environment, $driverId, $repo, $checks, null);
+            }
         }
 
         $pathsSafe = self::safeAbsolutePath($repo)
@@ -276,14 +337,16 @@ PHP;
             $topologyDetails[1]
         );
 
-        if ($topologyOk && $transport instanceof LocalTransport) {
-            $authorityOk = self::localControlPlaneAbsent($muDir, $repo);
+        if ($topologyOk && ($transport instanceof LocalTransport || $transport instanceof DockerTransport)) {
+            $authorityOk = $transport instanceof LocalTransport
+                ? self::localControlPlaneAbsent($muDir, $repo)
+                : self::targetControlPlaneAbsent($transport, $muDir, $repo);
             $checks[] = self::check(
                 'control_authority',
                 $authorityOk,
                 $authorityOk
-                    ? 'the local target has no pre-existing WPrism control plane or recovery authority'
-                    : 'local bootstrap is initial-only and found a pre-existing WPrism control-plane or authority path',
+                    ? 'the machine-local target has no pre-existing WPrism control plane or recovery authority'
+                    : 'machine-local bootstrap is initial-only and found a pre-existing WPrism control-plane or authority path',
                 'use the existing environment update path for an installed WPrism target, or move the prior control plane aside only after operator review'
             );
             $topologyOk = $authorityOk;
@@ -346,7 +409,8 @@ PHP;
         string $repo,
         array $checks,
         ?string $muDir,
-        bool $initialRecoveryAuthority = false
+        bool $initialRecoveryAuthority = false,
+        ?string $initialRepositoryIdentity = null
     ): self {
         $ready = $checks !== [];
         foreach ($checks as $check) {
@@ -360,7 +424,14 @@ PHP;
             'checks' => $checks,
         ];
         $body['digest'] = 'sha256:' . hash('sha256', self::canonicalJson($body));
-        return new self($body, $checks, $repo, $muDir, $initialRecoveryAuthority);
+        return new self(
+            $body,
+            $checks,
+            $repo,
+            $muDir,
+            $initialRecoveryAuthority,
+            $initialRepositoryIdentity
+        );
     }
 
     /** @return array{exit:int,stdout:string,stderr:string} */
@@ -592,6 +663,24 @@ PHP;
             }
         }
         return true;
+    }
+
+    private static function targetControlPlaneAbsent(
+        AdoptionTransport $transport,
+        string $mu,
+        string $repo
+    ): bool {
+        $q = static fn(string $value): string => escapeshellarg($value);
+        $paths = [$mu . '/wprism', $mu . '/wprism-loader.php', $mu . '/wprism-control', $repo . '/.wprism'];
+        $script = 'set -eu; for path in';
+        foreach ($paths as $path) {
+            $script .= ' ' . $q($path);
+        }
+        $script .= '; do [ ! -e "$path" ] && [ ! -L "$path" ] || exit 76; done; printf wprism-control-absent';
+        $result = self::capture(static fn(): array => $transport->captureRaw($script));
+        return $result['exit'] === 0
+            && $result['stderr'] === ''
+            && $result['stdout'] === 'wprism-control-absent';
     }
 
     private static function overlap(string $left, string $right): bool {

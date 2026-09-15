@@ -1,5 +1,5 @@
 {
-    "class_count": 529,
+    "class_count": 534,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -36864,6 +36864,14 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "initialRepositoryIdentity": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "inspect": {
                     "abstract": false,
                     "final": false,
@@ -37849,6 +37857,14 @@
                             "has_default": true,
                             "name": "firstParty",
                             "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "wordpressVersion",
+                            "type": "?string",
                             "variadic": false
                         }
                     ],
@@ -41587,13 +41603,322 @@
             "properties": [],
             "readonly": false
         },
-        "WPrism\\Orchestrator\\DockerTransport": {
+        "WPrism\\Orchestrator\\DockerDatabaseSetup": {
+            "abstract": false,
+            "constants": {
+                "BLOCKER": {
+                    "value_repr": "initial_baseline_database_boundary_unavailable"
+                },
+                "CONFIGURE_FLAG": {
+                    "value_repr": "--configure-database"
+                },
+                "FORMAT": {
+                    "value_repr": "wprism-docker-database-process-plan/v1"
+                },
+                "SERVICE_FLAG": {
+                    "value_repr": "--database-service="
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "apply": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\DockerTransport",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "plan",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "proposal",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "runner",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assertServiceName": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "service",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "plan": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\DockerTransport",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "service",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "proposal",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "runner",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\Orchestrator\\DockerDatabaseSetupException": {
             "abstract": false,
             "constants": [],
             "final": true,
             "interfaces": [
+                "Stringable",
+                "Throwable"
+            ],
+            "kind": "class",
+            "methods": {
+                "__construct": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "message",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "grantMayHaveSucceeded",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "grantMayHaveSucceeded": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": "RuntimeException",
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\Orchestrator\\DockerTooling": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "prepare": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "environment",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "composeFile",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "composeEnvFile",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "profile",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "wordpressService",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "runner",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "privateRoot",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "release": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "receipt",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "runner",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "rollback": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "receipt",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "runner",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\Orchestrator\\DockerTransport": {
+            "abstract": false,
+            "constants": {
+                "BOOTSTRAP_FORMAT": {
+                    "value_repr": "wprism-local-docker-control-plane/v1"
+                },
+                "TOOLING_PROVENANCE_FORMAT": {
+                    "value_repr": "wprism-managed-docker-tooling/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [
+                "WPrism\\Orchestrator\\AdoptionTransport",
                 "WPrism\\Orchestrator\\BoundedControlDriver",
-                "WPrism\\Orchestrator\\EnvironmentDriver"
+                "WPrism\\Orchestrator\\EnvironmentDriver",
+                "WPrism\\Orchestrator\\IdentityBoundAdoptionTransport",
+                "WPrism\\Orchestrator\\PersistentAdoptionArchiveTransport"
             ],
             "kind": "class",
             "methods": {
@@ -41638,6 +41963,64 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "adoptionArchivePath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "token",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "assertLocalBootstrapControlPlane": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "bootstrapCapability": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "cleanupUploadedFile": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "identity",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "describe": {
                     "abstract": false,
                     "final": false,
@@ -41662,6 +42045,31 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "localBootstrapProvenance": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "localDatabaseServiceBinding": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "service",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "rawCommand": {
                     "abstract": false,
                     "final": false,
@@ -41679,6 +42087,48 @@
                     "static": false,
                     "visibility": "protected"
                 },
+                "uploadFile": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "localPath",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "remotePath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "uploadedFileIdentity": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "upload",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "wpCommand": {
                     "abstract": false,
                     "final": false,
@@ -41695,6 +42145,14 @@
                     "return_type": "string",
                     "static": false,
                     "visibility": "protected"
+                },
+                "wpPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
                 }
             },
             "parent": "WPrism\\Orchestrator\\Transport",
@@ -43804,6 +44262,62 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\Orchestrator\\IdentityBoundAdoptionTransport": {
+            "abstract": true,
+            "constants": [],
+            "final": false,
+            "interfaces": [
+                "WPrism\\Orchestrator\\AdoptionTransport"
+            ],
+            "kind": "interface",
+            "methods": {
+                "cleanupUploadedFile": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "identity",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "uploadedFileIdentity": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "upload",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\Orchestrator\\ImportedArchives": {
             "abstract": false,
             "constants": {
@@ -44173,7 +44687,11 @@
         },
         "WPrism\\Orchestrator\\InitCommand": {
             "abstract": false,
-            "constants": [],
+            "constants": {
+                "BASELINE_COMMITTED_READINESS_PENDING_EXIT": {
+                    "value_repr": 4
+                }
+            },
             "final": true,
             "interfaces": [],
             "kind": "class",
@@ -44669,6 +45187,7 @@
                 "WPrism\\Orchestrator\\AdoptionTransport",
                 "WPrism\\Orchestrator\\BoundedControlDriver",
                 "WPrism\\Orchestrator\\EnvironmentDriver",
+                "WPrism\\Orchestrator\\IdentityBoundAdoptionTransport",
                 "WPrism\\Orchestrator\\RecoveryTransport"
             ],
             "kind": "class",
@@ -46311,6 +46830,37 @@
                     ],
                     "return_type": "int",
                     "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\Orchestrator\\PersistentAdoptionArchiveTransport": {
+            "abstract": true,
+            "constants": [],
+            "final": false,
+            "interfaces": [
+                "WPrism\\Orchestrator\\AdoptionTransport"
+            ],
+            "kind": "interface",
+            "methods": {
+                "adoptionArchivePath": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "token",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": false,
                     "visibility": "public"
                 }
             },
@@ -55478,6 +56028,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "canonicalCoreUrl": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "version",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "canonicalUrl": {
                     "abstract": false,
                     "final": false,
@@ -55650,6 +56217,47 @@
                         }
                     ],
                     "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "verifiedCoreBundledComponent": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "root",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "slug",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "wordpressVersion",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tree",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },

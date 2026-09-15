@@ -255,13 +255,24 @@ $agencyFiles = ['wprism-agency.php' => "<?php\n/**\n * Plugin Name: WPrism Agenc
 
 resolve_write_archive($registry . '/plugin/woocommerce.11.0.0.zip', 'woocommerce', $wooFiles);
 resolve_write_archive($registry . '/theme/storefront.4.6.0.zip', 'storefront', $themeFiles);
+$coreThemeFiles = [
+    'style.css' => "/*\nTheme Name: Twenty Twenty-Five\nVersion: 1.5\nTested up to: 7.1\n*/\n",
+    'readme.txt' => "Twenty Twenty-Five bundled with WordPress 7.1\n",
+];
+resolve_write_archive(
+    $registry . '/release/wordpress-7.1.zip',
+    'wordpress/wp-content/themes/twentytwentyfive',
+    $coreThemeFiles
+);
 
 $wooUrl = WpOrgReleases::canonicalUrl('plugins', 'woocommerce', '11.0.0');
 $themeUrl = WpOrgReleases::canonicalUrl('themes', 'storefront', '4.6.0');
+$coreUrl = WpOrgReleases::canonicalCoreUrl('7.1');
 $wooArchiveDigest = (string) hash_file('sha256', $registry . '/plugin/woocommerce.11.0.0.zip');
 $themeArchiveDigest = (string) hash_file('sha256', $registry . '/theme/storefront.4.6.0.zip');
 $wooTreeDigest = resolve_tree_digest($scratch, $wooFiles);
 $themeTreeDigest = resolve_tree_digest($scratch, $themeFiles);
+$coreThemeTreeDigest = resolve_tree_digest($scratch, $coreThemeFiles);
 
 $lockRows = [
     [
@@ -331,6 +342,54 @@ wprism_check(
     is_file((new WpOrgReleases($cache, false, 'file://' . $registry))->cachePath($wooUrl)),
     'the verified archive is published into the content-addressed host cache'
 );
+
+$coreLockRow = [[
+    'root' => 'themes',
+    'component' => 'twentytwentyfive',
+    'version' => '1.5',
+    'origin' => [
+        'kind' => 'wp-org-release',
+        'url' => $coreUrl,
+        'archive_sha256' => hash_file('sha256', $registry . '/release/wordpress-7.1.zip'),
+        'archive_root' => 'wordpress/wp-content/themes/twentytwentyfive',
+    ],
+    'tree_sha256' => $coreThemeTreeDigest,
+]];
+$coreRepo = resolve_make_repo($scratch, $repoSeq, $coreLockRow, []);
+$coreCache = resolve_cache($scratch, $cacheSeq);
+$coreRows = resolve_resolver($coreCache, $registry)->resolve($coreRepo, $coreLockRow, false);
+wprism_check_same('resolved', $coreRows[0]['state'] ?? null, 'a core-bundled theme resolves through its nested archive root');
+wprism_check_same(
+    $coreThemeTreeDigest,
+    WpOrgReleases::treeDigest($coreRepo . '/code/wp-content/themes/twentytwentyfive'),
+    'the resolved core-bundled theme is byte-identical to the exact tree declared by the lock'
+);
+wprism_check(
+    !is_dir($coreRepo . '/code/wp-content/wordpress'),
+    'core resolution publishes only the declared nested component, never the surrounding WordPress distribution'
+);
+
+$wrongCoreArchive = $coreLockRow;
+$wrongCoreArchive[0]['origin']['archive_sha256'] = str_repeat('f', 64);
+$wrongArchiveRepo = resolve_make_repo($scratch, $repoSeq, $wrongCoreArchive, []);
+$wrongArchiveCache = resolve_cache($scratch, $cacheSeq);
+resolve_check_refuses(
+    static fn() => resolve_resolver($wrongArchiveCache, $registry)->resolve($wrongArchiveRepo, $wrongCoreArchive, false),
+    WpOrgReleases::REASON_ARCHIVE_DIGEST_MISMATCH,
+    'a core-bundle lock with the wrong archive digest refuses before extraction'
+);
+wprism_check(!is_dir($wrongArchiveRepo . '/code/wp-content/themes/twentytwentyfive'), 'core archive-digest refusal publishes no theme bytes');
+
+$wrongCoreTree = $coreLockRow;
+$wrongCoreTree[0]['tree_sha256'] = str_repeat('f', 64);
+$wrongTreeRepo = resolve_make_repo($scratch, $repoSeq, $wrongCoreTree, []);
+$wrongTreeCache = resolve_cache($scratch, $cacheSeq);
+resolve_check_refuses(
+    static fn() => resolve_resolver($wrongTreeCache, $registry)->resolve($wrongTreeRepo, $wrongCoreTree, false),
+    CodeResolver::REASON_TREE_DIGEST_MISMATCH,
+    'a verified core archive whose nested component differs from the lock tree refuses'
+);
+wprism_check(!is_dir($wrongTreeRepo . '/code/wp-content/themes/twentytwentyfive'), 'core tree-digest refusal publishes no theme bytes');
 
 // ---------------------------------------------------------------------------
 // B. Cache hit: re-verified, re-used, and never a rewrite.

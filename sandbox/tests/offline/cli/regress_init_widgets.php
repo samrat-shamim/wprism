@@ -69,8 +69,8 @@ $seed = static function (array $sidebars = [], ?array $nativeFamily = null) use 
         ['option_id' => 4, 'option_name' => 'sidebars_widgets', 'option_value' => serialize($sidebars + ['array_version' => 3]), 'autoload' => 'yes'],
     ];
     $wpdb->seedTable('wp_options', $rows);
-    foreach (['wp_posts', 'wp_postmeta', 'wp_terms', 'wp_term_taxonomy', 'wp_usermeta'] as $table) {
-        $wpdb->seedTable($table, []);
+    foreach (['wp_posts', 'wp_postmeta', 'wp_terms', 'wp_term_taxonomy', 'wp_termmeta', 'wp_usermeta'] as $table) {
+        $wpdb->seedTable($table, [])->setTableEngine($table, 'InnoDB');
     }
     return $rows;
 };

@@ -362,12 +362,20 @@ Usage:
   wprism driver-capabilities <env> [--operation=<workflow>] [--format=json]
   wprism connect <env> --workspace=<path> --transport=ssh --host=<ssh-host>
               --wp-path=<path> --repo-path=<path> [--ssh-config=<path>] [--format=json]
+  wprism connect <env> --workspace=<path> --transport=docker --compose-file=<path>
+              --wordpress-service=<name> --tooling=managed [--compose-env-file=<path>]
+              [--profile=<name>] [--format=json]
+  wprism connect <env> --workspace=<path> --transport=docker --compose-file=<path>
+              --wordpress-service=<name> --service=<wp-cli-service> --wp-path=<path>
+              --repo-path=<path> [--mode=run|exec] [--compose-env-file=<path>]
+              [--profile=<name>] [--format=json]
   wprism onboard <env> [--git-url=<empty-url>] [init flags...] [--format=json]
   wprism onboard <env> --handoff-only --git-url=<url> [--format=json]
   wprism onboard <env> status --git-url=<same-url> --format=json
   wprism adopt  <env> [--attest-legacy-loader-quiesced]
   wprism unadopt <env> --archive-to=<absolute-path> [--yes] [--attest-legacy-loader-quiesced]
   wprism init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
+                       [--configure-database --database-service=<name>]
   wprism init   <env> --archive-interrupted-to=<absolute-sibling> [--yes]
   wprism status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--cursor=<token>] [--limit=<1..200>]
   wprism assess <env> [--operation=<ops>] [--limit=<1..200>] [--cursor=<token>] [--format=json]
@@ -908,6 +916,16 @@ Verbs:
                           the selected managed scope clean. This does not
                           fabricate a promotion rollback checkpoint.
     --yes                 Confirm the displayed proposal non-interactively.
+    --configure-database  Docker only, and inert unless explicitly supplied
+      --database-service  together with the exact Compose DB service. Prove the
+        =<name>           selected official MySQL/MariaDB container is the server
+                          WordPress uses, then grant ONLY direct global PROCESS
+                          to that exact WordPress account if missing. PROCESS is
+                          server-wide. --yes confirms this grant only when the
+                          configure flag is also present. MariaDB setup requires
+                          immutable server_uid (11.1.6/11.2.5/11.4.3/11.5.2 or
+                          11.6.1+); ordinary read-only onboarding keeps the
+                          broader platform range.
     --allow-unmanaged     Proceed when active plugins have no owning adapter.
       -plugins            Each is printed under `advisories` as
                           `UNMANAGED PLUGIN <slug>/<file>.php

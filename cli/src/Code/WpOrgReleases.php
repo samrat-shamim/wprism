@@ -48,10 +48,12 @@ use WPrism\PathSafety;
  *   `CodeSourceLock::tree_sha256()`, i.e. the same rows the agent's descriptor
  *   compiler builds. This is the one function that makes "the release equals
  *   the installed tree" a decidable question rather than a guess.
- * - `verifiedRelease(root, slug, version, tree)` — the wp.org leg of the
- *   classification CodeClassifier composes: the `wp-org-release` origin when
- *   the published release unpacks to exactly these bytes, otherwise the
- *   STATED reason it does not. Init's and `code-classify`'s shared decision
+ * - `verifiedRelease(root, slug, version, tree)` and
+ *   `verifiedCoreBundledComponent(root, slug, wordpressVersion, tree)` — the
+ *   wp.org legs of the classification CodeClassifier composes: the
+ *   `wp-org-release` origin when the separately published component or an
+ *   exact theme nested in the verified core release unpacks to these bytes,
+ *   otherwise the STATED reason it does not. Init's and `code-classify`'s shared decision
  *   itself (locked / first-party / unsourced) lives in CodeClassifier, which
  *   adds the imported-archive leg (ImportedArchives) and the operator's
  *   first-party declarations; a resolver needs neither.
@@ -133,6 +135,13 @@ final class WpOrgReleases {
             throw new \RuntimeException("wprism: no wp.org release identity exists for '$root/$slug' at version '$version'");
         }
         return self::CANONICAL_BASE . "/$segment/$slug.$version.zip";
+    }
+
+    public static function canonicalCoreUrl(string $version): string {
+        if (!self::safeVersion($version)) {
+            throw new \RuntimeException("wprism: no WordPress core release identity exists for '$version'");
+        }
+        return self::CANONICAL_BASE . "/release/wordpress-$version.zip";
     }
 
     /**
@@ -425,6 +434,63 @@ final class WpOrgReleases {
             ];
         } catch (\Throwable $error) {
             return ['reason' => 'no verified wp.org release: ' . self::oneLine($error->getMessage())];
+        } finally {
+            if ($unpacked !== null) {
+                self::removeTree($unpacked);
+            }
+        }
+    }
+
+    /**
+     * Match one component against the exact nested tree in a WordPress core
+     * release. Core and the separately published component archive can carry
+     * different bytes under the same theme version, so this is a distinct
+     * verified origin, never a normalization or version-based equivalence.
+     *
+     * @return array{reason:string,origin?:array{kind:string,url:string,archive_sha256:string,archive_root:string}}
+     */
+    public function verifiedCoreBundledComponent(
+        string $root,
+        string $slug,
+        string $wordpressVersion,
+        string $tree
+    ): array {
+        if ($root !== 'themes') {
+            return ['reason' => "$root components are not sourced from a WordPress core release"];
+        }
+        if (!PathSafety::safe_component($slug)) {
+            return ['reason' => "the component slug '$slug' cannot name a WordPress core release path"];
+        }
+        $canonical = self::canonicalCoreUrl($wordpressVersion);
+        $archiveRoot = "wordpress/wp-content/$root/$slug";
+        $unpacked = null;
+        try {
+            $archive = $this->fetch($canonical);
+            $unpacked = self::temporaryDirectory();
+            $this->unpack($archive['path'], $unpacked);
+            $component = $unpacked . '/' . $archiveRoot;
+            if (!is_dir($component) || is_link($component)) {
+                return [
+                    'reason' => "the WordPress $wordpressVersion core release does not bundle $root/$slug",
+                ];
+            }
+            $digest = self::treeDigest($component);
+            if (!hash_equals($tree, $digest)) {
+                return [
+                    'reason' => "the WordPress $wordpressVersion core release bundles $root/$slug as $digest, not the installed tree $tree",
+                ];
+            }
+            return [
+                'reason' => "the WordPress $wordpressVersion core release bundles $root/$slug at exactly these bytes",
+                'origin' => [
+                    'kind' => 'wp-org-release',
+                    'url' => $canonical,
+                    'archive_sha256' => $archive['sha256'],
+                    'archive_root' => $archiveRoot,
+                ],
+            ];
+        } catch (\Throwable $error) {
+            return ['reason' => 'no verified WordPress core release: ' . self::oneLine($error->getMessage())];
         } finally {
             if ($unpacked !== null) {
                 self::removeTree($unpacked);

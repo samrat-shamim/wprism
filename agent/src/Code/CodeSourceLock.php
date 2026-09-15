@@ -80,8 +80,9 @@ final class CodeSourceLock {
     public const ROOTS = ['plugins', 'themes'];
 
     /**
-     * `wp-org-release`: the canonical downloads.wordpress.org archive for a
-     * published version, fetched by the host. `imported-archive`: an archive
+     * `wp-org-release`: a canonical downloads.wordpress.org component or
+     * WordPress core archive, fetched by the host; a core-bundled theme
+     * names its exact nested `archive_root`. `imported-archive`: an archive
      * the operator imported into the host's content-addressed cache with
      * `wprism code-import`, identified by its digest alone — the lock records no
      * URL and no path for it, because a vendor download URL is usually

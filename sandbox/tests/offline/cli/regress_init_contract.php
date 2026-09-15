@@ -2193,6 +2193,106 @@ $GLOBALS['wpdb'] = $originalWpdb;
 // and how many rows each holds, and a fake that holds rows answers it without
 // transcribing the SQL.
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
+
+// The initial proposal used to report ready after only the read-capability
+// report, although confirmation's baseline transaction would later refuse at
+// its complete mutation-boundary proof. Exercise the planner's new private seam
+// against the shared SQL interpreter: this is the same boundary and exact five
+// write tables CaptureTransaction::database_profile() gives Db::establish_profile().
+$baselineDatabaseTables = [
+    'wp_postmeta',
+    'wp_termmeta',
+    'wp_wprism_map',
+    'wp_wprism_state',
+    'wp_wprism_kv',
+];
+$baselineDatabase = \WPrismTest\FakeWpdb::install();
+foreach ($baselineDatabaseTables as $table) {
+    $baselineDatabase->seedTable($table, [])->setTableEngine($table, 'InnoDB');
+}
+$baselineDatabasePreflight = new ReflectionMethod(
+    \WPrism\InitPlanner::class,
+    'initial_baseline_database_blocker'
+);
+$baselineExistingTables = new ReflectionMethod(
+    \WPrism\InitPlanner::class,
+    'initial_baseline_existing_database_tables'
+);
+$expectedDatabaseBlocker = [
+    'code' => 'initial_baseline_database_boundary_unavailable',
+    'extension' => 'wordpress-database',
+    'kind' => 'platform',
+    'reason' => 'the initial baseline cannot prove that every database mutation remains inside one rollback-safe InnoDB boundary',
+    'remediation' => 'ensure the baseline mutation tables are ordinary InnoDB tables with no triggers or escaping referential actions; grant the current WordPress database account direct TRIGGER visibility on those tables and direct PROCESS on *.*, ensure information_schema.INNODB_FOREIGN (MySQL) or information_schema.INNODB_SYS_FOREIGN (MariaDB) is available, then request a fresh init proposal',
+];
+$freshBaselineDatabase = \WPrismTest\FakeWpdb::install();
+foreach (['wp_postmeta', 'wp_termmeta'] as $table) {
+    $freshBaselineDatabase->seedTable($table, [])->setTableEngine($table, 'InnoDB');
+}
+$freshTables = $baselineExistingTables->invoke(null, $baselineDatabaseTables);
+check(
+    $freshTables === ['wp_postmeta', 'wp_termmeta']
+        && $baselineDatabasePreflight->invoke(null, $freshTables) === null,
+    'a fresh authorized database reaches baseline readiness before its WPrism-owned ledger tables exist'
+);
+$freshBaselineDatabase->seedTable('wp_wprism_kv', [])->setTableEngine('wp_wprism_kv', 'MyISAM');
+$unsafeExistingTables = $baselineExistingTables->invoke(null, $baselineDatabaseTables);
+check(
+    in_array('wp_wprism_kv', $unsafeExistingTables, true)
+        && $baselineDatabasePreflight->invoke(null, $unsafeExistingTables) === $expectedDatabaseBlocker,
+    'an unsafe existing capture table remains inside the early mutation-boundary refusal'
+);
+$GLOBALS['wpdb'] = $baselineDatabase;
+$baselineDatabase->setForeignKeyMetadataVisible(false)->resetLog();
+$missingProcessBlocker = $baselineDatabasePreflight->invoke(null, $baselineDatabaseTables);
+check(
+    $missingProcessBlocker === $expectedDatabaseBlocker,
+    'an init proposal maps missing direct global PROCESS authority to one stable actionable unsupported row'
+);
+$preflightQueries = implode("\n", $baselineDatabase->queries());
+check(
+    str_contains($preflightQueries, "PRIVILEGE_TYPE = 'PROCESS'")
+        && $baselineDatabase->ddlLog() === []
+        && preg_match('/^(?:INSERT|UPDATE|DELETE|REPLACE|CREATE|ALTER|DROP|TRUNCATE|START|COMMIT|ROLLBACK)\\b/im', $preflightQueries) !== 1,
+    'database readiness uses the exact read-only metadata authority proof and performs no mutation or transaction control'
+);
+$baselineDatabase->setForeignKeyMetadataVisible(true)->resetLog();
+check(
+    $baselineDatabasePreflight->invoke(null, $baselineDatabaseTables) === null,
+    'direct TRIGGER visibility, direct global PROCESS, and the matching engine metadata source pass init readiness'
+);
+// Confirmation recomputes the proposal before its database lease and before
+// the attempt journal or capture lock. Model a revoked grant on that fresh pass:
+// no successful result is cached from the initial proposal.
+$baselineDatabase->setForeignKeyMetadataVisible(false)->resetLog();
+check(
+    $baselineDatabasePreflight->invoke(null, $baselineDatabaseTables) === $expectedDatabaseBlocker,
+    'revoked PROCESS authority is observed by the confirmation-time fresh readiness pass'
+);
+check(
+    str_contains(
+        $plannerSource,
+        'CaptureTransaction::database_profile($policy)->write_tables()'
+    )
+        && str_contains($plannerSource, '$unsupported[] = $databaseBlocker;'),
+    'the product proposal derives the exact capture write profile and folds only a failed proof into unsupported'
+);
+$confirmationInitialProposal = strpos($confirmationSource, '$proposal = InitPlanner::proposal(');
+$confirmationInitialCheck = strpos($confirmationSource, 'InitPlanner::assert_confirmed_proposal(', $confirmationInitialProposal ?: 0);
+$confirmationLease = strpos($confirmationSource, '$lease = self::acquire_init_lease(');
+$confirmationAttemptWrite = strpos($confirmationSource, 'InitAttemptJournal::write(', $confirmationInitialCheck ?: 0);
+check(
+    $confirmationInitialProposal !== false
+        && $confirmationInitialCheck !== false
+        && $confirmationLease !== false
+        && $confirmationAttemptWrite !== false
+        && $confirmationInitialProposal < $confirmationInitialCheck
+        && $confirmationInitialCheck < $confirmationLease
+        && $confirmationInitialCheck < $confirmationAttemptWrite,
+    'confirmation rechecks database readiness before its lease, journal, capture lock, or baseline publication'
+);
+$GLOBALS['wpdb'] = $originalWpdb;
+
 $ledgerWpdb = \WPrismTest\FakeWpdb::install();
 $journalRow = static fn(int $id, string $item, string $surface, string $proposal): array => [
     'id' => $id, 't' => '2026-08-21 00:00:0' . $id, 'op' => 'UPDATE', 'tbl' => 'options',

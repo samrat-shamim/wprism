@@ -5,6 +5,7 @@ namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Code/CodeClassifier.php';
+require_once __DIR__ . '/../Code/WpOrgReleases.php';
 require_once __DIR__ . '/AssessCommand.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Code/CodeDescriptorCompiler.php';
@@ -201,8 +202,9 @@ final class CodeClassifyCommand {
         CodeClassifier::assertFirstPartyKnown($candidates, $firstParty);
         self::assertCleanCodeTree($repo);
         self::assertTargetAgrees($transport, $inventory);
+        $wordpressVersion = self::targetWordPressVersion($transport);
 
-        $plan = CodeClassifier::make($cacheDir, $offline)->classify($candidates, $firstParty);
+        $plan = CodeClassifier::make($cacheDir, $offline)->classify($candidates, $firstParty, $wordpressVersion);
         foreach ($plan as $row) {
             echo '  ' . CodeClassifier::renderRow($row) . "\n";
         }
@@ -341,6 +343,20 @@ final class CodeClassifyCommand {
                 . 'are the trees that target compiles'
             );
         }
+    }
+
+    private static function targetWordPressVersion(EnvironmentDriver $transport): string {
+        $result = $transport->captureWp(['core', 'version']);
+        $stdout = $result['stdout'] ?? null;
+        // Docker Compose may report its own container lifecycle on stderr in
+        // legacy attachment environments. The version identity is therefore
+        // derived only from one exact stdout token, never from that diagnostic.
+        if (($result['exit'] ?? null) !== 0 || !is_string($stdout)
+            || preg_match('/^([A-Za-z0-9][A-Za-z0-9._+-]{0,63})(?:\r?\n)?$/D', $stdout, $match) !== 1
+            || !WpOrgReleases::safeVersion($match[1])) {
+            throw new \RuntimeException('the target returned a malformed WordPress core version');
+        }
+        return $match[1];
     }
 
     /** @param list<string> $lines */

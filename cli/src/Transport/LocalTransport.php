@@ -8,7 +8,7 @@ require_once __DIR__ . '/RecoveryTransport.php';
 require_once __DIR__ . '/RecoveryConfig.php';
 
 /** Runs wp-cli directly on this machine: `wp --path=<wp_path> …`. */
-final class LocalTransport extends Transport implements AdoptionTransport, RecoveryTransport {
+final class LocalTransport extends Transport implements IdentityBoundAdoptionTransport, RecoveryTransport {
     /** A local environment's `repo_path` IS a host path; nothing is derived. */
     public function hostRepoPath(): ?string {
         return rtrim($this->repoPath, '/');
