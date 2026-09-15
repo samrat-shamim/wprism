@@ -114,6 +114,7 @@ namespace {
     require_once $wprismRoot . '/agent/src/Adapter/Providers.php';
     require_once $wprismRoot . '/agent/src/Kernel/StoragePrerequisiteSettlement.php';
     require_once $wprismRoot . '/adapter-packages/visual-portfolio/package/runtime/providers/visual-portfolio-migrations.php';
+    require_once $wprismRoot . '/adapter-packages/visual-portfolio/fixtures/native/migration-refusal-evidence.php';
 
     use WPrism\ManifestProviderRuntime;
     use WPrism\Providers;
@@ -150,6 +151,41 @@ namespace {
         [$manifest],
         [['manifest' => 'visual-portfolio', 'option' => 'vpf_db_version', 'ready' => true]]
     ), 'a current cursor selects no lifecycle work');
+
+    $wrappedRefusal = static function (string $privateMessage): WPrism\PrivateEvidenceException {
+        $child = json_encode([
+            'evidence' => WPrism\PrivateRefusalEvidence::graph(new RuntimeException($privateMessage)),
+            'format' => 'wprism-provider-operation-failure/v1',
+            'request_sha256' => str_repeat('a', 64),
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        return new WPrism\PrivateEvidenceException(
+            VisualPortfolioMigrationRefusalEvidence::PUBLIC_MESSAGE,
+            new WPrism\PrivateEvidenceException(
+                'wprism: manifest-provider fresh process did not complete cleanly; recovery_required',
+                new RuntimeException('wprism: child process return_code=1'),
+                new WPrism\PrivateEvidenceException(
+                    'wprism: child process stdout',
+                    new RuntimeException($child)
+                ),
+                new WPrism\PrivateEvidenceException(
+                    'wprism: child process stderr',
+                    new RuntimeException("wprism-provider-operation-failed\n")
+                )
+            )
+        );
+    };
+    wprism_check(
+        VisualPortfolioMigrationRefusalEvidence::matches($wrappedRefusal(
+            'wprism: Visual Portfolio legacy archive-slug migration requires native maintenance with irreversible rewrite effects'
+        )),
+        'the native oracle admits the exact retained legacy rewrite cause without publishing it'
+    );
+    wprism_check(
+        !VisualPortfolioMigrationRefusalEvidence::matches($wrappedRefusal(
+            'wprism: Visual Portfolio unrelated provider failure'
+        )),
+        'an unrelated private provider failure cannot impersonate the legacy rewrite refusal'
+    );
 
     $db = FakeWpdb::install()->setServerVersion('8.4.0')->enableInformationSchema();
     foreach ([
@@ -301,6 +337,25 @@ namespace {
         'the plugin native maintenance path follows its archive option onto an ordinary post');
     wprism_check($legacyBefore['posts_sha256'] !== $legacyAfter['posts_sha256'],
         'the bounded posts projection covers the native non-page archive mutation');
+
+    $seed('3.8.0', true);
+    $lateLegacy = $settle();
+    wprism_check_same('3.8.1', $lateLegacy['after']['cursor'],
+        'a post-2.15 cursor does not over-refuse an inert legacy slug member');
+    wprism_check_same('legacy-portfolio', get_option('vp_general')['portfolio_slug'] ?? null,
+        'the provider follows native version dispatch and preserves an ineligible legacy member');
+
+    $seed(null);
+    $nullableGeneral = get_option('vp_general');
+    $nullableGeneral['portfolio_slug'] = null;
+    update_option('vp_general', $nullableGeneral);
+    $nullableLegacy = $settle();
+    wprism_check_same('3.8.1', $nullableLegacy['after']['cursor'],
+        'a null legacy member follows native isset semantics without entering hard rewrite');
+    $nullableGeneral = get_option('vp_general');
+    wprism_check(array_key_exists('portfolio_slug', $nullableGeneral)
+        && $nullableGeneral['portfolio_slug'] === null,
+        'database-only settlement preserves the native-inert null legacy member');
 
     $seed(null);
     $GLOBALS['vp_migration_fault'] = 'throw-after-write';

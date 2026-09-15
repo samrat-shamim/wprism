@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/migration-refusal-evidence.php';
+
 $check = static function (bool $ok, string $why): void {
     if (!$ok) throw new RuntimeException('Visual Portfolio native migration: ' . $why);
 };
@@ -202,7 +204,11 @@ if ($mode === 'native-settle') {
             ];
         } catch (Throwable $failure) {
             if ($mode !== 'provider-refusal') throw $failure;
-            $refusal = ['class' => $failure::class, 'message' => $failure->getMessage()];
+            $refusal = [
+                'class' => $failure::class,
+                'message' => $failure->getMessage(),
+                'private_cause_verified' => VisualPortfolioMigrationRefusalEvidence::matches($failure),
+            ];
             $after = $observe();
             $fixed = $observe();
         }
@@ -213,7 +219,8 @@ if ($mode === 'native-settle') {
 if ($mode === 'provider-refusal') {
     $check($refusal === [
         'class' => WPrism\PrivateEvidenceException::class,
-        'message' => "wprism: provider 'visual-portfolio-migrations' capability 'settle_storage' failed",
+        'message' => VisualPortfolioMigrationRefusalEvidence::PUBLIC_MESSAGE,
+        'private_cause_verified' => true,
     ], 'value-free provider refusal envelope');
     $check($before === $after && $after === $fixed, 'provider refusal preserves the bounded migration surface');
     echo json_encode([

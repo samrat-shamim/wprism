@@ -32,7 +32,7 @@ VP_PROVIDER_REFUSAL="wprism: provider 'visual-portfolio-migrations' capability '
 jq -e --arg refusal "$VP_PROVIDER_REFUSAL" '.mode == "provider-refusal" and .before.cursor == null and .after == .before and
   .bounded_observed_fixed_point == true and
   .before.archive_post.post_name == "vp-legacy-archive-before-migration" and
-  .refusal.message == $refusal' \
+  .refusal.message == $refusal and .refusal.private_cause_verified == true' \
   <<<"$VP_LEGACY_REFUSAL" >/dev/null \
   || fail 'Visual Portfolio automatic settlement did not refuse the irreversible legacy rewrite branch before mutation'
 capture_wprism_json_success VP_LEGACY_NATIVE 'Visual Portfolio explicit native legacy migration' \

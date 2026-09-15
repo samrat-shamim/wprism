@@ -62,10 +62,10 @@ proves an immediate no-op pass, and exposes only a bounded physical postimage to
 the engine's independent fresh observer. The observed migration surface is limited
 to 4,096 rows / 4 MiB per options, page/saved-layout plus legacy-option archive
 post, and Visual Portfolio postmeta projection. Exceeding any bound refuses before
-a successful receipt. A legacy `vp_general.portfolio_slug` takes the plugin's hard
-rewrite path, whose server-file and hook effects are not checkpoint-restorable; the
-provider refuses that state before native mutation and leaves it to explicit native
-maintenance.
+a successful receipt. A non-null `vp_general.portfolio_slug` whose saved cursor
+predates 2.15 takes the plugin's hard rewrite path, whose server-file and hook effects
+are not checkpoint-restorable; the provider refuses that state before native mutation
+and leaves it to explicit native maintenance.
 
 Saved Layout authoring, nonempty custom queries, extension sources and modern custom CSS refuse
 where declared. Premium settings, including hidden premium fields submitted by the
