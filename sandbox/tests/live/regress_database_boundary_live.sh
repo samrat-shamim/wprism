@@ -748,7 +748,7 @@ prove_storage_prerequisites() {
   wprism_private_capture_stage "$sink" native compose run --rm -T \
     -v "$REPO_ROOT/sandbox/tests/fixtures/native-storage-prerequisites.php:/native-storage-prerequisites.php:ro" \
     cli1 wp eval-file /native-storage-prerequisites.php --use-include || status=$?
-  printf 'retained native option-input transport: %s\n' "$sink/native"
+  printf 'retained native storage-prerequisite transport: %s\n' "$sink/native"
   [ "$status" -eq 0 ] || fail "$CURRENT_DB_ENGINE native storage prerequisite command failed with exit $status"
   php "$REPO_ROOT/sandbox/tests/fixtures/native-storage-prerequisites.php" --admit "$sink/native" "$expected_engine"
   pass "$CURRENT_DB_ENGINE proved current-row and insertion-gap locks against a separate native connection"

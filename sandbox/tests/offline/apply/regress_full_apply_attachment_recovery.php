@@ -88,6 +88,14 @@ if (!class_exists('WP_CLI')) {
 }
 
 require_once __DIR__ . '/../../lib/check.php';
+$storageRace = ($argv[1] ?? '') === 'storage-race';
+$storageCase = in_array($argv[1] ?? '', ['storage-race', 'storage-ready'], true);
+if (!$storageCase) {
+    foreach (['storage-race', 'storage-ready'] as $child) {
+        passthru(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . ' ' . escapeshellarg($child), $childStatus);
+        wprism_check($childStatus === 0, $child . ' attachment prerequisite product path passes');
+    }
+}
 require_once __DIR__ . '/../../lib/wp_stubs.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
 require_once __DIR__ . '/../../support/wp-block-parser-stub.php';
@@ -331,7 +339,28 @@ file_put_contents(
     Canon::post_file($post, '')
 );
 
-$adapterLibrary = \WPrism\AdapterLibrary::fromSourceTree($repoRoot);
+$libraryRoot = $repoRoot;
+if ($storageCase) {
+    $libraryRoot = $tmp . '/storage-library';
+    mkdir($libraryRoot . '/adapter-packages', 0700, true);
+    foreach (['profiles.json', 'capabilities/platform.json', 'capabilities/adapter-authorities.json', 'core/manifest.json', 'core/disposition.json'] as $relative) {
+        $destination = $libraryRoot . '/platform/adapter-library/' . $relative;
+        if (!is_dir(dirname($destination))) mkdir(dirname($destination), 0700, true);
+        copy($repoRoot . '/platform/adapter-library/' . $relative, $destination);
+    }
+    $manifestPath = $libraryRoot . '/platform/adapter-library/core/manifest.json';
+    $manifest = Canon::decode(Canon::read_file($manifestPath));
+    $manifest['spec_version'] = 3;
+    $manifest['engine_features'] = ['spec-window/v1', 'storage-prerequisites/v1'];
+    $manifest['options']['fixture_storage_version'] = ['class' => 'runtime'];
+    $manifest['storage_prerequisites'] = [['option' => 'fixture_storage_version', 'equals' => 'settled']];
+    Canon::write_file($manifestPath, Canon::encode($manifest));
+    $site = Canon::decode(Canon::read_file($repo . '/site.wprism.json'));
+    $site['manifests'] = ['core'];
+    $site['spec_version'] = 3;
+    Canon::write_file($repo . '/site.wprism.json', Canon::encode($site));
+}
+$adapterLibrary = \WPrism\AdapterLibrary::fromSourceTree($libraryRoot);
 $policy = Policy::load(
     $repo,
     adapterLibrary: $adapterLibrary
@@ -403,6 +432,42 @@ $wpdb->setColumns('wp_wprism_map', ['uuid' => 'varchar(36)', 'entity_type' => 'v
     ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id'])
     ->setUniqueKey('wp_wprism_state', ['uuid'])
     ->setUniqueKey('wp_wprism_kv', ['k']);
+
+if ($storageCase) {
+    $cursor = ['option_id' => 4, 'option_name' => 'fixture_storage_version', 'option_value' => 'settled', 'autoload' => 'no'];
+    $wpdb->seedTable('wp_options', [...$wpdb->rows('wp_options'), $cursor]);
+}
+if ($storageRace) {
+    $reachedStart = false;
+    $filesystemExistedAtStart = null;
+    $journalRoot = $repo . '/.wprism/attachment-filesystem/current';
+    $wpdb->onQuery(static function (string $sql) use ($wpdb, $cursor, $journalRoot, &$reachedStart, &$filesystemExistedAtStart): ?string {
+        if (!$reachedStart && str_starts_with($sql, 'START TRANSACTION')
+            && in_array(\WPrism\AuthoredTransactionExecutor::class, array_column(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 32), 'class'), true)) {
+            $reachedStart = true;
+            $filesystemExistedAtStart = file_exists($journalRoot);
+            $rows = $wpdb->rows('wp_options');
+            foreach ($rows as &$row) {
+                if ($row['option_name'] === $cursor['option_name']) $row['option_value'] = 'pending';
+            }
+            unset($row);
+            $wpdb->seedTable('wp_options', $rows);
+        }
+        return null;
+    });
+    $failure = null;
+    try {
+        ApplyRequestCoordinator::apply($repo, ['compiled' => $artifact, 'adapter_library' => $adapterLibrary]);
+    } catch (Throwable $error) { $failure = $error; }
+    wprism_check($reachedStart, 'race reaches the real authored transaction START');
+    wprism_check($filesystemExistedAtStart === false, 'no attachment journal or preflight precedes the locked prerequisite check');
+    wprism_check($failure instanceof \WPrism\CommandRefusalException && $failure->reasonCode === 'storage_prerequisite_unmet', 'changed cursor receives typed admission refusal');
+    if ($failure !== null) wprism_check_detail(get_class($failure) . ': ' . $failure->getMessage());
+    wprism_check(!file_exists($journalRoot), 'race refusal leaves no attachment journal');
+    wprism_check($wpdb->rows('wp_posts') === [] && $wpdb->rows('wp_postmeta') === [], 'race refusal creates no attachment rows');
+    wprism_check(iterator_count(new RecursiveIteratorIterator(new RecursiveDirectoryIterator($store->uploadBaseDir, FilesystemIterator::SKIP_DOTS))) === 0, 'race refusal publishes no upload files');
+    wprism_check_summary('full apply attachment storage prerequisite race');
+}
 
 // Fail once at the actual post-authored lease renewal, after the DB/filesystem
 // intent is durable and before native rebuild can consume it.

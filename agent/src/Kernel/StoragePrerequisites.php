@@ -8,7 +8,9 @@ require_once __DIR__ . '/ExactOptionReader.php';
 require_once __DIR__ . '/CommandRefusal.php';
 require_once __DIR__ . '/LockedOptionRows.php';
 require_once __DIR__ . '/TransactionalTableBoundary.php';
-require_once __DIR__ . '/Db.php';
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/Db.php';
+}
 require_once __DIR__ . '/PlainData.php';
 
 /** Native migration cursors are target prerequisites, never portable authored state. */

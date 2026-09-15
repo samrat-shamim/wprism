@@ -42,8 +42,14 @@ $check(!in_array($name, array_column($initial, 'option_name'), true), 'fixture c
 $manifests = [['name' => 'native-storage-fixture', 'engine_features' => ['storage-prerequisites/v1'],
     'options' => [$name => ['class' => 'runtime']],
     'storage_prerequisites' => [['option' => $name, 'equals' => 'settled']]]];
-$report = (new mysqli_driver())->report_mode;
-mysqli_report(MYSQLI_REPORT_OFF);
+$waitsForLock = static function (mysqli $connection, string $sql): bool {
+    try {
+        return $connection->query($sql) === false && $connection->errno === 1205;
+    } catch (mysqli_sql_exception $error) {
+        if ($error->getCode() !== 1205) throw $error;
+        return $connection->errno === 1205;
+    }
+};
 $other = null;
 $open = false;
 $created = false;
@@ -65,7 +71,7 @@ try {
     $open = true;
     WPrism\DatabaseQueryIsolation::with_engine_work_units($authority,
         static fn() => WPrism\StoragePrerequisites::lock($manifests));
-    $check($other->query($update) === false && $other->errno === 1205, 'cursor UPDATE waits for product transaction');
+    $check($waitsForLock($other, $update), 'cursor UPDATE waits for product transaction');
     WPrism\Db::commit();
     $open = false;
     $check($other->query($update) === true && $other->affected_rows === 1, 'cursor UPDATE succeeds after commit');
@@ -84,7 +90,7 @@ try {
     } catch (WPrism\CommandRefusalException $error) { $refused = $error->reasonCode === 'storage_prerequisite_unmet'; }
     $check($refused, 'absent cursor refuses under exact transaction authority');
     $insert = "INSERT INTO `$table` (option_name, option_value, autoload) VALUES ('$name', 'settled', 'no')";
-    $check($other->query($insert) === false && $other->errno === 1205, 'cursor insertion gap remains locked until refusal rollback');
+    $check($waitsForLock($other, $insert), 'cursor insertion gap remains locked until refusal rollback');
     WPrism\Db::rollback();
     $open = false;
     $check($other->query($insert) === true && $other->affected_rows === 1, 'cursor INSERT succeeds after rollback');
@@ -93,7 +99,6 @@ try {
     if ($open) WPrism\Db::rollback();
     if ($created) $check($wpdb->delete($table, ['option_name' => $name]) === 1, 'owned fixture cleanup');
     if ($other instanceof mysqli) $other->close();
-    mysqli_report($report);
 }
 // Allocation counters advance, but every native option row remains exact.
 $check($rows() === $initial, 'complete initial options roster restored');
