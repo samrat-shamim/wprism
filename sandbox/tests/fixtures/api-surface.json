@@ -8082,6 +8082,15 @@
         "WPrism\\BlockValueGrammar": {
             "abstract": false,
             "constants": {
+                "ATTRIBUTE_BASES_FIELD": {
+                    "value_repr": "attribute_bases"
+                },
+                "ATTRIBUTE_PRODUCT_FEATURE": {
+                    "value_repr": "block-attribute-name-products/v1"
+                },
+                "ATTRIBUTE_SUFFIXES_FIELD": {
+                    "value_repr": "attribute_suffixes"
+                },
                 "CONTRACT_FEATURE": {
                     "value_repr": "block-value-contracts/v1"
                 },
@@ -8136,6 +8145,14 @@
                             "variadic": false
                         }
                     ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "attribute_product_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
                     "return_type": "array",
                     "static": true,
                     "visibility": "public"

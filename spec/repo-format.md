@@ -4970,3 +4970,29 @@ Apply. Apply writes the complete projected value without merging target extras.
 Existing object-field, contract-depth, rule, JSON-depth and node budgets remain
 unchanged and apply before projection. This adds no nested derived disposition,
 list-element object schema, plugin executable or adapter qualification.
+
+### v3.49 `block-attribute-name-products/v1` — exact finite attribute names
+
+A v3 manifest declaring `block-attribute-values/v1`,
+`block-attribute-groups/v1` and this feature may add paired
+`attribute_bases` and `attribute_suffixes` lists to a `block_values.groups`
+entry. Both lists are nonempty and contain distinct exact strings. Bases use
+the existing top-level attribute-name grammar. Suffixes use the closed ASCII
+`[A-Za-z0-9_-]*` grammar, including an explicitly listed empty suffix.
+
+The group declares every exact concatenation of one base and one suffix beside
+any exact `attributes` members, then applies its existing value rule across the
+same exact block list. Either product field without the other refuses. A
+duplicate or invalid expanded name refuses, including a collision with an
+explicit member. Existing 4,096-member and 65,536-expanded-pair bounds are
+checked before materializing the product. Multiple suffix families use
+multiple groups rather than precedence or nested products.
+
+This is finite declaration syntax. It adds no wildcard, implicit default,
+inheritance, runtime block-schema lookup or new capability surface.
+`BlockValueGrammar::attribute_maps()` remains the sole normalization owner and
+returns the same sorted exact block/attribute map consumed by Capture,
+compilation, lint, Apply, reference-keyspace checks and media-derivative
+ownership. Raw manifest bytes remain the adapter identity input, so adopting
+this syntax changes the adapter digest and requires fresh site pins even when
+the expanded map is byte-identical.
