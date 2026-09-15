@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+. tests/lib/conformance_private_command.sh
 VP_TARGET="$CONF_REPO2/.tmp-vp-capture"
 [ ! -e "$VP_TARGET" ] || fail 'Visual Portfolio target fixture already exists'
 mkdir -p "$VP_TARGET"

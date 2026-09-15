@@ -157,6 +157,32 @@ foreach (glob($mergedRoot . '/diagnostic.*') ?: [] as $sink) {
 foreach (glob($mergedRoot . '/*') ?: [] as $file) unlink($file);
 rmdir($mergedRoot);
 
+// Package hooks are child shells: Bash cannot export run.sh's PAIR_COMPOSE
+// array, but the exact literal COMPOSE command is already their authority.
+$childProbe = <<<'SH'
+set -euo pipefail
+ROOT="$1"
+WPRISM_ARTIFACT_LIBRARY_ROOT="$2"
+COMPOSE='compose_probe -f pair.yml -f pair.http.yml -f pair.artifacts.yml'
+compose_probe() {
+  [ "$#" -eq 20 ]
+  [ "$1 $2 $3 $4 $5 $6" = '-f pair.yml -f pair.http.yml -f pair.artifacts.yml' ]
+  [ "$7 $8 $9 ${10}" = 'run --rm -T --volume' ]
+  [ "${11}" = "$WPRISM_ARTIFACT_LIBRARY_ROOT/sandbox/tests/lib/PrivateRefusalReceipt.php:/wprism-test/PrivateRefusalReceipt.php:ro" ]
+  [ "${12}" = '--volume' ]
+  [ "${13}" = "$WPRISM_ARTIFACT_LIBRARY_ROOT/sandbox/tests/lib/conformance_private_command.php:/wprism-test/conformance_private_command.php:ro" ]
+  [ "${14} ${15} ${16} ${17}" = '--entrypoint php cli2 /wprism-test/conformance_private_command.php' ]
+  [ "${18} ${19} ${20}" = 'snapshot apply /siterepo/.wprism/refusals' ]
+  printf 'child-hook-compose\n'
+}
+. "$ROOT/sandbox/tests/lib/conformance_private_command.sh"
+conformance_private_command_native cli2 apply snapshot
+SH;
+[$status, $stdout, $stderr] = ShellProbe::run($childProbe, [$root, $scratch], $root);
+wprism_check_same(0, $status, 'a package hook reconstructs the exact protected-command Compose argv');
+wprism_check_same("child-hook-compose\n", $stdout, 'the child hook reaches the shared protected-command transport');
+wprism_check_same('', $stderr, 'the child protected-command transport emits no harness diagnostics');
+
 // Execute the actual initial-Apply call site and shared native PHP reader;
 // only Docker transport and the protected command are controlled offline.
 // The previous unwrapped call must lose its private record on simulated pair
