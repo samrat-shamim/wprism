@@ -127,7 +127,9 @@ final class RepositoryPortableShapeValidator {
                         $path,
                         'body',
                         'a post type whose body is declared ' . DerivedBodyGrammar::BODY_MODE
-                            . ' must carry an empty body; the owning plugin derives it on each site from state the repository already carries'
+                            . ' must carry an empty body; the owning plugin derives it on each site from state the repository already carries. '
+                            . 'A repository captured before the body was declared ' . DerivedBodyGrammar::BODY_MODE
+                            . ' still holds it: recapture to publish the empty canonical body'
                     );
                 }
                 if (($d['parent'] ?? null) !== null) {

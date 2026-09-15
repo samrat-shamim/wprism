@@ -145,4 +145,42 @@ wprism_check(
     'CF7 declares neither body-pii-paths/v1 nor a body_refs section: the undeclared copy is removed, not reviewed in'
 );
 
+// ---- the compiler refuses a carried body, and says how to recover ---------
+// Capture never produces one; a repository captured before CF7 declared its body
+// derived does. Through the compiler's real portability pass with CF7's shipped
+// policy, so the refusal, its locator and its remedy are all product bytes.
+require_once $root . '/sandbox/tests/lib/wp_stubs.php';
+require_once $root . '/agent/src/Kernel/Canon.php';
+require_once $root . '/agent/src/Policy/Policy.php';
+require_once $root . '/agent/src/Repository/RepositoryPortableShapeValidator.php';
+$cf7Policy = WPrism\Policy::load(
+    null,
+    ['contact-form-7'],
+    adapterLibrary: WPrism\AdapterLibrary::fromSourcePackage($root, 'contact-form-7')
+);
+$derivedBodyFindings = static function (string $body) use ($cf7Policy): array {
+    $findings = [];
+    $validator = new WPrism\RepositoryPortableShapeValidator($cf7Policy,
+        static function (string $code, string $path, string $locator, string $message, ?string $relatedPath) use (&$findings): void {
+            $findings[] = ['code' => $code, 'path' => $path, 'locator' => $locator, 'message' => $message];
+        });
+    $validator->validate([['type' => 'post', 'path' => 'posts/wpcf7_contact_form/form.md',
+        'data' => ['type' => 'wpcf7_contact_form', 'uuid' => '019200cc-0000-7000-8000-0000000000cf',
+            'author' => null, 'parent' => null, 'meta' => []],
+        'body' => $body]]);
+    return $findings;
+};
+wprism_check_same([], $derivedBodyFindings(DerivedBodyGrammar::BODY), 'the empty canonical derived body is admissible');
+$carried = $derivedBodyFindings("[text* your-name]\nWPrism <ops@example.test>");
+wprism_check_same(
+    [['schema_content_mismatch', 'posts/wpcf7_contact_form/form.md', 'body']],
+    array_map(static fn(array $f): array => [$f['code'], $f['path'], $f['locator']], $carried),
+    'a carried derived body is refused once, at the body locator'
+);
+wprism_check(
+    str_contains($carried[0]['message'] ?? '', 'recapture to publish the empty canonical body')
+        && !str_contains($carried[0]['message'] ?? '', 'ops@example.test'),
+    'the refusal names the recovery for a repository captured before the mode, and echoes none of the body'
+);
+
 wprism_check_summary('derived post body');
