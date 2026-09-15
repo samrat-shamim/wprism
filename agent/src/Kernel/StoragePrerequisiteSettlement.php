@@ -13,9 +13,11 @@ final class StoragePrerequisiteSettlement {
     /**
      * The relationship is derived rather than declared twice: a prerequisite
      * is automatically settleable only when the same manifest's lifecycle
-     * action discloses a restorable checkpoint effect covering that option.
-     * A broad options-table effect covers it too because that is the recovery
-     * boundary the provider already published in effects_inventory().
+     * action discloses exclusively restorable checkpoint effects and one
+     * covers that option. A broad options-table effect covers it too because
+     * that is the recovery boundary the provider already published in
+     * effects_inventory(). Mixed effects remain available to complete code
+     * transitions, but storage debt alone cannot select them.
      *
      * @return list<array{equals:string,manifest:string,option:string,settlement:string}>
      */
@@ -106,20 +108,29 @@ final class StoragePrerequisiteSettlement {
     }
 
     private static function covers_option(array $action, string $option): bool {
-        foreach ((array) ($action['effects'] ?? []) as $effect) {
-            if (!is_array($effect)
-                || ($effect['kind'] ?? null) !== 'database'
-                || ($effect['mode'] ?? null) !== 'restorable'
-                || ($effect['selector']['scope'] ?? null) !== 'database_checkpoint') {
-                continue;
+        $effects = $action['effects'] ?? null;
+        if (!is_array($effects) || $effects === []) {
+            return false;
+        }
+        $covers = false;
+        foreach ($effects as $effect) {
+            if (!self::is_restorable_database_effect($effect)) {
+                return false;
             }
             $type = $effect['selector']['type'] ?? null;
             $value = $effect['selector']['value'] ?? null;
             if (($type === 'option' && $value === $option)
                 || ($type === 'table' && $value === 'options')) {
-                return true;
+                $covers = true;
             }
         }
-        return false;
+        return $covers;
+    }
+
+    private static function is_restorable_database_effect(mixed $effect): bool {
+        return is_array($effect)
+            && ($effect['kind'] ?? null) === 'database'
+            && ($effect['mode'] ?? null) === 'restorable'
+            && ($effect['selector']['scope'] ?? null) === 'database_checkpoint';
     }
 }

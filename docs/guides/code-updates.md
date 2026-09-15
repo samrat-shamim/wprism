@@ -45,8 +45,8 @@ the installed MU loader in a fresh process.
 7. **read-only deployment status** — lifecycle/code-baseline status, declared
    schema readiness, and exact native storage prerequisites are read before a
    lease. An unmet storage prerequisite remains manual unless the same
-   manifest's lifecycle settlement action has a restorable checkpoint effect
-   covering that option. Manual debt stops here.
+   manifest's lifecycle settlement action has only restorable checkpointed
+   database effects and one covers that option. Manual debt stops here.
 8. **promotion-begin** — an exact owner/artifact session on the target.
 9. **checkpoint** — a whole-database export under that same lease, retained at
    `<repo>/.wprism/checkpoints/deploy-<owner>.sql.enc` beside the
@@ -70,8 +70,9 @@ the installed MU loader in a fresh process.
 14. **schema and lifecycle settlement** — declared schema preparation runs
     first, followed by asynchronous/native lifecycle providers. When storage
     debt is the only trigger, the durable `storage-prerequisite-settle` phase
-    selects only actions whose declarations cover an unmet row; another
-    adapter's lifecycle or external effects are outside that transaction.
+    selects only actions whose complete checkpoint-restorable declarations
+    cover an unmet row; mixed, external, and other adapters' effects are
+    outside that transaction.
 15. **storage prerequisite verification** — when declared, the isolated
     control plane repeats the exact physical cursor read. A failed or unmet
     postcondition leaves the provider intent incomplete and points recovery at

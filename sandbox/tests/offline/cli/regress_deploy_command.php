@@ -26,6 +26,8 @@ final class DeployCommandDriver implements EnvironmentDriver {
     public int $schemaStatusExit = 0;
     public int $storageStatusExit = 0;
     public int $storageVerifyExit = 0;
+    public string $storageStatusStderr = '';
+    public string $storageVerifyStderr = '';
     public int $stageExit = 0;
     public int $exportExit = 0;
     public int $providerBeginExit = 0;
@@ -155,6 +157,7 @@ final class DeployCommandDriver implements EnvironmentDriver {
                     $summary['effects_inventory'][] = [
                         'manifest' => 'storage-fixture',
                         'phase' => 'lifecycle-settle',
+                        'source' => 'provider:storage-fixture/migrate',
                         'effect' => [
                             'kind' => 'database',
                             'mode' => 'restorable',
@@ -309,7 +312,9 @@ final class DeployCommandDriver implements EnvironmentDriver {
                 'prerequisites' => $rows,
                 'required' => $this->storagePrerequisiteRequired,
                 'state' => $rows === [] ? 'none' : ($this->storagePrerequisiteRequired ? 'required' : 'ready'),
-            ], JSON_THROW_ON_ERROR), 'stderr' => ''];
+            ], JSON_THROW_ON_ERROR), 'stderr' => $this->storageStatusCalls === 1
+                ? $this->storageStatusStderr
+                : $this->storageVerifyStderr];
         }
         if ($command === 'checkpoint-target') {
             return ['exit' => 0, 'stdout' => json_encode([
@@ -879,6 +884,7 @@ assert_deploy_command($badAcceptanceRefused, 'baseline receipt rows reject contr
 $storageEffect = [
     'manifest' => 'storage-fixture',
     'phase' => 'lifecycle-settle',
+    'source' => 'provider:storage-fixture/migrate',
     'effect' => [
         'kind' => 'database', 'mode' => 'restorable',
         'selector' => [
@@ -899,10 +905,21 @@ assert_deploy_command(
     CodeDeploy::storagePrerequisitesInventory($storageCompile) === $storageInventory,
     'host accepts an exact prerequisite inventory derived from same-manifest restorable effects'
 );
-foreach (['settlement', 'effect', 'duplicate', 'equals'] as $fault) {
+foreach (['settlement', 'effect', 'mixed-effect', 'duplicate', 'equals'] as $fault) {
     $malformed = $storageCompile;
     if ($fault === 'settlement') $malformed['storage_prerequisites_inventory'][0]['settlement'] = 'manual';
     if ($fault === 'effect') $malformed['effects_inventory'][0]['effect']['selector']['value'] = 'other';
+    if ($fault === 'mixed-effect') $malformed['effects_inventory'][] = [
+        'manifest' => 'storage-fixture',
+        'phase' => 'lifecycle-settle',
+        'source' => 'provider:storage-fixture/migrate',
+        'effect' => [
+            'kind' => 'external', 'mode' => 'irreversible',
+            'selector' => [
+                'scope' => 'external', 'type' => 'provider_resource', 'value' => 'unrelated-external',
+            ],
+        ],
+    ];
     if ($fault === 'duplicate') $malformed['storage_prerequisites_inventory'][] = $storageInventory[0];
     if ($fault === 'equals') $malformed['storage_prerequisites_inventory'][0]['equals'] = "forged\nvalue";
     $refused = false;
@@ -925,6 +942,18 @@ assert_deploy_command(
     ], $storageInventory) === $storageStatusDocument,
     'host accepts one closed, value-redacted prerequisite status document'
 );
+$noisyStorageStatusRefused = false;
+try {
+    CodeDeploy::storagePrerequisiteStatusResult([
+        'exit' => 0,
+        'stdout' => json_encode($storageStatusDocument, JSON_THROW_ON_ERROR),
+        'stderr' => "PHP Warning: failed option readback\n",
+    ], $storageInventory);
+} catch (RuntimeException $failure) {
+    $noisyStorageStatusRefused = str_contains($failure->getMessage(), 'preflight failed');
+}
+assert_deploy_command($noisyStorageStatusRefused,
+    'valid JSON cannot hide target diagnostics on the storage readiness channel');
 foreach (['format', 'coordinate', 'value', 'required', 'state'] as $fault) {
     $malformed = $storageStatusDocument;
     if ($fault === 'format') $malformed['format'] = 'wprism-storage-prerequisite-status/v0';
@@ -1052,6 +1081,19 @@ assert_deploy_command(array_slice($storageNoCheckpoint->events, -1) === ['captur
     && !$storageNoCheckpoint->leaseActive,
     '--no-checkpoint refuses before the storage settlement lease');
 
+$noisyStoragePreflight = new DeployCommandDriver();
+$noisyStoragePreflight->codeEnabled = false;
+$noisyStoragePreflight->codeChangeRequired = false;
+$noisyStoragePreflight->storagePrerequisiteDeclared = true;
+$noisyStoragePreflight->storagePrerequisiteAutomatic = true;
+$noisyStoragePreflight->storagePrerequisiteRequired = true;
+$noisyStoragePreflight->storageStatusStderr = "PHP Warning: failed option readback\n";
+$noisyStoragePreflightResult = run_deploy_command($noisyStoragePreflight, []);
+assert_deploy_command($noisyStoragePreflightResult['exit'] === 1
+    && array_slice($noisyStoragePreflight->events, -1) === ['capture:storage-prerequisite-status']
+    && !$noisyStoragePreflight->leaseActive,
+    'noisy initial storage evidence refuses before lease acquisition or mutation');
+
 $unsettledStorage = new DeployCommandDriver();
 $unsettledStorage->codeEnabled = false;
 $unsettledStorage->codeChangeRequired = false;
@@ -1084,6 +1126,21 @@ assert_deploy_command($unreadableStoragePostimageResult['exit'] === 26,
     'a failed physical postimage read preserves the target exit');
 assert_deploy_command($unreadableStoragePostimage->providerDebtActive,
     'an unreadable storage postimage cannot clear provider recovery debt');
+
+$noisyStoragePostimage = new DeployCommandDriver();
+$noisyStoragePostimage->codeEnabled = false;
+$noisyStoragePostimage->codeChangeRequired = false;
+$noisyStoragePostimage->storagePrerequisiteDeclared = true;
+$noisyStoragePostimage->storagePrerequisiteAutomatic = true;
+$noisyStoragePostimage->storagePrerequisiteRequired = true;
+$noisyStoragePostimage->storageVerifyStderr = "PHP Warning: failed option readback\n";
+$noisyStoragePostimageResult = run_deploy_command($noisyStoragePostimage, []);
+assert_deploy_command($noisyStoragePostimageResult['exit'] === 1
+    && $noisyStoragePostimage->providerDebtActive,
+    'noisy storage postimage cannot durably complete provider settlement');
+assert_deploy_command(array_slice($noisyStoragePostimage->events, -2) === [
+    'stream:lifecycle-settle', 'capture:storage-prerequisite-status',
+], 'noisy storage postimage refuses before provider progress or completion');
 
 // A repository can intentionally omit a code descriptor while still owning
 // the target plugin's activation, schema installation and derived-state

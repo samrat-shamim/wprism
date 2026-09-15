@@ -1331,7 +1331,8 @@ PHP;
      * @return array{declared:bool,format:string,prerequisites:list<array{manifest:string,option:string,ready:bool,settlement:string}>,required:bool,state:string}
      */
     public static function storagePrerequisiteStatusResult(array $result, array $inventory): array {
-        if ((int) ($result['exit'] ?? 1) !== 0) {
+        if ((int) ($result['exit'] ?? 1) !== 0
+            || (string) ($result['stderr'] ?? '') !== '') {
             throw new \RuntimeException('target storage prerequisite preflight failed');
         }
         try {
@@ -1380,23 +1381,38 @@ PHP;
         string $manifest,
         string $option
     ): bool {
+        // effects_inventory flattens action effects; its stable source keeps
+        // the complete declaration together so one safe row cannot conceal a
+        // sibling irreversible effect when the host admits storage settlement.
+        $actions = [];
         foreach ((array) ($compileSummary['effects_inventory'] ?? []) as $row) {
             if (!is_array($row)
                 || ($row['manifest'] ?? null) !== $manifest
                 || ($row['phase'] ?? null) !== 'lifecycle-settle') {
                 continue;
             }
+            $source = $row['source'] ?? null;
+            if (!is_string($source) || $source === '') {
+                continue;
+            }
+            $actions[$source] ??= ['covers' => false, 'restorable' => true];
             $effect = $row['effect'] ?? null;
             if (!is_array($effect)
                 || ($effect['kind'] ?? null) !== 'database'
                 || ($effect['mode'] ?? null) !== 'restorable'
                 || ($effect['selector']['scope'] ?? null) !== 'database_checkpoint') {
+                $actions[$source]['restorable'] = false;
                 continue;
             }
             $type = $effect['selector']['type'] ?? null;
             $value = $effect['selector']['value'] ?? null;
             if (($type === 'option' && $value === $option)
                 || ($type === 'table' && $value === 'options')) {
+                $actions[$source]['covers'] = true;
+            }
+        }
+        foreach ($actions as $action) {
+            if ($action['restorable'] && $action['covers']) {
                 return true;
             }
         }

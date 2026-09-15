@@ -312,17 +312,19 @@ unmet prerequisites before authored work, and never writes the cursor.
 This admission feature does not execute migrations or certify storage history.
 Automatic migration completion belongs in a separately audited, checkpointed
 lifecycle settlement provider. Declare that provider as a `lifecycle_settle`
-action and include a restorable `database_checkpoint` effect for the exact
-prerequisite option or the `options` table. The compiler derives their
-same-manifest relationship; do not repeat a provider id or callback in
-`storage_prerequisites`. Without that effect-covered action, host deploy keeps
-the prerequisite manual and refuses before taking a lease. When storage debt is
-the only deployment trigger, the engine runs only the covering action declarations;
-other adapters' lifecycle providers are not selected. Qualify missing/stale cursor refusal, the
-supported native migration procedure, current authored settings, and consumers
-after replay. Recapture before the first HTTP/editor request cannot prove that
-later native migrations preserve the replayed state. Do not preseed a current
-cursor to make a fixture pass or classify the affected authored value as runtime.
+action whose complete effect set is restorable `database_checkpoint` authority,
+including an effect for the exact prerequisite option or the `options` table.
+The compiler derives their same-manifest relationship; do not repeat a provider
+id or callback in `storage_prerequisites`. Without that effect-covered action,
+host deploy keeps the prerequisite manual and refuses before taking a lease.
+When storage debt is the only deployment trigger, the engine runs only those
+storage-safe covering action declarations; an external or irreversible effect
+on the same action keeps it manual, and other adapters' lifecycle providers are
+not selected. Qualify missing/stale cursor refusal, the supported native
+migration procedure, current authored settings, and consumers after replay.
+Recapture before the first HTTP/editor request cannot prove that later native
+migrations preserve the replayed state. Do not preseed a current cursor to make
+a fixture pass or classify the affected authored value as runtime.
 
 ### Finding the two versions the range names
 

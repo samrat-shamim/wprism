@@ -77,6 +77,25 @@ $covered['actions'][0]['effects'][0]['selector'] = [
 wprism_check_same(StoragePrerequisiteSettlement::LIFECYCLE,
     StoragePrerequisiteSettlement::inventory([$covered])[0]['settlement'],
     'the already-declared restorable options-table boundary covers a prerequisite without another manifest key');
+$mixedEffects = $covered;
+$mixedEffects['actions'][0]['effects'][] = [
+    'kind' => 'external', 'mode' => 'irreversible',
+    'selector' => ['scope' => 'external', 'type' => 'provider_resource', 'value' => 'unrelated-external'],
+];
+wprism_check_same(StoragePrerequisiteSettlement::MANUAL,
+    StoragePrerequisiteSettlement::inventory([$mixedEffects])[0]['settlement'],
+    'one covering effect cannot let storage debt select the same action\'s unrelated irreversible effects');
+$mixedSelectionRefused = false;
+try {
+    StoragePrerequisiteSettlement::actions_for_readiness(
+        [$mixedEffects],
+        [['manifest' => 'storage-fixture', 'option' => 'fixture_version', 'ready' => false]]
+    );
+} catch (RuntimeException $failure) {
+    $mixedSelectionRefused = str_contains($failure->getMessage(), 'no effect-covered');
+}
+wprism_check($mixedSelectionRefused,
+    'target-side storage selection refuses a covering action whose full effect set is not checkpoint-restorable');
 $combinationTarget = $covered;
 $combinationTarget['actions'][] = [
     'phase' => 'lifecycle_settle',
