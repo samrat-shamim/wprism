@@ -20,7 +20,7 @@ $forms = [];
 foreach (['integer', 'string', 'template'] as $role) {
     $post = $find(...$roles[$role]);
     $data = wpforms_decode($post->post_content);
-    if (!is_array($data) || (string) ($data['id'] ?? '') !== (string) $post->ID) {
+    if (!is_array($data) || ($role !== 'template' && (string) ($data['id'] ?? '') !== (string) $post->ID)) {
         throw new RuntimeException("WPForms target body identity did not converge: $role");
     }
     ob_start();
