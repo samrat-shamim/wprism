@@ -29966,6 +29966,14 @@
                             "name": "purpose",
                             "type": "string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "self::MAX_OPTION_VALUE_BYTES",
+                            "has_default": true,
+                            "name": "maxValueBytes",
+                            "type": "int",
+                            "variadic": false
                         }
                     ],
                     "return_type": "?array",
@@ -81653,8 +81661,25 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
-                            "name": "policy",
-                            "type": "WPrism\\Policy",
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "lock": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
                             "variadic": false
                         }
                     ],

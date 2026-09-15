@@ -2754,8 +2754,11 @@ native option caches and filters. Absence and any unequal decoded value refuse
 with `storage_prerequisite_unmet`; neither observed nor expected values appear
 in the public diagnostic. Database errors and malformed/oversized physical
 rows refuse rather than masquerading as absence. No force flag bypasses this
-gate. Apply repeats it under its lease and before authored materialization;
-Capture repeats it within its consistent snapshot. Read-only terminal receipt
+gate. Apply repeats it under its lease and uses the existing `LockedOptionRows`
+indexed row/gap locks, in lexical option order, inside its authored transaction.
+The expected cursor stays stable through commit; this does not quiesce an
+external callback that already decided to migrate from a stale native cache.
+Capture repeats the nonlocking read within its consistent snapshot. Read-only terminal receipt
 validation may refuse if live prerequisites changed, but authorizes no work.
 
 The lifecycle options-only handoff remains available to establish code and

@@ -7,7 +7,7 @@ $runtime = $root;
 require_once __DIR__ . '/../../lib/check.php';
 $case = $argv[1] ?? null;
 if ($case === null) {
-    foreach (['inactive', 'missing', 'locked', 'ready', 'forced', 'storage-missing', 'storage-stale', 'storage-ready', 'storage-locked', 'storage-forced', 'storage-plan', 'storage-explain', 'storage-capture'] as $child) {
+    foreach (['inactive', 'missing', 'locked', 'ready', 'forced', 'storage-missing', 'storage-stale', 'storage-ready', 'storage-locked', 'storage-forced', 'storage-plan', 'storage-explain', 'storage-capture', 'storage-row-lock'] as $child) {
         passthru(implode(' ', array_map(escapeshellarg(...), [PHP_BINARY, __FILE__, $child])), $status);
         wprism_check_same(0, $status, $child . ' public lifecycle admission case passes');
     }
@@ -168,7 +168,7 @@ $observe = static function () use ($db, $tables): array {
 if ($storageCase && $case !== 'storage-missing') {
     $rows = $db->rows('options');
     $rows[] = ['option_id' => 4, 'option_name' => 'fixture_storage_version',
-        'option_value' => in_array($case, ['storage-ready', 'storage-locked'], true) ? '1.0.0' : '0.9.0', 'autoload' => 'no'];
+        'option_value' => in_array($case, ['storage-ready', 'storage-locked', 'storage-row-lock'], true) ? '1.0.0' : '0.9.0', 'autoload' => 'no'];
     $db->seedTable('options', $rows);
 }
 // A warm native cache cannot certify a different physical migration cursor.
@@ -192,6 +192,11 @@ $db->onQuery(static function (string $sql) use ($case, $db, $observe, &$before, 
         $db->seedTable('options', $rows);
         $before = $observe();
     }
+    if ($case === 'storage-row-lock' && str_contains($sql, 'FOR UPDATE')
+        && str_contains($sql, 'fixture_storage_version')) {
+        $admittedObservation = true;
+        throw new RuntimeException('intentional locked storage prerequisite boundary');
+    }
     if (in_array($case, ['ready', 'forced', 'storage-ready'], true) && preg_match('/\bFROM\s+`?wp_authored_inputs`?\b/i', $sql)) {
         $admittedObservation = true;
         throw new RuntimeException('intentional admitted target-observation boundary');
@@ -209,6 +214,13 @@ try {
         default => ApplyRequestCoordinator::apply($repo, $options),
     };
 } catch (RuntimeException $error) { $failure = $error; }
+if ($case === 'storage-row-lock') {
+    wprism_check($admittedObservation, 'public Apply locks its storage prerequisite before materialization');
+    if (!$admittedObservation) echo $failure?->getMessage(), "\n";
+    wprism_check_same($before['options'], $db->rows('options'), 'locked refusal precedes authored option writes');
+    wprism_check_same($before['authored_inputs'], $db->rows('authored_inputs'), 'locked refusal precedes authored table writes');
+    wprism_check_summary('Apply storage row lock');
+}
 if (in_array($case, ['ready', 'forced', 'storage-ready'], true)) {
     wprism_check($admittedObservation && $failure?->getMessage() === 'intentional admitted target-observation boundary',
         'admitted control reaches the deliberate ordinary target-observation boundary');

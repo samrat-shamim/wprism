@@ -738,6 +738,22 @@ prove_native_option_inputs() {
   pass "$CURRENT_DB_ENGINE proved actual native inputs, safe cache refusal, exact hook cleanup and complete option-row rollback"
 }
 
+prove_storage_prerequisites() {
+  local sink suffix status=0 expected_engine
+  case "$CURRENT_DB_ENGINE" in mariadb) expected_engine=MariaDB ;; mysql) expected_engine=MySQL ;; esac
+  say "$CURRENT_DB_ENGINE: native storage prerequisites and two-connection cursor locks"
+  sink=$(umask 077; mktemp -d "$REPO_ROOT/sandbox/tmp/native-storage-prerequisites-$CURRENT_DB_ENGINE.XXXXXX")
+  for suffix in stdout stderr exit; do (umask 077; set -C; : >"$sink/native.$suffix"); done
+  . "$REPO_ROOT/sandbox/tests/lib/private_command_capture.sh"
+  wprism_private_capture_stage "$sink" native compose run --rm -T \
+    -v "$REPO_ROOT/sandbox/tests/fixtures/native-storage-prerequisites.php:/native-storage-prerequisites.php:ro" \
+    cli1 wp eval-file /native-storage-prerequisites.php --use-include || status=$?
+  printf 'retained native option-input transport: %s\n' "$sink/native"
+  [ "$status" -eq 0 ] || fail "$CURRENT_DB_ENGINE native storage prerequisite command failed with exit $status"
+  php "$REPO_ROOT/sandbox/tests/fixtures/native-storage-prerequisites.php" --admit "$sink/native" "$expected_engine"
+  pass "$CURRENT_DB_ENGINE proved current-row and insertion-gap locks against a separate native connection"
+}
+
 prove_native_post_types() {
   local sink suffix status=0 expected_engine
   case "$CURRENT_DB_ENGINE" in mariadb) expected_engine=MariaDB ;; mysql) expected_engine=MySQL ;; esac
@@ -789,6 +805,7 @@ prove_session_grammar
 prove_large_keyed_values
 prove_physical_rows
 prove_native_option_inputs
+prove_storage_prerequisites
 prove_native_post_types
 finish_pair
 
@@ -800,6 +817,7 @@ prove_session_grammar
 prove_large_keyed_values
 prove_physical_rows
 prove_native_option_inputs
+prove_storage_prerequisites
 prove_native_post_types
 finish_pair
 

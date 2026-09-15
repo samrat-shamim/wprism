@@ -56,11 +56,15 @@ final class LockedOptionRows {
         string $name,
         string $lockIndex,
         TransactionAuthority $authority,
-        string $purpose
+        string $purpose,
+        int $maxValueBytes = self::MAX_OPTION_VALUE_BYTES
     ): ?array {
+        if ($maxValueBytes < 1 || $maxValueBytes > self::MAX_OPTION_VALUE_BYTES) {
+            throw new \InvalidArgumentException('wprism: locked option byte limit must narrow the bounded frontier');
+        }
         self::assert_request([$name], $lockIndex);
         self::assert_authority($authority, $purpose . ' optional option preflight');
-        $row = self::read_one($name, $lockIndex, $authority, $purpose, false);
+        $row = self::read_one($name, $lockIndex, $authority, $purpose, false, $maxValueBytes);
         self::assert_authority($authority, $purpose . ' optional option postflight');
         return $row;
     }
@@ -71,7 +75,8 @@ final class LockedOptionRows {
         string $lockIndex,
         TransactionAuthority $authority,
         string $purpose,
-        bool $required
+        bool $required,
+        int $maxValueBytes = self::MAX_OPTION_VALUE_BYTES
     ): ?array {
         global $wpdb;
         $predicate = "FROM {$wpdb->options} FORCE INDEX (`$lockIndex`) WHERE option_name = %s "
@@ -118,7 +123,7 @@ final class LockedOptionRows {
             || !hash_equals($name, $size['option_name'])
             || $valueBytes === null
             || $autoloadBytes === null
-            || $valueBytes > self::MAX_OPTION_VALUE_BYTES
+            || $valueBytes > $maxValueBytes
             || $autoloadBytes > self::MAX_AUTOLOAD_BYTES) {
             throw new \RuntimeException(
                 "wprism: $purpose compact option lock row is malformed, aliased, NULL, or oversized"
