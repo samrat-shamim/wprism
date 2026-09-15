@@ -201,11 +201,13 @@ namespace {
     $observe = new ReflectionMethod(VisualPortfolioMigrations::class, 'observe_fresh_postimage_settle_storage');
     $project = new ReflectionMethod(VisualPortfolioMigrations::class, 'project_fresh_postimage_settle_storage');
 
-    $seed = static function (?string $cursor) use ($db): void {
+    $seed = static function (?string $cursor, bool $legacyArchive = false) use ($db): void {
+        $general = ['preserved' => 'yes'];
+        if ($legacyArchive) {
+            $general['portfolio_slug'] = 'legacy-portfolio';
+        }
         $options = [
-            ['option_id' => 1, 'option_name' => 'vp_general', 'option_value' => serialize([
-                'portfolio_slug' => 'legacy-portfolio', 'preserved' => 'yes',
-            ]), 'autoload' => 'yes'],
+            ['option_id' => 1, 'option_name' => 'vp_general', 'option_value' => serialize($general), 'autoload' => 'yes'],
             ['option_id' => 2, 'option_name' => 'vp_images', 'option_value' => serialize([
                 'lazy_loading' => 'off', 'preserved' => 'yes',
             ]), 'autoload' => 'yes'],
@@ -242,12 +244,8 @@ namespace {
     wprism_check_same('3.8.1', $missing['after']['cursor'], 'native migration advances the exact physical cursor');
     wprism_check_same(1, $GLOBALS['vp_migration_invocations'], 'the provider runs native migration once and proves its second pass as a no-op');
     wprism_check_same('old-portfolio', $db->rows($db->posts)[0]['post_name'], 'the migration does not infer an archive from its post type');
-    wprism_check_same('legacy-portfolio', $db->rows($db->posts)[2]['post_name'],
-        'the legacy archive slug follows its option onto an ordinary post through native semantics');
-    wprism_check($missing['before']['posts_sha256'] !== $missing['after']['posts_sha256'],
-        'the receipt covers the non-page archive post mutation');
     wprism_check_same($missing['after'], $project->invoke($provider, $observe->invoke($provider, [])),
-        'the independent observer covers the committed non-page archive post postimage');
+        'the independent observer covers the committed database-only migration postimage');
     wprism_check_same('', get_option('vp_images')['lazy_loading'], 'the legacy lazy-loading value migrates');
     wprism_check_same([
         'show_caption' => 'on', 'caption_title' => 'title', 'caption_description' => 'description',
@@ -279,6 +277,30 @@ namespace {
     wprism_check_same(['preserved' => 'yes'], get_option('vp_popup_gallery'),
         'the native pre-1.11 popup migration removes only its three historical members');
     wprism_check_same('3.8.1', $old['after']['cursor'], 'the complete historical chain reaches the exact current cursor');
+
+    $seed(null, true);
+    $legacyBefore = $observe->invoke($provider, []);
+    $legacyRows = [$db->rows($db->options), $db->rows($db->posts), $db->rows($db->postmeta)];
+    try {
+        $settle();
+        wprism_check(false, 'automatic settlement cannot enter the legacy hard-rewrite migration branch');
+    } catch (RuntimeException $failure) {
+        wprism_check_same(
+            'wprism: Visual Portfolio legacy archive-slug migration requires native maintenance with irreversible rewrite effects',
+            $failure->getMessage(),
+            'legacy archive-slug state refuses before irreversible native maintenance'
+        );
+    }
+    wprism_check_same(0, $GLOBALS['vp_migration_invocations'],
+        'the legacy rewrite refusal occurs before native migration code');
+    wprism_check_same($legacyRows, [$db->rows($db->options), $db->rows($db->posts), $db->rows($db->postmeta)],
+        'the legacy rewrite refusal preserves every fixture row');
+    (new Visual_Portfolio_Migrations())->init();
+    $legacyAfter = $observe->invoke($provider, []);
+    wprism_check_same('legacy-portfolio', $db->rows($db->posts)[2]['post_name'],
+        'the plugin native maintenance path follows its archive option onto an ordinary post');
+    wprism_check($legacyBefore['posts_sha256'] !== $legacyAfter['posts_sha256'],
+        'the bounded posts projection covers the native non-page archive mutation');
 
     $seed(null);
     $GLOBALS['vp_migration_fault'] = 'throw-after-write';

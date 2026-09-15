@@ -14,18 +14,20 @@ plugin's public `Visual_Portfolio_Migrations::init()` procedure advances it to
 3.8.1 and reaches a second-run fixed point across the bounded observed option,
 post and postmeta migration surface. On the target, the legacy archive option is
 deliberately pointed at an ordinary post; the official migration has no post-type
-check, so the provider must include that exact row in its postimage. The fixture
-proves the slug change and removes its target-only witness before authored replay.
-The target starts with
+check and defers a hard rewrite. The provider proves a non-mutating refusal because
+that branch exceeds its checkpoint-restorable effect boundary. Explicit native
+maintenance then proves the slug change, drains the plugin's deferred rewrite, and
+removes its target-only witness before authored replay. The target starts with
 plugin files only, and fixture activation naturally leaves the cursor absent. A
 real public Apply then returns the value-free `storage_prerequisite_unmet`
 envelope without changing the bounded migration surface. The same refusal and
-non-mutation proof runs for a stale 3.8.0 cursor. In both cases the dedicated
-lifecycle provider invokes the plugin's own procedure through the engine provider
-phase, under its declared database transaction and two fresh WordPress boots; the
-fixture never writes a current cursor directly. The same-manifest effect declaration
-makes storage-only host settlement discoverable. Certified host deployment remains
-unclaimed and is a separate qualification milestone.
+non-mutation proof runs for a stale 3.8.0 cursor. Once the legacy state is cleared,
+the dedicated lifecycle provider invokes the plugin's own procedure for both missing
+and stale cursors through the engine provider phase, under its declared database
+transaction and two fresh WordPress boots. The fixture never writes a current cursor
+directly. The same-manifest effect declaration makes database-only storage settlement
+discoverable. Certified host deployment remains unclaimed and is a separate
+qualification milestone.
 
 After storage settles, 32 trash posts and 32 inserted/deleted categories advance
 target identity spaces. The term padding leaves no authored target-only

@@ -152,15 +152,18 @@ if ($mode === 'cleanup-legacy-archive') {
     echo json_encode(['legacy_id' => $legacyId, 'restored_archive_id' => (int) $originalId], JSON_THROW_ON_ERROR), "\n";
     return;
 }
-$check(in_array($mode, ['native-settle', 'provider-settle'], true), 'known fixture mode');
+$check(in_array($mode, ['native-settle', 'provider-refusal', 'provider-settle'], true), 'known fixture mode');
 $before = $observe();
 $provider = null;
 $replayActions = null;
+$refusal = null;
 if ($mode === 'native-settle') {
     $migration = new Visual_Portfolio_Migrations();
     $migration->init();
+    visual_portfolio()->run_deferred_rewrite_rules();
     $after = $observe();
     $migration->init();
+    visual_portfolio()->run_deferred_rewrite_rules();
     $fixed = $observe();
 } else {
     $repo = '/siterepo';
@@ -175,30 +178,53 @@ if ($mode === 'native-settle') {
             $policy->manifests,
             $readiness
         );
-        $receipts = WPrism\ProviderPhaseExecutor::run(
-            $policy,
-            $actions,
-            'Visual Portfolio conformance migration settlement',
-            static function (): void {}
-        );
-        WPrism\StoragePrerequisites::assert_ready($policy->manifests);
-        $after = $observe();
-        $replayActions = WPrism\StoragePrerequisiteSettlement::actions_for_readiness(
-            $policy->manifests,
-            WPrism\StoragePrerequisites::readiness($policy->manifests)
-        );
-        $fixed = $observe();
-        $provider = [
-            'actions' => count($actions),
-            'receipts' => array_map(static fn(array $row): array => [
-                'manifest' => $row['manifest'],
-                'provider' => $row['provider'],
-                'capability' => $row['capability'],
-            ], $receipts),
-        ];
+        try {
+            $receipts = WPrism\ProviderPhaseExecutor::run(
+                $policy,
+                $actions,
+                'Visual Portfolio conformance migration settlement',
+                static function (): void {}
+            );
+            WPrism\StoragePrerequisites::assert_ready($policy->manifests);
+            $after = $observe();
+            $replayActions = WPrism\StoragePrerequisiteSettlement::actions_for_readiness(
+                $policy->manifests,
+                WPrism\StoragePrerequisites::readiness($policy->manifests)
+            );
+            $fixed = $observe();
+            $provider = [
+                'actions' => count($actions),
+                'receipts' => array_map(static fn(array $row): array => [
+                    'manifest' => $row['manifest'],
+                    'provider' => $row['provider'],
+                    'capability' => $row['capability'],
+                ], $receipts),
+            ];
+        } catch (Throwable $failure) {
+            if ($mode !== 'provider-refusal') throw $failure;
+            $refusal = ['class' => $failure::class, 'message' => $failure->getMessage()];
+            $after = $observe();
+            $fixed = $observe();
+        }
     } finally {
         if (is_file($artifactPath)) unlink($artifactPath);
     }
+}
+if ($mode === 'provider-refusal') {
+    $check($refusal === [
+        'class' => WPrism\PrivateEvidenceException::class,
+        'message' => "wprism: provider 'visual-portfolio-migrations' capability 'settle_storage' failed",
+    ], 'value-free provider refusal envelope');
+    $check($before === $after && $after === $fixed, 'provider refusal preserves the bounded migration surface');
+    echo json_encode([
+        'format' => 'wprism-vp-native-migration/v1',
+        'mode' => $mode,
+        'before' => $before,
+        'after' => $after,
+        'bounded_observed_fixed_point' => true,
+        'refusal' => $refusal,
+    ], JSON_THROW_ON_ERROR), "\n";
+    return;
 }
 $check($after['cursor'] === VISUAL_PORTFOLIO_VERSION, 'native procedure advances exact cursor');
 $check($after === $fixed, 'native procedure reaches a bounded observed migration-surface fixed point');

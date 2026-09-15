@@ -68,6 +68,7 @@ final class VisualPortfolioMigrations extends ManifestProviderRuntime {
             'Visual Portfolio native migration',
             static function (): array {
                 $before = self::physical_state();
+                self::assert_automatic_migration_boundary();
                 if ($before['cursor'] !== self::CURRENT_VERSION) {
                     (new \Visual_Portfolio_Migrations())->init();
                 }
@@ -88,6 +89,19 @@ final class VisualPortfolioMigrations extends ManifestProviderRuntime {
                 return ProviderSdk::DATABASE_POSTIMAGE_UNKNOWN;
             }
         );
+    }
+
+    private static function assert_automatic_migration_boundary(): void {
+        $general = ProviderSdk::checked_durable_option(
+            'vp_general',
+            false,
+            'Visual Portfolio legacy migration settings'
+        );
+        if (is_array($general) && array_key_exists('portfolio_slug', $general)) {
+            self::refuse(
+                'legacy archive-slug migration requires native maintenance with irreversible rewrite effects'
+            );
+        }
     }
 
     /**
