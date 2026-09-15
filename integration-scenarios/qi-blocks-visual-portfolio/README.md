@@ -24,9 +24,9 @@ The wrapper resolves and validates its physical worktree, acquires the complete
 pair namespace, and proves teardown before publishing its sole final PASS.
 
 The exact-source run at commit
-`044756bc69de280e2c5c6f26ff887d52fdfbcaff` passed on 2026-09-15. Its retained
-local transcript was 2,327,433 bytes (527 lines), SHA-256
-`9e3e6c5cb967e34a8ce2947e070995ce6500414efeece8610f31e4dce0d74712`.
+`701fdd823598338fc71716b8ac085593fe91451b` passed on 2026-09-15. Its retained
+local transcript was 2,328,191 bytes (535 lines), SHA-256
+`f4e85788f70118bf2d5a7e557afda3449d63464d1e5d838c903cabd4eda16836`.
 Capture selected 13 posts, 11 terms, and three media blobs. Initial Apply
 reported 22 creates, two updates, two adoptions, one verified provider action,
 26 applied/live entities, and no drift. The target retained all 40 deliberately
@@ -34,4 +34,7 @@ colliding local rows; Visual Portfolio contributed two selected derivatives to
 Qi's image and all selected bytes transferred exactly. Canonical recapture was
 byte-identical, both native frontends passed, Qi emitted all 204 CSS owner
 frames, and repeat Apply reported 26 unchanged entities with zero creates,
-updates, adoptions, actions, warnings, or writes.
+updates, adoptions, actions, warnings, or writes. Visual Portfolio's complete
+native record stayed byte-identical across that repeat, and its gallery,
+archive, downloadable-image and settled-storage consumers passed before and
+after it.
