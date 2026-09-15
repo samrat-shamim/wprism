@@ -1625,6 +1625,8 @@
           "BootstrapEligibility",
           "ClassificationBatch",
           "ConnectionReceipt",
+          "DockerDatabaseSetup",
+          "DockerDatabaseSetupException",
           "DockerTooling",
           "Init",
           "OnboardingHandoffReceipt",
@@ -1637,7 +1639,7 @@
           "agent:Kernel"
         ],
         "exceptions": [],
-        "file_count": 12,
+        "file_count": 13,
         "files": [
           "Adopt.php",
           "AgentGenerationFence.php",
@@ -1645,6 +1647,7 @@
           "ClassificationBatch.php",
           "ConnectionReceipt.php",
           "Doctor.php",
+          "DockerDatabaseSetup.php",
           "DockerTooling.php",
           "Init.php",
           "OnboardingHandoffReceipt.php",

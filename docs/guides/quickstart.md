@@ -115,7 +115,17 @@ adoption uses, the complete `.gitignore` boundary, and a mode-`0600`, untracked
 target mutation, but the topology check uses `wp eval`: it boots WordPress, so
 site startup code may run and may have its own effects.
 
-Now enter the workspace and run the composed flow:
+Now enter the workspace and run the composed flow. For the Docker `local`
+connection above, explicitly authorize the narrowly scoped database setup and
+name its running Compose database service:
+
+```sh
+cd ../my-site
+"$WPRISM_CLI" onboard local --configure-database --database-service=db \
+  --git-url=git@github.com:you/my-site.git
+```
+
+For the SSH `production` connection, no Docker database setup option applies:
 
 ```sh
 cd ../my-site
@@ -134,22 +144,24 @@ empty remote before adopt/init changes the target. It then commits and pushes
 the initialized target baseline on the target's current branch and checks out
 that exact branch into the connected workspace while the untracked local
 registry stays in place. Without `--git-url`, onboarding stops after a
-successful init and prints the resumable command:
+successful init and prints a resumable command. For the Docker example it is:
 
 ```sh
-"$WPRISM_CLI" onboard production --handoff-only --git-url=<empty-remote-url>
+"$WPRISM_CLI" onboard local --handoff-only --git-url=<empty-remote-url>
 ```
 
 That continuation performs only the repository handoff; it does not repeat
 adopt, assess, or init.
 
 The checkout makes the initialized revision reviewable locally; it does not
-redirect the live environment. `wprism capture production` still writes only to
-production's configured target `repo_path`, but now binds that write to the
+redirect the live environment. `wprism capture local` in the Docker path (or
+`wprism capture production` in the SSH path) still writes only to that
+environment's configured target `repo_path`, but now binds that write to the
 caller's current named branch and refuses unless the target worktree is on the
 same branch. From a detached or non-Git controller context, name the destination
 explicitly with `--target-branch=<name>`; this verifies the target branch and
-never switches it. Inspect with `"$WPRISM_CLI" assess production` next. Before
+never switches it. Inspect with `"$WPRISM_CLI" assess local` for Docker or
+`"$WPRISM_CLI" assess production` for SSH next. Before
 capturing feature work, point or materialize the target environment to that
 feature branch as described in [daily-workflow.md](daily-workflow.md); preview
 materialization additionally requires the two provider-backed entries shown in

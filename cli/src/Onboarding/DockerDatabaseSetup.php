@@ -114,7 +114,7 @@ account_count=$($client --defaults-extra-file="$defaults" --batch --raw --skip-c
   --execute="SELECT COUNT(*) FROM mysql.user WHERE BINARY User = BINARY '$user' AND BINARY Host = BINARY '$host';") || exit $?
 [ "$account_count" = 1 ] || { echo 'WordPress database principal is absent or ambiguous on selected service' >&2; exit 74; }
 process_count=$($client --defaults-extra-file="$defaults" --batch --raw --skip-column-names \
-  --execute="SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE BINARY GRANTEE = BINARY '\''$user'\''@'\''$host'\'' AND PRIVILEGE_TYPE = 'PROCESS';") || exit $?
+  --execute="SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE BINARY GRANTEE = BINARY CONCAT(CHAR(39), '$user', CHAR(39), '@', CHAR(39), '$host', CHAR(39)) AND PRIVILEGE_TYPE = 'PROCESS';") || exit $?
 case "$process_count" in 0|1) ;; *) echo 'database PROCESS grant evidence is malformed' >&2; exit 75 ;; esac
 if [ "$action" = grant ] && [ "$process_count" = 0 ]; then
   printf 'WPRISM_GRANT_ATTEMPT\n'
@@ -122,7 +122,7 @@ if [ "$action" = grant ] && [ "$process_count" = 0 ]; then
     --execute="GRANT PROCESS ON *.* TO '$user'@'$host';" || exit $?
   printf 'WPRISM_GRANT_APPLIED\n'
   process_count=$($client --defaults-extra-file="$defaults" --batch --raw --skip-column-names \
-    --execute="SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE BINARY GRANTEE = BINARY '\''$user'\''@'\''$host'\'' AND PRIVILEGE_TYPE = 'PROCESS';") || exit $?
+    --execute="SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE BINARY GRANTEE = BINARY CONCAT(CHAR(39), '$user', CHAR(39), '@', CHAR(39), '$host', CHAR(39)) AND PRIVILEGE_TYPE = 'PROCESS';") || exit $?
   [ "$process_count" = 1 ] || { echo 'PROCESS grant returned without direct authority evidence' >&2; exit 76; }
 fi
 printf '%s\t%s\t%s\t%s\n' "$actual_server" "$actual_hostname" "$account_count" "$process_count"

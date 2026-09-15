@@ -8,6 +8,7 @@ require_once __DIR__ . '/../../../../cli/src/Onboarding/DockerDatabaseSetup.php'
 use WPrism\Orchestrator\DockerDatabaseSetup;
 use WPrism\Orchestrator\DockerDatabaseSetupException;
 use WPrism\Orchestrator\DockerTransport;
+use WPrism\Orchestrator\HostProcess;
 
 $driver = (new ReflectionClass(DockerTransport::class))->newInstanceWithoutConstructor();
 $server = 'AbCdEfGhIjKlMnOpQrStUvWxYz0=';
@@ -120,6 +121,63 @@ wprism_check(str_contains($script, "GRANT PROCESS ON *.* TO '\$user'@'\$host';")
     && !str_contains($script, 'CREATE USER')
     && !preg_match('/GRANT\s+ALL/i', $script),
     'the fixed admin program can grant only PROCESS and never broadens the account');
+wprism_check(str_contains(
+    $script,
+    "BINARY GRANTEE = BINARY CONCAT(CHAR(39), '\$user', CHAR(39), '@', CHAR(39), '\$host', CHAR(39))"
+) && !str_contains($script, "BINARY '\\''\$user"),
+    'the rendered direct-GRANTEE query contains no shell backslashes that MySQL would parse as SQL');
+
+$adminScriptTmp = dirname(__DIR__, 3) . '/tmp/docker-database-admin-script-' . bin2hex(random_bytes(8));
+mkdir($adminScriptTmp, 0700);
+$fakeClient = $adminScriptTmp . '/mysql';
+$sqlLog = $adminScriptTmp . '/sql.log';
+file_put_contents($fakeClient, <<<'SH'
+#!/bin/sh
+set -eu
+query=
+for argument in "$@"; do
+  case "$argument" in --execute=*) query=${argument#--execute=} ;; esac
+done
+printf '%s\n' "$query" >>"$WPRISM_SQL_LOG"
+case "$query" in
+  'SELECT @@server_uuid, @@hostname, VERSION();')
+    printf '%s\t%s\t%s\n' '11111111-2222-3333-4444-555555555555' 'fixture-db-1' '8.4.6'
+    ;;
+  *'FROM mysql.user'*) printf '1\n' ;;
+  *'FROM information_schema.USER_PRIVILEGES'*)
+    case "$query" in
+      *"BINARY CONCAT(CHAR(39), 'wordpress', CHAR(39), '@', CHAR(39), '%', CHAR(39))"*) printf '0\n' ;;
+      *) printf 'ERROR 1064: malformed direct-GRANTEE expression\n' >&2; exit 1 ;;
+    esac
+    ;;
+  *) printf 'unexpected SQL: %s\n' "$query" >&2; exit 2 ;;
+esac
+SH);
+chmod($fakeClient, 0700);
+register_shutdown_function(static function () use ($adminScriptTmp, $fakeClient, $sqlLog): void {
+    if (is_file($sqlLog)) unlink($sqlLog);
+    if (is_file($fakeClient)) unlink($fakeClient);
+    if (is_dir($adminScriptTmp)) rmdir($adminScriptTmp);
+});
+$adminToken = bin2hex(random_bytes(12));
+$executedAdmin = HostProcess::run([
+    'sh', '-c', $script, 'wprism-db-admin-test', 'mysql', 'probe', 'wordpress', '%',
+    '11111111-2222-3333-4444-555555555555', 'fixture-db-1', $adminToken,
+], null, [
+    'MYSQL_ROOT_PASSWORD' => 'fixture-root-secret',
+    'PATH' => $adminScriptTmp . ':' . (string) getenv('PATH'),
+    'WPRISM_SQL_LOG' => $sqlLog,
+], false, 5000, 65536);
+$executedSql = is_file($sqlLog) ? (string) file_get_contents($sqlLog) : '';
+wprism_check_same(0, $executedAdmin['exit'],
+    'the actual rendered admin program executes its MySQL 8.4 direct-GRANTEE probe successfully');
+wprism_check(!file_exists('/tmp/.wprism-db-admin-' . $adminToken),
+    'the actual rendered admin program removes its credential defaults file after the probe');
+wprism_check(str_contains(
+    $executedSql,
+    "BINARY GRANTEE = BINARY CONCAT(CHAR(39), 'wordpress', CHAR(39), '@', CHAR(39), '%', CHAR(39))"
+) && !str_contains($executedSql, "\\''wordpress"),
+    'the executed MySQL query retains exact direct-GRANTEE semantics without the prior syntax error');
 wprism_check(str_contains($script, 'umask 077') && str_contains($script, 'chmod 0600 "$defaults"')
     && str_contains($script, 'trap cleanup EXIT HUP INT TERM') && str_contains($script, 'set -C; : >"$defaults"'),
     'the selected-container password crosses only an exclusively-created mode-0600 defaults file with trap cleanup');
@@ -332,7 +390,7 @@ $remotePlane = static function (string $command, int $timeout, int $stdout, int 
     if (str_contains($command, "'context' 'inspect'")) {
         return ['exit' => 0, 'stdout' => json_encode('tcp://remote.example.test:2376', JSON_THROW_ON_ERROR), 'stderr' => ''];
     }
-    return $controlPlane($command, $timeout, $stdout, $stderr);
+    return $controlPlane($command);
 };
 $remoteTransport = new DockerTransport('fixture', [
     'transport' => 'docker', '_dir' => $tmp, '_machine_local' => true,
