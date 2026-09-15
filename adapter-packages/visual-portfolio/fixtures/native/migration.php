@@ -77,10 +77,10 @@ $after = $observe();
 $migration->init();
 $fixed = $observe();
 $check($after['cursor'] === VISUAL_PORTFOLIO_VERSION, 'native procedure advances exact cursor');
-$check($after === $fixed, 'native procedure reaches a physical fixed point');
+$check($after === $fixed, 'native procedure reaches a bounded observed migration-surface fixed point');
 echo json_encode([
     'format' => 'wprism-vp-native-migration/v1',
     'before' => $before,
     'after' => $after,
-    'fixed_point' => true,
+    'bounded_observed_fixed_point' => true,
 ], JSON_THROW_ON_ERROR), "\n";
