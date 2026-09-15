@@ -889,6 +889,62 @@ $providerComplete = DurableProviderSettlementIntent::complete(
 );
 wprism_check_same(false, $providerComplete['active'], 'ordered provider completion clears its fence');
 AgentProviderSettlementIntent::assert_clear($providerRepo);
+$storageProviderPhases = [
+    'lifecycle-retire', 'lifecycle-activate', 'storage-prerequisite-settle',
+];
+DurableProviderSettlementIntent::begin(
+    $providerRoot,
+    $providerRepo,
+    $providerArtifact,
+    $providerCheckpoint,
+    $providerCipherSha256,
+    $providerOwner,
+    DEPLOY_CHECKPOINT_HASH,
+    $storageProviderPhases
+);
+foreach (['lifecycle-retire', 'lifecycle-activate'] as $phase) {
+    DurableProviderSettlementIntent::advance(
+        $providerRoot,
+        $providerRepo,
+        $providerArtifact,
+        $providerCheckpoint,
+        $providerOwner,
+        DEPLOY_CHECKPOINT_HASH,
+        $storageProviderPhases,
+        $phase
+    );
+}
+$storageContinuation = AgentProviderSettlementIntent::with_phase(
+    $providerRepo,
+    $providerArtifact,
+    $providerCheckpoint,
+    $providerOwner,
+    DEPLOY_CHECKPOINT_HASH,
+    'storage-prerequisite-settle',
+    static fn(array $intent): array => $intent['phases']
+);
+wprism_check_same($storageProviderPhases, $storageContinuation,
+    'storage-only action selection has its own exact database-external continuation phase');
+DurableProviderSettlementIntent::advance(
+    $providerRoot,
+    $providerRepo,
+    $providerArtifact,
+    $providerCheckpoint,
+    $providerOwner,
+    DEPLOY_CHECKPOINT_HASH,
+    $storageProviderPhases,
+    'storage-prerequisite-settle'
+);
+DurableProviderSettlementIntent::complete(
+    $providerRoot,
+    $providerRepo,
+    $providerArtifact,
+    $providerCheckpoint,
+    $providerOwner,
+    DEPLOY_CHECKPOINT_HASH,
+    $storageProviderPhases
+);
+AgentProviderSettlementIntent::assert_clear($providerRepo);
 foreach ([
     'checkpoint-recovery-intent.lock',
     'provider-settlement-intent.lock',

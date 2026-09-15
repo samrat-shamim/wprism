@@ -179,6 +179,7 @@ final class ProviderSettlementIntent {
                 ['schema-settle', 'lifecycle-settle'],
                 ['lifecycle-retire', 'lifecycle-activate', 'schema-settle'],
                 ['lifecycle-retire', 'lifecycle-activate', 'lifecycle-settle'],
+                ['lifecycle-retire', 'lifecycle-activate', 'storage-prerequisite-settle'],
                 ['lifecycle-retire', 'lifecycle-activate', 'schema-settle', 'lifecycle-settle'],
             ], true)
             || $completed !== array_slice($phases, 0, count($completed))) {

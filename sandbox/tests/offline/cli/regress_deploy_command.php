@@ -24,6 +24,8 @@ final class DeployCommandDriver implements EnvironmentDriver {
     public int $preflightExit = 0;
     public int $codeBaselineExit = 0;
     public int $schemaStatusExit = 0;
+    public int $storageStatusExit = 0;
+    public int $storageVerifyExit = 0;
     public int $stageExit = 0;
     public int $exportExit = 0;
     public int $providerBeginExit = 0;
@@ -44,6 +46,10 @@ final class DeployCommandDriver implements EnvironmentDriver {
     public bool $schemaDeclared = false;
     public bool $schemaRequired = false;
     public bool $lifecycleSettlementDeclared = false;
+    public bool $storagePrerequisiteDeclared = false;
+    public bool $storagePrerequisiteAutomatic = false;
+    public bool $storagePrerequisiteRequired = false;
+    public bool $storageSettlementSatisfiesPrerequisite = true;
     public bool $leaseActive = false;
     public bool $abortSucceeds = true;
     public bool $abortRemovesLease = true;
@@ -53,6 +59,7 @@ final class DeployCommandDriver implements EnvironmentDriver {
     public ?bool $leaseActiveAtProviderComplete = null;
     /** @var array<string,mixed>|null */
     private ?array $committedCodeBaselineReceipt = null;
+    private int $storageStatusCalls = 0;
 
     public function name(): string { return 'deploy-fixture'; }
     public function driverId(): string { return 'deploy-fixture'; }
@@ -135,6 +142,30 @@ final class DeployCommandDriver implements EnvironmentDriver {
             }
             if ($this->lifecycleSettlementDeclared) {
                 $summary['effects_inventory'][] = ['phase' => 'lifecycle-settle'];
+            }
+            if ($this->storagePrerequisiteDeclared) {
+                $settlement = $this->storagePrerequisiteAutomatic ? 'lifecycle-settle' : 'manual';
+                $summary['storage_prerequisites_inventory'] = [[
+                    'equals' => '1.0.0',
+                    'manifest' => 'storage-fixture',
+                    'option' => 'fixture_storage_version',
+                    'settlement' => $settlement,
+                ]];
+                if ($this->storagePrerequisiteAutomatic) {
+                    $summary['effects_inventory'][] = [
+                        'manifest' => 'storage-fixture',
+                        'phase' => 'lifecycle-settle',
+                        'effect' => [
+                            'kind' => 'database',
+                            'mode' => 'restorable',
+                            'selector' => [
+                                'scope' => 'database_checkpoint',
+                                'type' => 'option',
+                                'value' => 'fixture_storage_version',
+                            ],
+                        ],
+                    ];
+                }
             }
             if ($this->dispositionBlocked) {
                 $summary['resolved_adapters'] = [[
@@ -258,6 +289,28 @@ final class DeployCommandDriver implements EnvironmentDriver {
                 ]] : [],
             ], JSON_THROW_ON_ERROR), 'stderr' => ''];
         }
+        if ($command === 'storage-prerequisite-status') {
+            $this->storageStatusCalls++;
+            $exit = $this->storageStatusCalls === 1
+                ? $this->storageStatusExit
+                : $this->storageVerifyExit;
+            if ($exit !== 0) {
+                return ['exit' => $exit, 'stdout' => '', 'stderr' => 'storage prerequisite read failed'];
+            }
+            $rows = $this->storagePrerequisiteDeclared ? [[
+                'manifest' => 'storage-fixture',
+                'option' => 'fixture_storage_version',
+                'ready' => !$this->storagePrerequisiteRequired,
+                'settlement' => $this->storagePrerequisiteAutomatic ? 'lifecycle-settle' : 'manual',
+            ]] : [];
+            return ['exit' => 0, 'stdout' => json_encode([
+                'declared' => $rows !== [],
+                'format' => 'wprism-storage-prerequisite-status/v1',
+                'prerequisites' => $rows,
+                'required' => $this->storagePrerequisiteRequired,
+                'state' => $rows === [] ? 'none' : ($this->storagePrerequisiteRequired ? 'required' : 'ready'),
+            ], JSON_THROW_ON_ERROR), 'stderr' => ''];
+        }
         if ($command === 'checkpoint-target') {
             return ['exit' => 0, 'stdout' => json_encode([
                 'database_target_sha256' => str_repeat('d', 64),
@@ -286,6 +339,11 @@ final class DeployCommandDriver implements EnvironmentDriver {
         $this->events[] = 'stream:' . $command . ($phase === null ? '' : ':' . $phase);
         if ($command === 'code-stage') return $this->stageExit;
         if ($command === 'lifecycle-settle') {
+            if ($this->lifecycleSettleExit === 0
+                && $this->storagePrerequisiteAutomatic
+                && $this->storageSettlementSatisfiesPrerequisite) {
+                $this->storagePrerequisiteRequired = false;
+            }
             if ($this->lifecycleSettleExit === 0 && in_array('--release-on-success', $wpArgs, true)) {
                 $this->leaseActive = false;
             }
@@ -322,13 +380,25 @@ final class DeployCommandDriver implements EnvironmentDriver {
     private function providerPhases(): array {
         $phases = [];
         if ($this->schemaRequired) $phases[] = 'schema-settle';
-        if ($this->lifecycleSettlementDeclared
-            && ($this->codeChangeRequired || $this->lifecycleChangeRequired || $this->schemaRequired)) {
-            $phases[] = 'lifecycle-settle';
+        $lifecycleSettlementDeclared = $this->lifecycleSettlementDeclared
+            || $this->storagePrerequisiteAutomatic;
+        $storageSettlementRequired = $this->storagePrerequisiteAutomatic
+            && $this->storagePrerequisiteRequired;
+        $storagePrerequisitesOnly = $storageSettlementRequired
+            && !$this->codeChangeRequired
+            && !$this->lifecycleChangeRequired
+            && !$this->schemaRequired;
+        if ($lifecycleSettlementDeclared
+            && ($this->codeChangeRequired || $this->lifecycleChangeRequired
+                || $this->schemaRequired || $storageSettlementRequired)) {
+            $phases[] = $storagePrerequisitesOnly
+                ? 'storage-prerequisite-settle'
+                : 'lifecycle-settle';
         }
         $lifecycleRequired = $this->codeChangeRequired
             || $this->lifecycleChangeRequired
-            || ($this->schemaRequired && $this->lifecycleSettlementDeclared);
+            || ($this->schemaRequired && $lifecycleSettlementDeclared)
+            || $storageSettlementRequired;
         if ($phases !== [] && $lifecycleRequired) {
             $phases = array_merge(['lifecycle-retire', 'lifecycle-activate'], $phases);
         }
@@ -802,6 +872,218 @@ try {
     $badAcceptanceRefused = str_contains($failure->getMessage(), 'malformed code-baseline acceptance evidence');
 }
 assert_deploy_command($badAcceptanceRefused, 'baseline receipt rows reject control-character output injection');
+
+// Storage settlement needs two independent proofs: the immutable artifact
+// binds the same-manifest effect coverage, and the target returns only exact
+// coordinates plus a value-redacted readiness verdict.
+$storageEffect = [
+    'manifest' => 'storage-fixture',
+    'phase' => 'lifecycle-settle',
+    'effect' => [
+        'kind' => 'database', 'mode' => 'restorable',
+        'selector' => [
+            'scope' => 'database_checkpoint', 'type' => 'option',
+            'value' => 'fixture_storage_version',
+        ],
+    ],
+];
+$storageInventory = [[
+    'equals' => '1.0.0', 'manifest' => 'storage-fixture',
+    'option' => 'fixture_storage_version', 'settlement' => 'lifecycle-settle',
+]];
+$storageCompile = [
+    'effects_inventory' => [$storageEffect],
+    'storage_prerequisites_inventory' => $storageInventory,
+];
+assert_deploy_command(
+    CodeDeploy::storagePrerequisitesInventory($storageCompile) === $storageInventory,
+    'host accepts an exact prerequisite inventory derived from same-manifest restorable effects'
+);
+foreach (['settlement', 'effect', 'duplicate', 'equals'] as $fault) {
+    $malformed = $storageCompile;
+    if ($fault === 'settlement') $malformed['storage_prerequisites_inventory'][0]['settlement'] = 'manual';
+    if ($fault === 'effect') $malformed['effects_inventory'][0]['effect']['selector']['value'] = 'other';
+    if ($fault === 'duplicate') $malformed['storage_prerequisites_inventory'][] = $storageInventory[0];
+    if ($fault === 'equals') $malformed['storage_prerequisites_inventory'][0]['equals'] = "forged\nvalue";
+    $refused = false;
+    try { CodeDeploy::storagePrerequisitesInventory($malformed); } catch (RuntimeException) { $refused = true; }
+    assert_deploy_command($refused, "$fault cannot forge compiled storage settlement authority");
+}
+$storageStatusDocument = [
+    'declared' => true,
+    'format' => 'wprism-storage-prerequisite-status/v1',
+    'prerequisites' => [[
+        'manifest' => 'storage-fixture', 'option' => 'fixture_storage_version',
+        'ready' => false, 'settlement' => 'lifecycle-settle',
+    ]],
+    'required' => true,
+    'state' => 'required',
+];
+assert_deploy_command(
+    CodeDeploy::storagePrerequisiteStatusResult([
+        'exit' => 0, 'stdout' => json_encode($storageStatusDocument, JSON_THROW_ON_ERROR), 'stderr' => '',
+    ], $storageInventory) === $storageStatusDocument,
+    'host accepts one closed, value-redacted prerequisite status document'
+);
+foreach (['format', 'coordinate', 'value', 'required', 'state'] as $fault) {
+    $malformed = $storageStatusDocument;
+    if ($fault === 'format') $malformed['format'] = 'wprism-storage-prerequisite-status/v0';
+    if ($fault === 'coordinate') $malformed['prerequisites'][0]['option'] = 'other';
+    if ($fault === 'value') $malformed['prerequisites'][0]['value'] = '1.0.0';
+    if ($fault === 'required') $malformed['required'] = false;
+    if ($fault === 'state') $malformed['state'] = 'ready';
+    $refused = false;
+    try {
+        CodeDeploy::storagePrerequisiteStatusResult([
+            'exit' => 0, 'stdout' => json_encode($malformed, JSON_THROW_ON_ERROR), 'stderr' => '',
+        ], $storageInventory);
+    } catch (RuntimeException) { $refused = true; }
+    assert_deploy_command($refused, "$fault cannot forge storage prerequisite readiness");
+}
+
+$manualStorage = new DeployCommandDriver();
+$manualStorage->codeEnabled = false;
+$manualStorage->codeChangeRequired = false;
+$manualStorage->storagePrerequisiteDeclared = true;
+$manualStorage->storagePrerequisiteRequired = true;
+$manualStorageResult = run_deploy_command($manualStorage, []);
+assert_deploy_command($manualStorageResult['exit'] === 1,
+    'unmet manual storage debt refuses host deployment');
+assert_deploy_command($manualStorage->events === [
+    'raw:mkdir', 'capture:compile', 'capture:lifecycle-status',
+    'capture:storage-prerequisite-status',
+], 'manual storage debt refuses before a lease, checkpoint, lifecycle hook, or provider invocation');
+
+$readyStorage = new DeployCommandDriver();
+$readyStorage->codeEnabled = false;
+$readyStorage->codeChangeRequired = false;
+$readyStorage->storagePrerequisiteDeclared = true;
+$readyStorageResult = run_deploy_command($readyStorage, []);
+assert_deploy_command($readyStorageResult['exit'] === 0, 'ready storage preserves an unchanged-code no-op');
+assert_deploy_command($readyStorage->events === [
+    'raw:mkdir', 'capture:compile', 'capture:lifecycle-status',
+    'capture:storage-prerequisite-status',
+], 'ready storage adds only its exact read-only preflight to an unchanged deployment');
+
+$automaticStorage = new DeployCommandDriver();
+$automaticStorage->codeEnabled = false;
+$automaticStorage->codeChangeRequired = false;
+$automaticStorage->storagePrerequisiteDeclared = true;
+$automaticStorage->storagePrerequisiteAutomatic = true;
+$automaticStorage->storagePrerequisiteRequired = true;
+$automaticStorageResult = run_deploy_command($automaticStorage, []);
+assert_deploy_command($automaticStorageResult['exit'] === 0,
+    'effect-covered storage debt settles on unchanged code');
+assert_deploy_command($automaticStorage->events === [
+    'raw:mkdir', 'capture:compile', 'capture:lifecycle-status',
+    'capture:storage-prerequisite-status', 'capture:promotion-begin',
+    'capture:checkpoint-target', 'capture:db-export', 'capture:provider-settlement-begin',
+    'stream:deploy:retire', 'raw:provider-settlement-advance:lifecycle-retire',
+    'stream:deploy:activate', 'raw:provider-settlement-advance:lifecycle-activate',
+    'stream:lifecycle-settle', 'capture:storage-prerequisite-status',
+    'raw:provider-settlement-advance:storage-prerequisite-settle', 'raw:provider-settlement-complete',
+], 'unchanged-code storage settlement uses one checkpoint, ordered lifecycle children, exact postcheck, and durable completion');
+$automaticStorageSettleCalls = array_values(array_filter(
+    $automaticStorage->calls,
+    static fn(array $call): bool => in_array('lifecycle-settle', $call, true)
+));
+assert_deploy_command(
+    count($automaticStorageSettleCalls) === 1
+        && in_array('--storage-prerequisites-only', $automaticStorageSettleCalls[0], true),
+    'storage-only debt selects the effect-covering action subset on the target'
+);
+assert_deploy_command(!$automaticStorage->providerDebtActive && !$automaticStorage->leaseActive,
+    'successful storage settlement clears provider debt before releasing its lease');
+assert_deploy_command(count(array_filter($automaticStorage->events,
+    static fn(string $event): bool => str_contains($event, 'code-stage')
+        || str_contains($event, 'code-finalize'))) === 0,
+    'storage-only settlement never enters code materialization');
+
+$schemaAndStorage = new DeployCommandDriver();
+$schemaAndStorage->codeEnabled = false;
+$schemaAndStorage->codeChangeRequired = false;
+$schemaAndStorage->schemaDeclared = true;
+$schemaAndStorage->schemaRequired = true;
+$schemaAndStorage->storagePrerequisiteDeclared = true;
+$schemaAndStorage->storagePrerequisiteAutomatic = true;
+$schemaAndStorage->storagePrerequisiteRequired = true;
+$schemaAndStorageResult = run_deploy_command($schemaAndStorage, []);
+assert_deploy_command($schemaAndStorageResult['exit'] === 0,
+    'schema and storage debt settle in one host transaction');
+assert_deploy_command(array_slice($schemaAndStorage->events, 0, 6) === [
+    'raw:mkdir', 'capture:compile', 'capture:lifecycle-status', 'capture:schema-status',
+    'capture:storage-prerequisite-status', 'capture:promotion-begin',
+] && array_slice($schemaAndStorage->events, -6) === [
+    'stream:schema-settle', 'raw:provider-settlement-advance:schema-settle',
+    'stream:lifecycle-settle', 'capture:storage-prerequisite-status',
+    'raw:provider-settlement-advance:lifecycle-settle', 'raw:provider-settlement-complete',
+], 'schema settlement precedes lifecycle migration and one final cursor proof clears the combined debt');
+$schemaAndStorageSettleCalls = array_values(array_filter(
+    $schemaAndStorage->calls,
+    static fn(array $call): bool => in_array('lifecycle-settle', $call, true)
+));
+assert_deploy_command(
+    count($schemaAndStorageSettleCalls) === 1
+        && !in_array('--storage-prerequisites-only', $schemaAndStorageSettleCalls[0], true),
+    'schema transition retains the complete lifecycle settlement phase'
+);
+
+$codeAndStorage = new DeployCommandDriver();
+$codeAndStorage->storagePrerequisiteDeclared = true;
+$codeAndStorageResult = run_deploy_command($codeAndStorage, []);
+assert_deploy_command($codeAndStorageResult['exit'] === 0,
+    'a ready prerequisite composes with code materialization');
+$codeAndStorageTail = array_slice($codeAndStorage->events, -4);
+assert_deploy_command($codeAndStorageTail === [
+    'stream:deploy:activate', 'stream:lifecycle-settle',
+    'capture:storage-prerequisite-status', 'stream:code-finalize',
+], 'code finalization waits for a fresh physical prerequisite postcheck');
+
+$storageNoCheckpoint = new DeployCommandDriver();
+$storageNoCheckpoint->codeEnabled = false;
+$storageNoCheckpoint->codeChangeRequired = false;
+$storageNoCheckpoint->storagePrerequisiteDeclared = true;
+$storageNoCheckpoint->storagePrerequisiteAutomatic = true;
+$storageNoCheckpoint->storagePrerequisiteRequired = true;
+$storageNoCheckpointResult = run_deploy_command($storageNoCheckpoint, ['--no-checkpoint']);
+assert_deploy_command($storageNoCheckpointResult['exit'] === 1,
+    'automatic storage settlement cannot bypass its recovery checkpoint');
+assert_deploy_command(array_slice($storageNoCheckpoint->events, -1) === ['capture:storage-prerequisite-status']
+    && !$storageNoCheckpoint->leaseActive,
+    '--no-checkpoint refuses before the storage settlement lease');
+
+$unsettledStorage = new DeployCommandDriver();
+$unsettledStorage->codeEnabled = false;
+$unsettledStorage->codeChangeRequired = false;
+$unsettledStorage->storagePrerequisiteDeclared = true;
+$unsettledStorage->storagePrerequisiteAutomatic = true;
+$unsettledStorage->storagePrerequisiteRequired = true;
+$unsettledStorage->storageSettlementSatisfiesPrerequisite = false;
+$unsettledStorageResult = run_deploy_command($unsettledStorage, []);
+assert_deploy_command($unsettledStorageResult['exit'] === 1,
+    'provider success cannot replace the exact storage postcondition');
+assert_deploy_command(array_slice($unsettledStorage->events, -2) === [
+    'stream:lifecycle-settle', 'capture:storage-prerequisite-status',
+], 'an unmet postcondition is detected before provider progress or completion is recorded');
+assert_deploy_command($unsettledStorage->providerDebtActive,
+    'an unmet postcondition retains database-external recovery debt');
+assert_deploy_command(array_slice($unsettledStorageResult['callbacks'], -2) === [
+    'abort:deploy-command-test:' . str_repeat('a', 64),
+    'recovery:/fixture/repo/.wprism/checkpoints/deploy-deploy-command-test.sql.enc:nocode',
+], 'an unmet storage postcondition points at the exact pre-provider checkpoint');
+
+$unreadableStoragePostimage = new DeployCommandDriver();
+$unreadableStoragePostimage->codeEnabled = false;
+$unreadableStoragePostimage->codeChangeRequired = false;
+$unreadableStoragePostimage->storagePrerequisiteDeclared = true;
+$unreadableStoragePostimage->storagePrerequisiteAutomatic = true;
+$unreadableStoragePostimage->storagePrerequisiteRequired = true;
+$unreadableStoragePostimage->storageVerifyExit = 26;
+$unreadableStoragePostimageResult = run_deploy_command($unreadableStoragePostimage, []);
+assert_deploy_command($unreadableStoragePostimageResult['exit'] === 26,
+    'a failed physical postimage read preserves the target exit');
+assert_deploy_command($unreadableStoragePostimage->providerDebtActive,
+    'an unreadable storage postimage cannot clear provider recovery debt');
 
 // A repository can intentionally omit a code descriptor while still owning
 // the target plugin's activation, schema installation and derived-state

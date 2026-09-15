@@ -10,6 +10,7 @@ require_once __DIR__ . '/../Code/CodeCompatibility.php';
 // Required here rather than left to wprism.php's order, exactly as the siblings
 // below are, so this file's load graph stays closed (AGENTS.md rule 1).
 require_once __DIR__ . '/../Kernel/SpecVersionWindow.php';
+require_once __DIR__ . '/../Kernel/StoragePrerequisiteSettlement.php';
 require_once __DIR__ . '/ReferenceGraph.php';
 // issue #3348 slice 2: CompiledRepository and RepositoryCompilationException moved
 // to their own file (the "CompiledArtifact value object" target seam). Required
@@ -560,6 +561,13 @@ final class RepositoryCompiler {
             'tree' => $tree,
             'deletions' => $this->deletions,
         ];
+        $storagePrerequisites = StoragePrerequisiteSettlement::inventory($this->policy->manifests);
+        if ($storagePrerequisites !== []) {
+            // The host cannot inspect mutable target manifests after compile.
+            // Carry the already manifest-hash-bound projection only when the
+            // feature exists, preserving every unrelated artifact's bytes.
+            $payload['storage_prerequisites_inventory'] = $storagePrerequisites;
+        }
         $derivatives = RepositoryMediaDerivatives::derive($tree, $this->policy);
         if ($derivatives !== []) $payload['media_derivatives'] = $derivatives;
         if ($codeDescriptor !== null) {

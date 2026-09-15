@@ -311,7 +311,14 @@ unmet prerequisites before authored work, and never writes the cursor.
 
 This admission feature does not execute migrations or certify storage history.
 Automatic migration completion belongs in a separately audited, checkpointed
-lifecycle settlement provider. Qualify missing/stale cursor refusal, the
+lifecycle settlement provider. Declare that provider as a `lifecycle_settle`
+action and include a restorable `database_checkpoint` effect for the exact
+prerequisite option or the `options` table. The compiler derives their
+same-manifest relationship; do not repeat a provider id or callback in
+`storage_prerequisites`. Without that effect-covered action, host deploy keeps
+the prerequisite manual and refuses before taking a lease. When storage debt is
+the only deployment trigger, the engine runs only the covering action declarations;
+other adapters' lifecycle providers are not selected. Qualify missing/stale cursor refusal, the
 supported native migration procedure, current authored settings, and consumers
 after replay. Recapture before the first HTTP/editor request cannot prove that
 later native migrations preserve the replayed state. Do not preseed a current

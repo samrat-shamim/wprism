@@ -3684,8 +3684,9 @@ final class Policy {
     }
 
     /**
-     * Provider-owned completion gates selected by a verified code transition,
-     * after fresh-process activation and before finalize/state apply.
+     * Provider-owned completion gates selected by a verified code transition
+     * or same-manifest effect-covered storage debt, after fresh-process
+     * activation and before finalize/state apply.
      *
      * @return list<array<string,mixed>>
      */

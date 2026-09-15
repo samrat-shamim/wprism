@@ -27,8 +27,14 @@ if (!class_exists(DatabaseTargetIdentity::class, false)) {
 if (!class_exists(ProviderSettlementIntent::class, false)) {
     require_once __DIR__ . '/../Kernel/ProviderSettlementIntent.php';
 }
+if (!class_exists(StoragePrerequisites::class, false)) {
+    require_once __DIR__ . '/../Kernel/StoragePrerequisites.php';
+}
+if (!class_exists(StoragePrerequisiteSettlement::class, false)) {
+    require_once __DIR__ . '/../Kernel/StoragePrerequisiteSettlement.php';
+}
 
-/** Adapter-owned completion gate for asynchronous plugin upgrade work. */
+/** Adapter-owned completion gate for asynchronous plugin upgrade and storage work. */
 final class LifecycleSettlement {
     public static function assert_ready(Policy $policy): void {
         ProviderPhaseExecutor::assert_ready(
@@ -45,8 +51,10 @@ final class LifecycleSettlement {
         string $artifactHash,
         string $promotionOwner,
         string $checkpointPath,
-        bool $releaseOnSuccess = false
+        bool $releaseOnSuccess = false,
+        bool $storagePrerequisitesOnly = false
     ): array {
+        $phase = $storagePrerequisitesOnly ? 'storage-prerequisite-settle' : 'lifecycle-settle';
         if ($checkpointPath !== '') {
             return ProviderSettlementIntent::with_phase(
                 $repo,
@@ -54,7 +62,7 @@ final class LifecycleSettlement {
                 $checkpointPath,
                 $promotionOwner,
                 $artifactHash,
-                'lifecycle-settle',
+                $phase,
                 static fn(array $providerIntent): array => self::run_continued(
                     $repo,
                     $artifactPath,
@@ -62,6 +70,7 @@ final class LifecycleSettlement {
                     $promotionOwner,
                     $checkpointPath,
                     $releaseOnSuccess,
+                    $storagePrerequisitesOnly,
                     (string) ($providerIntent['checkpoint']['cipher_sha256'] ?? '')
                 )
             );
@@ -73,6 +82,7 @@ final class LifecycleSettlement {
             $promotionOwner,
             '',
             $releaseOnSuccess,
+            $storagePrerequisitesOnly,
             ''
         );
     }
@@ -85,6 +95,7 @@ final class LifecycleSettlement {
         string $promotionOwner,
         string $checkpointPath,
         bool $releaseOnSuccess,
+        bool $storagePrerequisitesOnly,
         string $expectedCipherSha256
     ): array {
         if (preg_match('/^[a-f0-9]{64}$/D', $artifactHash) !== 1) {
@@ -98,7 +109,12 @@ final class LifecycleSettlement {
         if (!hash_equals($artifactHash, $compiled->artifact_hash())) {
             throw new \RuntimeException('wprism: lifecycle-settle artifact does not match the host-compiled artifact hash');
         }
-        $actions = $policy->lifecycle_settle_actions();
+        $actions = $storagePrerequisitesOnly
+            ? StoragePrerequisiteSettlement::actions_for_readiness(
+                $policy->manifests,
+                StoragePrerequisites::readiness($policy->manifests)
+            )
+            : $policy->lifecycle_settle_actions();
         if ($actions !== []) {
             if ($checkpointPath === '') {
                 throw new \RuntimeException(
@@ -118,7 +134,7 @@ final class LifecycleSettlement {
         PromotionLock::acquire($promotionOwner, $artifactHash, 'lifecycle-settle', null, true);
         try {
             PromotionLock::assert_lifecycle_complete($promotionOwner, $artifactHash);
-            $summary = self::run_locked($policy, $promotionOwner, $artifactHash);
+            $summary = self::run_selected_locked($policy, $promotionOwner, $artifactHash, $actions);
             if ($releaseOnSuccess) {
                 PromotionLock::release($promotionOwner, $artifactHash);
             }
@@ -146,8 +162,25 @@ final class LifecycleSettlement {
         string $promotionOwner,
         string $artifactHash
     ): array {
+        return self::run_selected_locked(
+            $policy,
+            $promotionOwner,
+            $artifactHash,
+            $policy->lifecycle_settle_actions()
+        );
+    }
+
+    /**
+     * @param list<array<string,mixed>> $actions
+     * @return array{format:string,actions:int,receipts:list<array<string,mixed>>}
+     */
+    private static function run_selected_locked(
+        Policy $policy,
+        string $promotionOwner,
+        string $artifactHash,
+        array $actions
+    ): array {
         PromotionLock::assert_no_lifecycle_attempt($promotionOwner, $artifactHash, 'lifecycle-settle');
-        $actions = $policy->lifecycle_settle_actions();
         if ($actions === []) {
             PromotionLock::heartbeat($promotionOwner, $artifactHash, 'lifecycle-settled');
             return ['format' => 'wprism-lifecycle-settlement/v1', 'actions' => 0, 'receipts' => []];

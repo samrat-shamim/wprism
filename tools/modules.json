@@ -92,6 +92,7 @@
     "ExactOptionReader",
     "StoragePrerequisiteGrammar",
     "StoragePrerequisites",
+    "StoragePrerequisiteSettlement",
     "NativeOptionInputs",
     "NativeCoreCache",
     "NativePostTypes",
@@ -178,7 +179,7 @@
             ]
           }
         ],
-        "file_count": 98,
+        "file_count": 99,
         "files": [
           "BlockMediaDerivativeGrammar.php",
           "MediaDerivativeRecipe.php",
@@ -214,6 +215,7 @@
     "ExactOptionReader.php",
     "StoragePrerequisiteGrammar.php",
     "StoragePrerequisites.php",
+    "StoragePrerequisiteSettlement.php",
     "ExactOptionWriter.php",
     "ExecutableTreeIdentity.php",
     "FilesystemTreeSnapshot.php",
@@ -1092,6 +1094,7 @@
     "CodeBaselineAcceptance",
     "CodeBaselineCapture",
     "PromotionLock",
+    "StoragePrerequisiteStatus",
           "Deploy",
           "ScopedPromotionAuthority",
           "VerifiedPromotionAuthority"
@@ -1113,7 +1116,7 @@
             ]
           }
         ],
-  "file_count": 18,
+  "file_count": 19,
   "files": [
     "AuthorizedReleaseRepository.php",
     "CodeBaselineAcceptance.php",
@@ -1132,6 +1135,7 @@
           "ScopedPromotionAuthority.php",
           "StateHandoffVerifier.php",
           "StateTransitionJournal.php",
+          "StoragePrerequisiteStatus.php",
           "VerifiedPromotionAuthority.php"
         ]
       },

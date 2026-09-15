@@ -348,6 +348,8 @@ return [
     'WPrism\\StateTransitionRecord' => 'src/Promotion/StateTransitionJournal.php',
     'WPrism\\StateTreeWalker' => 'src/Repository/StateTreeWalker.php',
     'WPrism\\StoragePrerequisiteGrammar' => 'src/Kernel/StoragePrerequisiteGrammar.php',
+    'WPrism\\StoragePrerequisiteSettlement' => 'src/Kernel/StoragePrerequisiteSettlement.php',
+    'WPrism\\StoragePrerequisiteStatus' => 'src/Promotion/StoragePrerequisiteStatus.php',
     'WPrism\\StoragePrerequisites' => 'src/Kernel/StoragePrerequisites.php',
     'WPrism\\StructuredEvidence' => 'src/Adapter/StructuredEvidence.php',
     'WPrism\\StructuredReferenceCodec' => 'src/Kernel/StructuredReferenceCodec.php',

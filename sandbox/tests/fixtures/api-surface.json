@@ -1,5 +1,5 @@
 {
-    "class_count": 534,
+    "class_count": 536,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -12995,6 +12995,31 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "storage_prerequisite_status": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": null,
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "assoc",
+                            "type": null,
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
                 "verify_canonical": {
                     "abstract": false,
                     "final": false,
@@ -16493,6 +16518,14 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "storage_prerequisites_inventory": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
@@ -29392,6 +29425,14 @@
                             "name": "releaseOnSuccess",
                             "type": "bool",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "storagePrerequisitesOnly",
+                            "type": "bool",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -39082,6 +39123,14 @@
                             "name": "releaseOnSuccess",
                             "type": "bool",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "storagePrerequisitesOnly",
+                            "type": "bool",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -39608,6 +39657,81 @@
                             "has_default": false,
                             "name": "artifactHash",
                             "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "storagePrerequisiteStatusArgs": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "artifact",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "artifactHash",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "storagePrerequisiteStatusResult": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "result",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "inventory",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "storagePrerequisitesInventory": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "compileSummary",
+                            "type": "array",
                             "variadic": false
                         }
                     ],
@@ -82326,6 +82450,133 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\StoragePrerequisiteSettlement": {
+            "abstract": false,
+            "constants": {
+                "LIFECYCLE": {
+                    "value_repr": "lifecycle-settle"
+                },
+                "MANUAL": {
+                    "value_repr": "manual"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "actions_for_readiness": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "readiness",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "inventory": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\StoragePrerequisiteStatus": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "wprism-storage-prerequisite-status/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "for_policy": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "WPrism\\Policy",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "inspect": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "artifactPath",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "artifactHash",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\StoragePrerequisites": {
             "abstract": false,
             "constants": [],
@@ -82364,6 +82615,23 @@
                         }
                     ],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "readiness": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 }
