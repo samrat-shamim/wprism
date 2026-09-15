@@ -4,18 +4,18 @@
   "readiness": "unready",
   "covered": {},
   "gaps": {
-    "contract-dependency": "Native source authoring used official 3.8.1. Fresh, adjacent, upgrade and out-of-range capsule conformance remain pending.",
-    "clean-target": "One content-only native adoption baseline is exercised; complete clean-target plugin authoring remains pending.",
+    "contract-dependency": "Official 3.8.1 source and target artifacts exercise natural missing and manufactured stale migration cursors. Adjacent, upgrade and out-of-range capsule conformance remain pending.",
+    "clean-target": "Exact 3.8.1 files-only target activation, native storage settlement, Apply, editor Save/reopen, recapture and HTTP consumption are exercised. Certified host promotion and broader plugin defaults remain pending.",
     "dirty-target": "Scoped settings preserve complete unrelated native rows in one lane; conflicts, unmanaged state and broader archive collisions remain pending.",
-    "identity-references": "Native manual and duplicate-title Save/reopen were observed. The bounded REST query lane exercises divergent post/term selectors and refuses deleted identities. Taxonomy/exclusion pickers, Saved Layouts, current/page queries and custom-query transport remain pending.",
-    "native-behavior": "Source settings Saves, gallery filtering/lightbox and legacy archive pagination were observed. Target archive/settings and seven ordered REST-authored query results are exercised; target editor Save/reopen, unavailable optional controls and broader rendering remain pending.",
-    "derived-state": "Native archive markers, roles and durable rewrite rules are exercised through scoped Apply. Server-file semantics and complete capsule cache/media evidence remain pending.",
+    "identity-references": "Native manual and duplicate-title Save/reopen were observed. The bounded REST query lane exercises divergent post/term selectors and refuses deleted identities; the target editor reopens the exact 12/1 recursive block rosters. Taxonomy/exclusion pickers, Saved Layouts, current/page queries and custom-query transport remain pending.",
+    "native-behavior": "Source settings Saves, gallery filtering/lightbox and legacy archive pagination were observed. Target archive/settings, seven ordered REST-authored query results, editor Save/reopen, exact recapture and HTTP cursor/settings preservation are exercised; unavailable optional controls and broader rendering remain pending.",
+    "derived-state": "Native archive markers, roles and durable rewrite rules are exercised through scoped Apply. The plugin's migration cursor reaches an exact physical fixed point before authored replay. Server-file semantics and complete capsule cache/media evidence remain pending.",
     "deletion": "Plugin-specific deletions are undeclared; consumer removal and preservation still need evidence.",
-    "failure-recovery": "The SDK transaction path rolls back injected native doubles; actual native injected failures, irreversible file/hook recovery and retry remain pending.",
-    "lifecycle": "Settings-driven role projection is exercised; activation, retirement, reactivation and version transitions remain pending.",
+    "failure-recovery": "Missing and stale storage prerequisites refuse through public Apply without changing the observed plugin migration surface. The SDK transaction path rolls back injected native doubles; actual native injected failures, irreversible file/hook recovery and retry remain pending.",
+    "lifecycle": "Agent activation, natural missing and manufactured stale cursors, and the plugin's idempotent native migration procedure are exercised. Automatic host settlement for storage debt with unchanged current code, retirement, reactivation and version transitions remain pending.",
     "data-boundary": "Runtime and premium settings are target-local. Closed query fields refuse unknown members and visible/hidden custom text; broader hostile metadata, credentials and complete native residue remain pending.",
     "scope-platform": "The provider repairs old out-of-scope archive markers without authored scope widening. Scoped promotion, the platform matrix and participant-declared plugin combinations remain pending.",
-    "concurrency-idempotence": "Native settings fixed points, terminal replay and explicit requests returning to earlier artifacts are exercised. Concurrent native edits and the broader lifecycle matrix remain pending."
+    "concurrency-idempotence": "Native settings and migration fixed points, terminal replay and explicit requests returning to earlier artifacts are exercised. Concurrent native edits and the broader lifecycle matrix remain pending."
   },
   "blocked": {},
   "not_applicable": {}

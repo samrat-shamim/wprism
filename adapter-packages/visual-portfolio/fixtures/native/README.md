@@ -10,9 +10,22 @@ recompile and re-pin; the conformance guard is never bypassed.
 The retained native gallery and legacy archive bodies, settings and images are
 written on source through the existing fixture's WordPress/REST paths. Four
 projects have distinct native dates so archive order does not depend on local ID
-allocation. The target starts with plugin files only. After native deployment,
-32 trash posts and 32 inserted/deleted categories advance target identity spaces.
-The term padding leaves no authored target-only categories.
+allocation. Before authoring, the source begins without `vpf_db_version` and the
+plugin's public `Visual_Portfolio_Migrations::init()` procedure advances it to
+3.8.1 and reaches a second-run physical fixed point. The target starts with
+plugin files only, and agent activation naturally leaves the cursor absent. A
+real public Apply then returns the value-free `storage_prerequisite_unmet`
+envelope without changing the bounded migration surface. The same refusal and
+non-mutation proof runs for a stale 3.8.0 cursor. In both cases only the plugin's
+own migration procedure advances storage; the fixture never writes a current
+cursor directly. Automatic host settlement when installed code is already
+current remains a platform follow-up.
+
+After storage settles, 32 trash posts and 32 inserted/deleted categories advance
+target identity spaces. The term padding leaves no authored target-only
+categories. Apply must retain the authored `vp_images.lazy_loading=full` value;
+replaying the plugin's pre-2.10.0 migration would rewrite it to `vp` and fail the
+suite.
 
 The shared harness checks complete canonical recapture. Independent fresh native
 observations additionally bind eight post roles and two category roles to distinct
@@ -24,6 +37,11 @@ title must link to the native archive. Garden's popup link and JSON payload must
 name its original image. Lazy images
 and their native `noscript` fallbacks are checked independently. Both legacy
 archives must render the two projects selected by descending native date.
+After Apply, native REST editor Saves reopen the exact gallery and archive bodies
+with their complete recursive 12/1 block rosters. The fixture removes only the
+expected `post_modified` timestamp witness, then the shared harness performs its
+ordinary byte-identical canonical recapture. Subsequent HTTP consumption must
+leave the 3.8.1 cursor and authored `full` lazy-loading value unchanged.
 
 The shared native geometry probe exercises 96 Core resize cases, including
 unconstrained dimensions, extreme aspect ratios and positional crops. The image
@@ -43,5 +61,5 @@ The wrapper uses shared artifact, conformance and owned-pair machinery. Offline
 oracle mutations must pass before a live run. HTTP bodies and their bounded role
 records stay in `sandbox/tmp/vp-native-http.<pair>.*` for diagnosis after pair
 cleanup; private command diagnostics also stay in `sandbox/tmp`.
-Browser editor Save/reopen, interactive filtering/lightbox, destructive recovery,
-additional plugin combinations and other readiness gaps remain separate work.
+Interactive browser filtering/lightbox, destructive recovery, additional plugin
+combinations and other readiness gaps remain separate work.
