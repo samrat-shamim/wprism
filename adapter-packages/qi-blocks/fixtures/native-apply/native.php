@@ -16,8 +16,9 @@ if ($phase === 'setup-source') {
     echo wp_json_encode(['phase' => $phase, 'home' => home_url(), 'code' => null]);
     return;
 }
-if ($phase === 'setup-target') {
-    $check(!file_exists('/siterepo/site.wprism.json'), 'target has never had a code descriptor');
+if ($phase === 'setup-target' || $phase === 'setup-conformance-target') {
+    if ($phase === 'setup-target') $check(!file_exists('/siterepo/site.wprism.json'), 'target has never had a code descriptor');
+    else $check(file_exists('/siterepo/site.wprism.json'), 'conformance target repository is absent');
     $padding = [];
     for ($i = 0; $i < 8; $i++) {
         $id = wp_insert_post(['post_type' => 'post', 'post_status' => 'trash', 'post_title' => 'Unmanaged Qi target ' . $i,

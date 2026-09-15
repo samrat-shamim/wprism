@@ -358,6 +358,12 @@ const PRE_QI_CROP_YOAST_SNAPSHOT_SHA = '45fd42af992fa865417d0a8edb5e2e6351728cdc
 // Preserve the preceding crop-qualified Qi identity as its own transition.
 const PRE_QI_RECORD_FIELDS_DIGEST = '590ffbb979b8a049674c0813aa04216e159340ff7dec31a22e8664115e6753f9';
 
+// Shared native roundtrip evidence adds bounded experimental deploy and Apply
+// to Qi's reviewed claim. Preserve the prior disposition and identity so this
+// registry-wide transition cannot hide a neighbouring package change.
+const PRE_QI_AGENT_ROUNDTRIP_DIGEST = '4d2d8da95524f4d4a0d7aeea6ce3fe74346510e441de589fb8e7278fd6ab18ae';
+const PRE_QI_AGENT_ROUNDTRIP_DISPOSITION_SHA = '3edf627c7918a872d8151b42bffb1906e6d329b863def55d39064792c1b8926e';
+
 // Withdrawing an overbroad native-clone claim moves only its disposition.
 // Preserve the exact preceding claim to check the other 18 entries unchanged.
 const PRE_MANAGED_CLONE_YDP_DIGEST = '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456';
@@ -402,7 +408,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
     'paid-memberships-pro' => 'e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253',
     'polylang' => 'a6917aa60ccc7e5fdfd432182939f5e42128456038ceb00cd92f938babb87fa7',
-    'qi-blocks' => '4d2d8da95524f4d4a0d7aeea6ce3fe74346510e441de589fb8e7278fd6ab18ae',
+    'qi-blocks' => 'f8653dbdf712bee4bdb404eacf0fc29d4b767ce4f9335f119c72981e5e3a15e2',
     'rank-math' => 'f0a86cc0bf1b4c9360cc58d68c6e3914f1f7fd0c501b3340f8fceb8cce97b116',
     'redirection' => '7a02fb090eb511e672d216bfab8f0cf166c645f2c79b5d9aef2c487dfd9e1e16',
     'the-events-calendar' => '0a06d5cadb9d4ed797c36bb1b2aba3c9f5518095e3a6a9ea8d1848a43be658f5',
@@ -413,17 +419,14 @@ const WPRISM_CURRENT_DIGESTS = [
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => '5bd472b9e1959fae0d51cc72f7beab8d2efc49c3a94f3fcaebff0a268d392c4f',
 ];
-// Exact attribute-name products move only Qi manifest identity; its
-// disposition and whole-registry address stay unchanged. The four current
-// aggregates below fold Qi's row, so each is deliberately re-pinned here.
-// WPRISM_CURRENT_DIGESTS and every historical 'moves only <subject>' assertion
-// prove that no neighbouring capsule moved. The same four numbers are
-// independently pinned in regress_spec_v3_digest_neutrality.php.
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '077496c9de9f256b48248536d8b543f0489e7970d87f210cf30e26d1505cfa17';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '44599b2a3966aa73e0c53a054ba428fdb84de960a65c0051051d9f9dd93be853';
-const WPRISM_CURRENT_REGISTRY_SHA = 'ab45dd77fb0e1c80d36121bd45fdf7da559467d3ec961f837eef5c04923485c7';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '926c7e84e95a4ef7568ed42a39c8803c709a9e3c715236e9c9eacebc22013d41';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = 'c6d9124efece8919c777e33162ae58cb187c0a08d8d2300eaf45a7f707e0e3f4';
+// Qi's reviewed disposition now claims the bounded experimental roundtrip.
+// Both containing manifest hashes, the registry and every containing snapshot
+// move; the independent digest-neutrality suite pins the same current values.
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = '9629fdc35bf7651bfa7e3be0ac76f4b1927b2b8b2857addaf2d376f1100eb675';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '9f2a59da5887c47ceba11a41de7f2855e06c6b719c09a8d5d09e8556f4ecb15d';
+const WPRISM_CURRENT_REGISTRY_SHA = '9fbd3bbece312bea35b877b977550b67007a39b661fec0a63b8236de0a805327';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '9ceb3095d43ad50f30556ad63792a4c8506a5da95b49cfaaf4b845b18d975cfc';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = 'dfaee496b3d281cc8dc8ac3db623af932b2537952d24a3ca51ccfd44e61b283c';
 
 $liveRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
@@ -753,6 +756,12 @@ wprism_check_same(
     'the current WPrism greenfield baseline pins every shipped adapter digest explicitly; a disposition split that '
     . 'changes any manifest row is a measured identity failure'
 );
+wprism_check_same(['qi-blocks'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
+    'qi-blocks' => PRE_QI_AGENT_ROUNDTRIP_DIGEST,
+]))), 'the reviewed experimental roundtrip moves only Qi package identity');
+$preQiDispositionPath = $repo . '/sandbox/tests/fixtures/spec-v3/qi-pre-agent-roundtrip-disposition.json';
+wprism_check_same(PRE_QI_AGENT_ROUNDTRIP_DISPOSITION_SHA, hash_file('sha256', $preQiDispositionPath),
+    'the exact pre-roundtrip Qi disposition remains a byte-pinned transition fixture');
 wprism_check_same(['wpforms-lite'], array_keys(array_diff_assoc($observed, array_replace(WPRISM_CURRENT_DIGESTS, [
     'wpforms-lite' => PRE_WPFORMS_LOCATION_PROVIDER_DIGEST,
 ]))), 'the experimental location provider moves only WPForms package identity, not its engine consumers or neighbours');
@@ -782,6 +791,7 @@ wprism_check(PRE_NATIVE_VALUE_RANK_MANIFEST_HASH !== WPRISM_CURRENT_RANK_WORLD_M
     && PRE_NATIVE_VALUE_YOAST_SNAPSHOT_SHA !== WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA,
     'both compatible worlds require explicit recompile and re-pin after the Polylang contract edit');
 $preTecRegistry = $shippedRegistry->data();
+$preTecRegistry['manifests']['qi-blocks'] = Canon::decode(Canon::read_file($preQiDispositionPath));
 $priorTec = &$preTecRegistry['manifests']['the-events-calendar'];
 wprism_check_same(['max' => '6.17.5', 'min' => '6.17.2'], $priorTec['supported_versions']['range'],
     'the historical TEC overlay starts from the exact reviewed current version range');

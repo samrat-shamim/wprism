@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/PrivateCommandOutput.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/support/wp-block-parser-stub.php';
 require_once dirname(__DIR__, 4) . '/agent/src/Kernel/PhpContainerValue.php';
 require_once dirname(__DIR__) . '/conformance/corpus.php';
 
@@ -129,6 +130,15 @@ final class QiNativeApplyEvidence {
         QiNativeApplyEvidence::check($apply['applied'] === 1 && $repeat['applied'] === 0, 'content update must write one content entity, then zero on repeat');
     }
 
+    public static function apply_pair(array $apply, array $repeat): void {
+        foreach ([$apply, $repeat] as $result) self::check($result['canary'] === 'clean' && $result['drift'] === [] && $result['actions'] === []
+            && $result['verification'] === ['verifier' => 'canonical-recapture/v1', 'result' => 'pass', 'live_entities' => 7, 'deletions' => 0, 'skipped_user_meta' => 0],
+            'actual product verification did not pass');
+        self::check($apply['applied'] === 7 && $repeat['applied'] === 0 && $repeat['warnings'] === [], 'Apply or zero-write repeat differs');
+        self::check(count($apply['warnings']) === 1 && str_starts_with($apply['warnings'][0], 'adopted env term 1 as '),
+            'initial Apply lost its exact default-category adoption boundary');
+    }
+
     public static function product(array $plan, array $apply, array $repeat, array $captures, array $source): void {
         $created = array_column($plan['create'], 'uuid'); $expected = array_values($source['uuids']);
         sort($created, SORT_STRING); sort($expected, SORT_STRING);
@@ -137,13 +147,11 @@ final class QiNativeApplyEvidence {
             'code_drift', 'incomplete_apply', 'incomplete_lifecycle', 'missing_user', 'skipped_user_meta', 'selected_actions', 'regen_pending', 'regen_context', 'env_missing'] as $field) {
             self::check($plan[$field] === [], 'native plan has unexpected ' . $field);
         }
-        self::check(array_column($plan['adapter_dispositions'], 'code') === ['authored_state_not_certified', 'operation_not_certified'], 'experimental boundary changed');
+        self::check(array_column($plan['adapter_dispositions'], 'code') === ['authored_state_not_certified'], 'experimental boundary changed');
         $adopt = $plan['adopt'][0];
         self::check($adopt['type'] === 'term' && $adopt['env_id'] === 1 && $adopt['title'] === 'Uncategorized', 'unexpected native adoption');
         self::check($apply['warnings'] === ['adopted env term 1 as ' . $adopt['uuid'] . ' (' . $adopt['path'] . ')'], 'Apply emitted an unproved diagnostic');
-        foreach ([$apply, $repeat] as $result) self::check($result['canary'] === 'clean' && $result['drift'] === [] && $result['actions'] === []
-            && $result['verification'] === ['verifier' => 'canonical-recapture/v1', 'result' => 'pass', 'live_entities' => 7, 'deletions' => 0, 'skipped_user_meta' => 0], 'actual product verification did not pass');
-        self::check($apply['applied'] === 7 && $repeat['applied'] === 0 && $repeat['warnings'] === [], 'Apply or zero-write repeat differs');
+        self::apply_pair($apply, $repeat);
         self::check(count($captures) === 5, 'complete capture stages are absent');
         foreach ($captures as $capture) self::check($capture['counts'] === ['post' => 4, 'term' => 1, 'menu' => 0, 'sidebar' => 1, 'options' => 1, 'deletion' => 0]
             && $capture['media'] === 1 && $capture['notes'] === [] && $capture['warnings'] === [] && $capture['initial_code_baseline'] === null, 'capture omitted content, media or diagnostics');
@@ -152,6 +160,22 @@ final class QiNativeApplyEvidence {
 
 if (($argv[1] ?? null) === '--stream') {
     QiNativeApplyEvidence::stream($argv[2], $argv[3], $argv[4], $argv[5]);
+}
+if (($argv[1] ?? null) === '--admit-roundtrip-native') {
+    if ($argc !== 8) throw new RuntimeException('roundtrip native admission requires source, target, preimage, seed, body and style fixtures');
+    $read = static fn(string $path): array => json_decode(file_get_contents($path), true, 64, JSON_THROW_ON_ERROR);
+    QiNativeApplyEvidence::native($read($argv[2]), $read($argv[3]), $read($argv[4]), $read($argv[5]),
+        file_get_contents($argv[6]), file_get_contents($argv[7]));
+    echo json_encode(['format' => 'wprism-qi-native-roundtrip-admission/v1', 'result' => 'pass'], JSON_THROW_ON_ERROR), "\n";
+}
+if (($argv[1] ?? null) === '--admit-roundtrip-fixed-point') {
+    if ($argc !== 9) throw new RuntimeException('roundtrip fixed-point admission requires Apply, repeat, source/target HTML and three native records');
+    $read = static fn(string $path): array => json_decode(file_get_contents($path), true, 64, JSON_THROW_ON_ERROR);
+    $source = $read($argv[6]); $target = $read($argv[7]);
+    QiNativeApplyEvidence::apply_pair($read($argv[2]), $read($argv[3]));
+    QiNativeApplyEvidence::check($target === $read($argv[8]), 'repeat Apply or frontend consumption changed complete target native state');
+    QiNativeApplyEvidence::css(file_get_contents($argv[4]), file_get_contents($argv[5]), $source, $target);
+    echo json_encode(['format' => 'wprism-qi-native-roundtrip-fixed-point/v1', 'result' => 'pass'], JSON_THROW_ON_ERROR), "\n";
 }
 if (($argv[1] ?? null) === '--admit') {
     $root = dirname(__DIR__, 4); $capsule = dirname(__DIR__, 2);

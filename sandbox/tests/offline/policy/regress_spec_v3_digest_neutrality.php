@@ -35,15 +35,15 @@ use WPrism\Canon;
 use WPrism\ManifestDispositions;
 use WPrism\Policy;
 
-// Exact attribute-name products move only Qi's manifest and adapter digest.
-// Its three containing pin sets move with it; the disposition registry, pin
-// order, neighbouring adapters and all unrelated snapshots stay byte-identical.
-const BASELINE_FIXTURE_SHA256 = 'f7c76c55a24f35500ba63d9f18ea306d84da27070080b102f9334d698e85f302';
-const RANK_WORLD_MANIFEST_HASH = '077496c9de9f256b48248536d8b543f0489e7970d87f210cf30e26d1505cfa17';
-const YOAST_WORLD_MANIFEST_HASH = '44599b2a3966aa73e0c53a054ba428fdb84de960a65c0051051d9f9dd93be853';
-const REGISTRY_SHA256 = 'ab45dd77fb0e1c80d36121bd45fdf7da559467d3ec961f837eef5c04923485c7';
-const RANK_WORLD_SNAPSHOT_SHA256 = '926c7e84e95a4ef7568ed42a39c8803c709a9e3c715236e9c9eacebc22013d41';
-const YOAST_WORLD_SNAPSHOT_SHA256 = 'c6d9124efece8919c777e33162ae58cb187c0a08d8d2300eaf45a7f707e0e3f4';
+// Qi's reviewed experimental deploy/Apply claim moves its adapter digest,
+// disposition registry and every snapshot that carries that registry. Only
+// pin sets containing Qi move their manifest hash; neighbours stay exact.
+const BASELINE_FIXTURE_SHA256 = '7fdb53f9d6e09e3ea5dd431e721165a7b9f2277843534e3ad30afebd6fe09a39';
+const RANK_WORLD_MANIFEST_HASH = '9629fdc35bf7651bfa7e3be0ac76f4b1927b2b8b2857addaf2d376f1100eb675';
+const YOAST_WORLD_MANIFEST_HASH = '9f2a59da5887c47ceba11a41de7f2855e06c6b719c09a8d5d09e8556f4ecb15d';
+const REGISTRY_SHA256 = '9fbd3bbece312bea35b877b977550b67007a39b661fec0a63b8236de0a805327';
+const RANK_WORLD_SNAPSHOT_SHA256 = '9ceb3095d43ad50f30556ad63792a4c8506a5da95b49cfaaf4b845b18d975cfc';
+const YOAST_WORLD_SNAPSHOT_SHA256 = 'dfaee496b3d281cc8dc8ac3db623af932b2537952d24a3ca51ccfd44e61b283c';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';
