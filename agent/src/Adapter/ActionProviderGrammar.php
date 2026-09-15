@@ -250,7 +250,7 @@ final class ActionProviderGrammar {
                 if (array_key_exists('triggers', $action)) {
                     throw new \RuntimeException(
                         $phase === 'lifecycle_settle'
-                            ? "wprism: $where lifecycle settlement is selected by a verified code transition, not state triggers"
+                            ? "wprism: $where lifecycle settlement is selected by a verified code transition or effect-covered storage debt, not state triggers"
                             : "wprism: $where schema preparation is selected by an exact compiled policy, not state triggers"
                     );
                 }

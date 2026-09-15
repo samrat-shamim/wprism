@@ -617,6 +617,7 @@ PHP;
             ['schema-settle', 'lifecycle-settle'],
             ['lifecycle-retire', 'lifecycle-activate', 'schema-settle'],
             ['lifecycle-retire', 'lifecycle-activate', 'lifecycle-settle'],
+            ['lifecycle-retire', 'lifecycle-activate', 'storage-prerequisite-settle'],
             ['lifecycle-retire', 'lifecycle-activate', 'schema-settle', 'lifecycle-settle'],
         ], true)) {
             throw new \InvalidArgumentException('provider settlement phases are malformed');
@@ -1224,7 +1225,8 @@ PHP;
         string $artifactHash,
         string $owner,
         string $checkpoint = '',
-        bool $releaseOnSuccess = false
+        bool $releaseOnSuccess = false,
+        bool $storagePrerequisitesOnly = false
     ): array {
         // Deliberately not controlArgs(): settlement runs the newly activated
         // plugin and its native queue provider in a fresh ordinary process.
@@ -1238,6 +1240,9 @@ PHP;
         }
         if ($releaseOnSuccess) {
             $args[] = '--release-on-success';
+        }
+        if ($storagePrerequisitesOnly) {
+            $args[] = '--storage-prerequisites-only';
         }
         return $args;
     }
@@ -1260,6 +1265,158 @@ PHP;
             }
         }
         return self::controlArgs($args);
+    }
+
+    /** @return array<int,string> */
+    public static function storagePrerequisiteStatusArgs(
+        string $repo,
+        string $artifact,
+        string $artifactHash
+    ): array {
+        return self::controlArgs([
+            'wprism', 'storage-prerequisite-status', '--repo=' . $repo,
+            '--compiled=' . $artifact, '--artifact-hash=' . $artifactHash,
+            '--format=json',
+        ]);
+    }
+
+    /**
+     * The compiler projects this only for manifests that declare native
+     * storage admission. Validate it before using target output to select a
+     * checkpointed phase; the outer hash alone says nothing about its shape.
+     *
+     * @return list<array{equals:string,manifest:string,option:string,settlement:string}>
+     */
+    public static function storagePrerequisitesInventory(array $compileSummary): array {
+        $rows = $compileSummary['storage_prerequisites_inventory'] ?? [];
+        if (!is_array($rows) || !array_is_list($rows) || count($rows) > 4096) {
+            throw new \RuntimeException('target compile returned malformed storage prerequisite inventory');
+        }
+        $seen = [];
+        foreach ($rows as $row) {
+            $keys = is_array($row) ? array_keys($row) : [];
+            sort($keys, SORT_STRING);
+            $manifest = is_array($row) ? ($row['manifest'] ?? null) : null;
+            $option = is_array($row) ? ($row['option'] ?? null) : null;
+            $equals = is_array($row) ? ($row['equals'] ?? null) : null;
+            $settlement = is_array($row) ? ($row['settlement'] ?? null) : null;
+            if ($keys !== ['equals', 'manifest', 'option', 'settlement']
+                || !is_string($manifest) || $manifest === '' || strlen($manifest) > 191
+                || preg_match('/[\x00-\x1F\x7F]/', $manifest) === 1
+                || !is_string($option)
+                || preg_match('/^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,190}$/D', $option) !== 1
+                || !is_string($equals) || $equals === '' || strlen($equals) > 256
+                || preg_match('/[\x00-\x1F\x7F]/', $equals) === 1
+                || preg_match('//u', $equals) !== 1
+                || !in_array($settlement, ['lifecycle-settle', 'manual'], true)
+                || isset($seen[$manifest . "\0" . $option])
+                || $settlement !== (self::compiledStorageSettlementCovered(
+                    $compileSummary,
+                    $manifest,
+                    $option
+                ) ? 'lifecycle-settle' : 'manual')) {
+                throw new \RuntimeException('target compile returned malformed storage prerequisite inventory');
+            }
+            $seen[$manifest . "\0" . $option] = true;
+        }
+        return $rows;
+    }
+
+    /**
+     * Validate the target's value-redacted prerequisite response against the
+     * exact compiler projection that caused the host to ask for it.
+     *
+     * @param array{exit:int,stdout:string,stderr:string} $result
+     * @param list<array{equals:string,manifest:string,option:string,settlement:string}> $inventory
+     * @return array{declared:bool,format:string,prerequisites:list<array{manifest:string,option:string,ready:bool,settlement:string}>,required:bool,state:string}
+     */
+    public static function storagePrerequisiteStatusResult(array $result, array $inventory): array {
+        if ((int) ($result['exit'] ?? 1) !== 0
+            || (string) ($result['stderr'] ?? '') !== '') {
+            throw new \RuntimeException('target storage prerequisite preflight failed');
+        }
+        try {
+            $status = json_decode(trim((string) ($result['stdout'] ?? '')), true, 32, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException('target returned malformed storage prerequisite evidence', 0, $failure);
+        }
+        $keys = is_array($status) ? array_keys($status) : [];
+        sort($keys, SORT_STRING);
+        $prerequisites = is_array($status) ? ($status['prerequisites'] ?? null) : null;
+        if ($keys !== ['declared', 'format', 'prerequisites', 'required', 'state']
+            || ($status['format'] ?? null) !== 'wprism-storage-prerequisite-status/v1'
+            || !is_bool($status['declared'] ?? null)
+            || !is_bool($status['required'] ?? null)
+            || !in_array($status['state'] ?? null, ['none', 'ready', 'required'], true)
+            || !is_array($prerequisites) || !array_is_list($prerequisites)
+            || count($prerequisites) !== count($inventory)) {
+            throw new \RuntimeException('target returned malformed storage prerequisite evidence');
+        }
+        $required = false;
+        foreach ($prerequisites as $index => $row) {
+            $rowKeys = is_array($row) ? array_keys($row) : [];
+            sort($rowKeys, SORT_STRING);
+            $expected = $inventory[$index];
+            if ($rowKeys !== ['manifest', 'option', 'ready', 'settlement']
+                || ($row['manifest'] ?? null) !== $expected['manifest']
+                || ($row['option'] ?? null) !== $expected['option']
+                || ($row['settlement'] ?? null) !== $expected['settlement']
+                || !is_bool($row['ready'] ?? null)) {
+                throw new \RuntimeException('target returned malformed storage prerequisite evidence');
+            }
+            $required = $required || !$row['ready'];
+        }
+        $declared = $inventory !== [];
+        $state = !$declared ? 'none' : ($required ? 'required' : 'ready');
+        if ($status['declared'] !== $declared
+            || $status['required'] !== $required
+            || $status['state'] !== $state) {
+            throw new \RuntimeException('target returned inconsistent storage prerequisite evidence');
+        }
+        return $status;
+    }
+
+    private static function compiledStorageSettlementCovered(
+        array $compileSummary,
+        string $manifest,
+        string $option
+    ): bool {
+        // effects_inventory flattens action effects; its stable source keeps
+        // the complete declaration together so one safe row cannot conceal a
+        // sibling irreversible effect when the host admits storage settlement.
+        $actions = [];
+        foreach ((array) ($compileSummary['effects_inventory'] ?? []) as $row) {
+            if (!is_array($row)
+                || ($row['manifest'] ?? null) !== $manifest
+                || ($row['phase'] ?? null) !== 'lifecycle-settle') {
+                continue;
+            }
+            $source = $row['source'] ?? null;
+            if (!is_string($source) || $source === '') {
+                continue;
+            }
+            $actions[$source] ??= ['covers' => false, 'restorable' => true];
+            $effect = $row['effect'] ?? null;
+            if (!is_array($effect)
+                || ($effect['kind'] ?? null) !== 'database'
+                || ($effect['mode'] ?? null) !== 'restorable'
+                || ($effect['selector']['scope'] ?? null) !== 'database_checkpoint') {
+                $actions[$source]['restorable'] = false;
+                continue;
+            }
+            $type = $effect['selector']['type'] ?? null;
+            $value = $effect['selector']['value'] ?? null;
+            if (($type === 'option' && $value === $option)
+                || ($type === 'table' && $value === 'options')) {
+                $actions[$source]['covers'] = true;
+            }
+        }
+        foreach ($actions as $action) {
+            if ($action['restorable'] && $action['covers']) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

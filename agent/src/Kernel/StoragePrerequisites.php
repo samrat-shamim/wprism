@@ -15,6 +15,22 @@ require_once __DIR__ . '/PlainData.php';
 
 /** Native migration cursors are target prerequisites, never portable authored state. */
 final class StoragePrerequisites {
+    /** @return list<array{manifest:string,option:string,ready:bool}> */
+    public static function readiness(array $manifests): array {
+        $result = [];
+        foreach (StoragePrerequisiteGrammar::project($manifests) as $row) {
+            $observed = ExactOptionReader::read_row(
+                $row['option'], 'storage prerequisite', maxValueBytes: 1024
+            );
+            $result[] = [
+                'manifest' => $row['manifest'],
+                'option' => $row['option'],
+                'ready' => ($observed['value'] ?? null) === $row['equals'],
+            ];
+        }
+        return $result;
+    }
+
     public static function assert_ready(array $manifests): void {
         foreach (StoragePrerequisiteGrammar::project($manifests) as $row) {
             // A warm object cache or option filter is not a durable migration

@@ -126,6 +126,12 @@ final class DeployCommand {
         $codeEnabled = CodeDeploy::enabled($compile['summary']);
         $schemaDeclared = CodeDeploy::schemaSettlementRequired($compile['summary']);
         $lifecycleSettlementDeclared = CodeDeploy::lifecycleSettlementDeclared($compile['summary']);
+        try {
+            $storagePrerequisites = CodeDeploy::storagePrerequisitesInventory($compile['summary']);
+        } catch (\Throwable $failure) {
+            fwrite(STDERR, "wprism: deploy: {$failure->getMessage()}; no target mutation occurred\n");
+            return 1;
+        }
         $codeChangeRequired = false;
         $codeBaselineRequired = false;
         $codeBaselineState = 'exact';
@@ -209,21 +215,82 @@ final class DeployCommand {
             // digest-bound readiness evidence.
             $schemaSettlementRequired = $lifecycleTransitionRequired || $schemaStatus['required'];
         }
+        $storageSettlementRequired = false;
+        if ($storagePrerequisites !== []) {
+            echo "deploy phase: storage-prerequisite-status\n";
+            $storageStatusResult = $transport->captureWp(CodeDeploy::storagePrerequisiteStatusArgs(
+                $repo,
+                $artifact,
+                $artifactHash
+            ));
+            if (($storageStatusResult['exit'] ?? 1) !== 0) {
+                fwrite(STDERR, "wprism: deploy: storage prerequisite preflight failed; no target mutation occurred\n");
+                CommandOutput::renderTransportDetail($storageStatusResult);
+                return ($storageStatusResult['exit'] ?? 1) !== 0
+                    ? (int) $storageStatusResult['exit']
+                    : 1;
+            }
+            try {
+                $storageStatus = CodeDeploy::storagePrerequisiteStatusResult(
+                    $storageStatusResult,
+                    $storagePrerequisites
+                );
+            } catch (\Throwable $failure) {
+                fwrite(STDERR, "wprism: deploy: {$failure->getMessage()}; no target mutation occurred\n");
+                return 1;
+            }
+            $manualDebt = array_values(array_filter(
+                $storageStatus['prerequisites'],
+                static fn(array $row): bool => !$row['ready'] && $row['settlement'] === 'manual'
+            ));
+            if ($manualDebt !== []) {
+                foreach ($manualDebt as $row) {
+                    fwrite(
+                        STDERR,
+                        "wprism: deploy: adapter {$row['manifest']} option {$row['option']} has an unmet "
+                            . "storage prerequisite without an effect-covered lifecycle settlement provider\n"
+                    );
+                }
+                fwrite(
+                    STDERR,
+                    "wprism: deploy: complete the adapter's supported native migration procedure, then retry; "
+                        . "no target mutation occurred\n"
+                );
+                return 1;
+            }
+            $storageSettlementRequired = $storageStatus['required'];
+            if ($storageSettlementRequired && !$lifecycleSettlementDeclared) {
+                fwrite(
+                    STDERR,
+                    'wprism: deploy: compiled storage settlement authority disagrees with its lifecycle effects; '
+                        . "no target mutation occurred\n"
+                );
+                return 1;
+            }
+        }
         // A lifecycle-settlement provider runs only after the ordered fresh
         // retire/activate boundary. Missing schema can itself create derived
         // state debt, so establish even no-op lifecycle phases before that
         // provider when schema settlement is the only initial finding.
         $lifecyclePhasesRequired = $lifecycleTransitionRequired
-            || ($schemaSettlementRequired && $lifecycleSettlementDeclared);
+            || ($schemaSettlementRequired && $lifecycleSettlementDeclared)
+            || $storageSettlementRequired;
         $lifecycleSettlementRequired = $codeChangeRequired
             || ($lifecycleSettlementDeclared
-                && ($lifecyclePhasesRequired || $schemaSettlementRequired));
+                && ($lifecyclePhasesRequired || $schemaSettlementRequired || $storageSettlementRequired));
+        $storagePrerequisitesOnly = $storageSettlementRequired
+            && !$codeChangeRequired
+            && !$lifecycleTransitionRequired
+            && !$schemaSettlementRequired;
+        $lifecycleSettlementPhase = $storagePrerequisitesOnly
+            ? 'storage-prerequisite-settle'
+            : 'lifecycle-settle';
         $providerSettlementPhases = [];
         if ($schemaSettlementRequired) {
             $providerSettlementPhases[] = 'schema-settle';
         }
         if ($lifecycleSettlementDeclared && $lifecycleSettlementRequired) {
-            $providerSettlementPhases[] = 'lifecycle-settle';
+            $providerSettlementPhases[] = $lifecycleSettlementPhase;
         }
         $providerTransactionPhases = $providerSettlementPhases;
         if ($providerTransactionPhases !== [] && $lifecyclePhasesRequired) {
@@ -537,14 +604,15 @@ final class DeployCommand {
         }
 
         if ($lifecycleSettlementRequired) {
-            echo "deploy phase: lifecycle-settle\n";
+            echo "deploy phase: $lifecycleSettlementPhase\n";
             $settle = $transport->streamWp(CodeDeploy::lifecycleSettleArgs(
                 $repo,
                 $artifact,
                 $artifactHash,
                 $runId,
-                in_array('lifecycle-settle', $providerSettlementPhases, true) ? $checkpoint : '',
-                false
+                in_array($lifecycleSettlementPhase, $providerSettlementPhases, true) ? $checkpoint : '',
+                false,
+                $storagePrerequisitesOnly
             ));
             if ($settle !== 0) {
                 fwrite(STDERR, "wprism: deploy: asynchronous lifecycle settlement failed (exit $settle); code-finalize was not run\n");
@@ -560,37 +628,93 @@ final class DeployCommand {
                 );
                 return $settle;
             }
-            if (in_array('lifecycle-settle', $providerSettlementPhases, true)) {
-                $lifecycleAdvance = CodeDeploy::advanceProviderSettlement(
-                    $transport,
-                    $repo,
-                    $artifact,
-                    $checkpoint,
-                    $runId,
-                    $artifactHash,
-                    $providerTransactionPhases,
-                    'lifecycle-settle'
+        }
+
+        // Re-read the physical cursor through the isolated control plane after
+        // every mutating deploy path. The provider phase is not durably
+        // complete until this exact artifact-bound postcondition is true.
+        if ($storagePrerequisites !== []) {
+            echo "deploy phase: storage-prerequisite-verify\n";
+            $storageVerifyResult = $transport->captureWp(CodeDeploy::storagePrerequisiteStatusArgs(
+                $repo,
+                $artifact,
+                $artifactHash
+            ));
+            if (($storageVerifyResult['exit'] ?? 1) !== 0) {
+                fwrite(
+                    STDERR,
+                    "wprism: deploy: storage prerequisite verification failed after deployment work; later phases were not run\n"
                 );
-                if (($lifecycleAdvance['exit'] ?? 1) !== 0) {
-                    fwrite(
-                        STDERR,
-                        "wprism: deploy: lifecycle settlement succeeded but durable provider phase progress was not recorded\n"
-                    );
-                    CommandOutput::renderTransportDetail($lifecycleAdvance);
-                    self::cleanupAndGuide(
-                        $transport,
-                        $abort,
-                        $printRecovery,
-                        true,
-                        $checkpoint,
-                        $codeChangeRequired,
-                        $runId,
-                        $artifactHash
-                    );
-                    return ($lifecycleAdvance['exit'] ?? 1) !== 0
-                        ? (int) $lifecycleAdvance['exit']
-                        : 1;
-                }
+                CommandOutput::renderTransportDetail($storageVerifyResult);
+                self::cleanupAndGuide(
+                    $transport, $abort, $printRecovery, $wantCheckpoint, $checkpoint,
+                    $codeChangeRequired, $runId, $artifactHash
+                );
+                return ($storageVerifyResult['exit'] ?? 1) !== 0
+                    ? (int) $storageVerifyResult['exit']
+                    : 1;
+            }
+            try {
+                $storageVerify = CodeDeploy::storagePrerequisiteStatusResult(
+                    $storageVerifyResult,
+                    $storagePrerequisites
+                );
+            } catch (\Throwable $failure) {
+                fwrite(
+                    STDERR,
+                    "wprism: deploy: {$failure->getMessage()} after deployment work; later phases were not run\n"
+                );
+                self::cleanupAndGuide(
+                    $transport, $abort, $printRecovery, $wantCheckpoint, $checkpoint,
+                    $codeChangeRequired, $runId, $artifactHash
+                );
+                return 1;
+            }
+            if ($storageVerify['required']) {
+                fwrite(
+                    STDERR,
+                    'wprism: deploy: lifecycle/provider work left a native storage prerequisite unmet; '
+                        . "later phases were not run\n"
+                );
+                self::cleanupAndGuide(
+                    $transport, $abort, $printRecovery, $wantCheckpoint, $checkpoint,
+                    $codeChangeRequired, $runId, $artifactHash
+                );
+                return 1;
+            }
+        }
+
+        if ($lifecycleSettlementRequired
+            && in_array($lifecycleSettlementPhase, $providerSettlementPhases, true)) {
+            $lifecycleAdvance = CodeDeploy::advanceProviderSettlement(
+                $transport,
+                $repo,
+                $artifact,
+                $checkpoint,
+                $runId,
+                $artifactHash,
+                $providerTransactionPhases,
+                $lifecycleSettlementPhase
+            );
+            if (($lifecycleAdvance['exit'] ?? 1) !== 0) {
+                fwrite(
+                    STDERR,
+                    "wprism: deploy: lifecycle settlement succeeded but durable provider phase progress was not recorded\n"
+                );
+                CommandOutput::renderTransportDetail($lifecycleAdvance);
+                self::cleanupAndGuide(
+                    $transport,
+                    $abort,
+                    $printRecovery,
+                    true,
+                    $checkpoint,
+                    $codeChangeRequired,
+                    $runId,
+                    $artifactHash
+                );
+                return ($lifecycleAdvance['exit'] ?? 1) !== 0
+                    ? (int) $lifecycleAdvance['exit']
+                    : 1;
             }
         }
 
@@ -685,7 +809,7 @@ final class DeployCommand {
             $phases[] = 'schema-settle';
         }
         if ($lifecycleSettlementRequired) {
-            $phases[] = 'lifecycle-settle';
+            $phases[] = $lifecycleSettlementPhase;
         }
         if ($baselineAccepted) {
             $phases[] = 'code-baseline-accept';

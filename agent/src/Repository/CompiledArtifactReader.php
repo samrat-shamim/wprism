@@ -4,6 +4,7 @@ namespace WPrism;
 require_once __DIR__ . '/CompiledArtifact.php';
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
 require_once __DIR__ . '/../Policy/ArtifactPolicyIdentity.php';
+require_once __DIR__ . '/../Kernel/StoragePrerequisiteSettlement.php';
 // Keep these explicit for the direct source-require contract. They are no-ops
 // after ArtifactPolicyIdentity's normal load, but must remain *after* it so
 // its fake-Canon refusal boundary can distinguish a complete normal Policy
@@ -69,6 +70,15 @@ final class CompiledArtifactReader {
             throw self::artifact_exception(
                 'compiled_artifact_invalid', $path,
                 'compiled effect inventory does not match the active manifest contracts'
+            );
+        }
+        if (!hash_equals(
+            Canon::encode($artifact->storage_prerequisites_inventory()),
+            Canon::encode(StoragePrerequisiteSettlement::inventory($policy->manifests))
+        )) {
+            throw self::artifact_exception(
+                'compiled_artifact_invalid', $path,
+                'compiled storage prerequisite inventory does not match the active manifest contracts'
             );
         }
         if ($artifact->media_derivatives() !== RepositoryMediaDerivatives::derive($artifact->tree(), $policy)) {

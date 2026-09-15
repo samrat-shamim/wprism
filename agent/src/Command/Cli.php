@@ -31,7 +31,7 @@ require_once __DIR__ . '/LifecycleCommandContext.php';
 use WP_CLI;
 
 /**
- * wp wprism <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-deletion-feasibility|adapter-survey|orphans|deploy|code-preflight|lifecycle-status|code-baseline-accept|code-stage|schema-status|schema-settle|lifecycle-settle|code-finalize|promotion-begin|promotion-abort|manifest-pin|executable-owner-observe|identity-export|identity-import|journal-report|effect-coverage|journal-reset|code-inventory>
+ * wp wprism <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-deletion-feasibility|adapter-survey|orphans|deploy|code-preflight|lifecycle-status|storage-prerequisite-status|code-baseline-accept|code-stage|schema-status|schema-settle|lifecycle-settle|code-finalize|promotion-begin|promotion-abort|manifest-pin|executable-owner-observe|identity-export|identity-import|journal-report|effect-coverage|journal-reset|code-inventory>
  */
 final class Cli {
     private const REFUSAL_FORMAT = 'wprism-command-refusal/v1';
@@ -540,6 +540,7 @@ final class Cli {
             'apply' => 'inspect apply_in_progress and recovery evidence, then resume or recover according to the recorded phase',
             'deploy' => 'inspect lifecycle and promotion evidence, then restore or recover the exact recorded code and state release',
             'code-preflight' => 'correct the staged plugin/theme runtime header or target PHP/WordPress evidence before beginning promotion',
+            'storage-prerequisite-status' => 'inspect the compiled manifest identity and exact runtime option storage, then complete the supported native migration or retry the host deploy',
             'code-baseline-accept' => "run the host 'wprism deploy <env>' workflow with the exact frozen artifact and explicit --force-code-drift consent",
             'code-stage' => 'inspect the staging receipt and promotion lease, then resume or recover the exact immutable artifact',
             'code-finalize' => 'inspect the staged receipt and promotion lease, then resume or recover the exact immutable artifact',
@@ -776,6 +777,49 @@ final class Cli {
     }
 
     /**
+     * Read exact native option prerequisites for the host deploy preflight.
+     * Values remain private; the result carries only declaration coordinates,
+     * readiness, and whether an effect-covered lifecycle provider can settle.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repo root.
+     * --compiled=<path> : Frozen compiler artifact selected by the host.
+     * --artifact-hash=<sha256> : Required host-observed artifact hash.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand storage-prerequisite-status
+     */
+    public function storage_prerequisite_status($args, $assoc) {
+        $summary = null;
+        try {
+            SiteTopology::assert_single_site();
+            $repo = $assoc['repo']
+                ?? throw CommandRefusalException::invalidArgument('storage-prerequisite-status', '--repo');
+            $compiled = $assoc['compiled']
+                ?? throw CommandRefusalException::invalidArgument('storage-prerequisite-status', '--compiled');
+            $artifactHash = $assoc['artifact-hash']
+                ?? throw CommandRefusalException::invalidArgument('storage-prerequisite-status', '--artifact-hash');
+            // Keep the repository compiler and physical option reader out of
+            // every command process; this host-only status is their sole new
+            // caller on the WP-CLI surface.
+            if (!class_exists(StoragePrerequisiteStatus::class, false)) {
+                require_once __DIR__ . '/../Promotion/StoragePrerequisiteStatus.php';
+            }
+            $summary = StoragePrerequisiteStatus::inspect(
+                (string) $repo,
+                (string) $compiled,
+                (string) $artifactHash
+            );
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'storage-prerequisite-status');
+            WP_CLI::error($t->getMessage());
+        }
+        if (is_array($summary)) {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+        }
+    }
+
+    /**
      * Accept already-installed plugin/theme versions as the new drift
      * baseline. This internal host phase runs through the isolated control
      * plane, takes its own transient target fence, and fires no lifecycle or
@@ -849,6 +893,7 @@ final class Cli {
      * --artifact-hash=<sha256> : Required host-observed outer artifact hash.
      * [--checkpoint=<path>] : Exact authenticated checkpoint for declared provider work.
      * [--release-on-success] : Release the lease when no later phase follows.
+     * [--storage-prerequisites-only] : Run only actions whose effects cover currently unmet native storage prerequisites.
      * [--format=<format>] : Output format. Accepts json.
      *
      * @subcommand lifecycle-settle
@@ -867,7 +912,8 @@ final class Cli {
                 (string) $artifactHash,
                 (string) $owner,
                 $checkpoint,
-                !empty($assoc['release-on-success'])
+                !empty($assoc['release-on-success']),
+                self::bare_boolean_flag($assoc, 'storage-prerequisites-only')
             );
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'lifecycle-settle');

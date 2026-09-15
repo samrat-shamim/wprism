@@ -107,6 +107,7 @@ namespace {
     use WPrism\Policy;
     use WPrism\CommandRefusalException;
     use WPrism\RepositoryCompilationException;
+    use WPrism\StoragePrerequisiteSettlement;
 
     if (!defined('WPRISM_TEST_MODE')) {
         define('WPRISM_TEST_MODE', true);
@@ -439,6 +440,39 @@ PHP;
         $diagnostic(static fn() => CompiledArtifactReader::read_artifact($effectsPath, $effectsPolicy)) === 'compiled_artifact_invalid'
             && $effectsPolicy->primeCalls === 0,
         'a canonical effect-inventory mismatch is refused before interpreter priming'
+    );
+
+    $storagePolicy = new Policy();
+    $storagePolicy->manifests = [[
+        'name' => 'storage-reader-fixture',
+        'spec_version' => 3,
+        'engine_features' => ['spec-window/v1', 'storage-prerequisites/v1'],
+        'options' => ['fixture_version' => ['class' => 'runtime']],
+        'storage_prerequisites' => [['equals' => '1.0.0', 'option' => 'fixture_version']],
+    ]];
+    $storagePayload = $payload($storagePolicy);
+    $storagePayload['storage_prerequisites_inventory'] = StoragePrerequisiteSettlement::inventory(
+        $storagePolicy->manifests
+    );
+    $storagePath = "$tmp/storage-valid.json";
+    $storageExpected = $writeArtifact($storagePath, $storagePayload);
+    $storageActual = CompiledArtifactReader::read_artifact($storagePath, $storagePolicy);
+    $check(
+        $storageActual->storage_prerequisites_inventory()
+            === $storageExpected->storage_prerequisites_inventory(),
+        'a compiled storage prerequisite projection remains bound to the active manifest contract'
+    );
+    $missingStoragePath = "$tmp/storage-missing.json";
+    $writeArtifact($missingStoragePath, $payload($storagePolicy));
+    $missingStoragePolicy = clone $storagePolicy;
+    $missingStoragePolicy->primeCalls = 0;
+    $check(
+        $diagnostic(static fn() => CompiledArtifactReader::read_artifact(
+            $missingStoragePath,
+            $missingStoragePolicy
+        )) === 'compiled_artifact_invalid'
+            && $missingStoragePolicy->primeCalls === 0,
+        'a missing compiled storage prerequisite projection refuses before interpreter priming'
     );
 
     $precedencePolicy = new Policy();

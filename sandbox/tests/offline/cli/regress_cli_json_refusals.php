@@ -392,6 +392,7 @@ namespace {
     $commands = [
         'compile' => 'compile',
         'code_preflight' => 'code-preflight',
+        'storage_prerequisite_status' => 'storage-prerequisite-status',
         'code_baseline_accept' => 'code-baseline-accept',
         'code_stage' => 'code-stage',
         'code_finalize' => 'code-finalize',
@@ -1785,13 +1786,14 @@ namespace {
     // completion gate; 34 with the pre-observation `schema-settle` gate; 37
     // after lifecycle/schema status and the value-free `checkpoint-target`
     // identity preflight closed the host-owned provider-settlement sequence;
-    // 38 with the isolated `code-baseline-accept` host phase.
+    // 38 with the isolated `code-baseline-accept` host phase; 39 with the
+    // value-redacted `storage-prerequisite-status` host preflight.
     // Checkpoint authentication and opening are intentionally absent: recovery
     // performs them before WordPress loads, so public WP commands would be a
     // second authority over the destructive restore boundary.
     // Every advertised handler is covered by the common envelope contract, so
     // this count moves with the set rather than around it.
-    check(count($advertised) === 38, 'every one of the 38 --format=json commands was scanned (' . count($advertised) . ')');
+    check(count($advertised) === 39, 'every one of the 39 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
     // default arm promises to "correct the named blocker" on exactly the path
@@ -1799,7 +1801,8 @@ namespace {
     // regression this closes.
     $armed = new ReflectionMethod(\WPrism\Cli::class, 'refusal_remediation');
     foreach ([
-        'code-preflight', 'code-baseline-accept', 'promotion-begin', 'promotion-abort', 'promotion-begin-scoped',
+        'code-preflight', 'storage-prerequisite-status', 'code-baseline-accept',
+        'promotion-begin', 'promotion-abort', 'promotion-begin-scoped',
         'promotion-complete-scoped', 'env-set', 'orphans', 'verify-canonical',
         'journal-report', 'effect-coverage', 'pending', 'coverage', 'classify', 'lint', 'capabilities',
     ] as $command) {

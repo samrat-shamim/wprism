@@ -2778,12 +2778,34 @@ external callback that already decided to migrate from a stale native cache.
 Capture repeats the nonlocking read within its consistent snapshot. Read-only terminal receipt
 validation may refuse if live prerequisites changed, but authorizes no work.
 
-The lifecycle options-only handoff remains available to establish code and
-migration prerequisites. This feature alone neither invokes a provider nor
-selects automatic settlement: operators must complete the supported native
-migration procedure before retrying. A current cursor proves only the declared
-native prerequisite, not the history of how it was reached. Existing manifests
-without this section incur no additional target reads or identity changes.
+The feature alone neither invokes a provider nor selects automatic settlement.
+The compiler derives automatic authority only when the same manifest also has
+a `lifecycle_settle` provider action whose every effect is `database` /
+`restorable` / `database_checkpoint` authority and at least one selects either
+that exact option or the `options` table. An external, irreversible, or
+otherwise uncheckpointed effect on the same action keeps the prerequisite
+manual. No provider id, callback, or phase is repeated in the prerequisite row.
+Every other prerequisite remains manual and an unmet manual row makes host
+deploy refuse before `promotion-begin`.
+
+For a nonempty section, the compiled artifact carries
+`storage_prerequisites_inventory`: the exact `{manifest, option, equals}` rows
+plus derived `settlement` (`lifecycle-settle` or `manual`). The artifact reader
+recomputes this projection from the active manifests before execution. Host
+deploy asks the isolated control plane for a value-redacted status before its
+lease. Effect-covered debt selects the existing checkpointed retire, activate,
+and provider settlement transaction even when code is already exact. Storage
+debt on otherwise exact code binds the distinct durable
+`storage-prerequisite-settle` phase and executes only lifecycle actions whose
+complete checkpoint-restorable declarations cover currently unmet rows; it
+cannot enlist another manifest's lifecycle effects or the same action's
+external effects. A code or schema transition keeps the full
+`lifecycle-settle` phase. Before either provider phase is advanced or code is
+finalized, the host repeats the exact physical read; an unreadable or unmet
+postcondition retains recovery debt and the pre-provider checkpoint. A current cursor proves only the declared native
+prerequisite, not the history of how it was reached. Existing manifests without
+this section retain byte-identical compiled artifacts and incur no additional
+target read.
 
 ### v3.23 `schema-settlement/v1` — strict observation gets a recoverable prerequisite
 

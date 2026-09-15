@@ -42,8 +42,13 @@ the installed MU loader in a fresh process.
    a separate opaque code descriptor and revision.
 6. **adapter disposition gate** — an experimental or unsupported adapter
    claim refuses here, *before* any lease exists.
-7. **promotion-begin** — an exact owner/artifact session on the target.
-8. **checkpoint** — a whole-database export under that same lease, retained at
+7. **read-only deployment status** — lifecycle/code-baseline status, declared
+   schema readiness, and exact native storage prerequisites are read before a
+   lease. An unmet storage prerequisite remains manual unless the same
+   manifest's lifecycle settlement action has only restorable checkpointed
+   database effects and one covers that option. Manual debt stops here.
+8. **promotion-begin** — an exact owner/artifact session on the target.
+9. **checkpoint** — a whole-database export under that same lease, retained at
    `<repo>/.wprism/checkpoints/deploy-<owner>.sql.enc` beside the
    `deploy-<owner>.json` artifact of step 5. It sits here, not earlier, because
    the dump has to contain the promotion lease row it was taken under — that is
@@ -54,11 +59,27 @@ the installed MU loader in a fresh process.
    write-exclusion window and with no retention policy, so on a large database
    the cost has to be refusable — at the price of having nothing to restore
    from if a later phase fails.
-9. **code-stage** — the new bytes land beside the live tree.
-10. **lifecycle retire** — deactivation hooks fire.
-11. **lifecycle activate** — in a *fresh process*, so the new code is what
+10. **code-stage** — the new bytes land beside the live tree.
+11. **provider-settlement begin** — when schema or lifecycle providers will
+    run, a database-external intent binds their exact ordered phases to this
+    artifact and checkpoint.
+12. **lifecycle retire** — deactivation hooks fire. Effect-covered storage
+    debt selects this ordered lifecycle handoff even when code is already exact.
+13. **lifecycle activate** — in a *fresh process*, so the new code is what
     boots and its own updater notices the version change deterministically.
-12. **code-finalize** — requires both lifecycle receipts, so a merely staged
+14. **schema and lifecycle settlement** — declared schema preparation runs
+    first, followed by asynchronous/native lifecycle providers. When storage
+    debt is the only trigger, the durable `storage-prerequisite-settle` phase
+    selects only actions whose complete checkpoint-restorable declarations
+    cover an unmet row; mixed, external, and other adapters' effects are
+    outside that transaction.
+15. **storage prerequisite verification** — when declared, the isolated
+    control plane repeats the exact physical cursor read. A failed or unmet
+    postcondition leaves the provider intent incomplete and points recovery at
+    the checkpoint from step 9.
+16. **provider-settlement complete** — durable phase debt clears only after
+    every provider and storage postcondition succeeds.
+17. **code-finalize** — requires both lifecycle receipts, so a merely staged
     payload can never be promoted into a completed `code_revision` by skipping
     the WordPress lifecycle.
 

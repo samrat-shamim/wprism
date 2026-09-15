@@ -109,6 +109,7 @@ require_once __DIR__ . '/src/Code/Code.php';
 require_once __DIR__ . '/src/Repository/ReferenceGraph.php';
 require_once __DIR__ . '/src/Repository/CompiledArtifact.php';
 require_once __DIR__ . '/src/Repository/RepositoryCompiler.php';
+require_once __DIR__ . '/src/Promotion/StoragePrerequisiteStatus.php';
 require_once __DIR__ . '/src/Policy/ScopeClosure.php';
 require_once __DIR__ . '/src/Init/InitSiteProbe.php';
 require_once __DIR__ . '/src/Init/InitCodeInventory.php';
@@ -166,9 +167,8 @@ require_once __DIR__ . '/src/Assess/AssessInventory.php';
  * Additive classmap fallback (issue #3481, owner rulings D3/D4).
  *
  * Every require_once above is retained and still does all the loading: after
- * this bootstrap runs, 304 of the 309 names in wprism-classmap.php are already
- * declared, and the five exceptions (WPrism\AdapterCertification and its four
- * withdrawal/supersession signals) are
+ * this bootstrap runs, every name in wprism-classmap.php is already declared
+ * except WPrism\AdapterCertification and its four withdrawal/supersession signals. They are
  * require_once'd at each of that file's three use sites in AdapterSources.php
  * before any of them is ever named. An spl_autoload_register() callback is only consulted for a
  * class that is *still undeclared* at the moment it is referenced, so on the

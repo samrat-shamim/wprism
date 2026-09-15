@@ -280,6 +280,11 @@ final class CompiledRepository {
         return (array) ($this->artifact['effects_inventory'] ?? []);
     }
 
+    /** Exact prerequisite coordinates and their derived host settlement authority. */
+    public function storage_prerequisites_inventory(): array {
+        return (array) ($this->artifact['storage_prerequisites_inventory'] ?? []);
+    }
+
     /** @return list<array<string,string>> */
     private static function derive_uploads_inventory(array $tree): array {
         $rows = [];
