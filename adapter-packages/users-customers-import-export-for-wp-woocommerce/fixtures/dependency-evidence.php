@@ -85,6 +85,22 @@ final class ImporterDependencyEvidence {
             static fn(array $row): bool => $row['option_name'] === 'wt_iew_advanced_settings'));
         return count($option($before)) === 1 && $option($before) === $option($after);
     }
+
+    public static function initialApplyWarnings(array $tree, array $target): array {
+        $paths = array_column($tree['files'] ?? [], 'path');
+        $terms = array_values(array_filter($paths,
+            static fn(string $path): bool => preg_match('~^terms/category/[0-9a-f-]{36}--uncategorized\.json$~D', $path) === 1));
+        $templates = array_values(array_filter($paths,
+            static fn(string $path): bool => preg_match('~^tables/wt_iew_mapping_template/[0-9a-f-]{36}--selected-users\.json$~D', $path) === 1));
+        if (count($terms) !== 1 || count($templates) !== 1 || !is_int($target['original'] ?? null)
+            || $target['original'] < 1) {
+            throw new RuntimeException('initial Importer adoption warnings require exact native identities');
+        }
+        $termUuid = substr(basename($terms[0]), 0, 36);
+        $templateUuid = substr(basename($templates[0]), 0, 36);
+        return ["adopted env term 1 as $termUuid ({$terms[0]})",
+            "adopted env table row wt_iew_mapping_template:{$target['original']} as $templateUuid ({$templates[0]})"];
+    }
 }
 
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') !== __FILE__) return;
@@ -136,14 +152,10 @@ foreach (['initial', 'reinstalled', 'boundary-restored'] as $case) {
     if ($case === 'initial') {
         $tree = $read('inactive-before-state')['state'];
         WPrismTest\FilesystemTreeEvidence::assertRecord($tree, 'state');
-        $terms = array_values(array_filter(array_column($tree['files'], 'path'),
-            static fn(string $path): bool => preg_match('~^terms/category/[0-9a-f-]{36}--uncategorized\.json$~D', $path) === 1));
-        if (count($terms) !== 1) throw new RuntimeException('one captured default-term identity is required for explicit adoption');
-        $uuid = substr(basename($terms[0]), 0, 36);
-        $warnings = ["adopted env term 1 as $uuid ({$terms[0]})"];
+        $warnings = ImporterDependencyEvidence::initialApplyWarnings($tree, $read('templates-target'));
     }
     wprism_check($apply['canary'] === 'clean' && $apply['warnings'] === $warnings && $apply['verification']['result'] === 'pass',
-        'public Apply passes verification with only the explicitly requested initial default-term adoption: ' . $case);
+        'public Apply passes verification with only the exact authorized identity adoptions: ' . $case);
 }
 $baseline = $read('retained-before');
 wprism_check(count($baseline['tables']['wt_iew_action_history']) === 4 && count($baseline['tables']['wt_iew_mapping_template']) === 4

@@ -109,6 +109,20 @@ foreach ($premises as $case => $premise) {
             'dependency premise rejects a changed field: ' . $case . ' ' . $key);
     }
 }
+$termUuid = '11111111-1111-1111-1111-111111111111';
+$templateUuid = '22222222-2222-2222-2222-222222222222';
+$warningTree = ['files' => [
+    ['path' => "terms/category/$termUuid--uncategorized.json"],
+    ['path' => "tables/wt_iew_mapping_template/$templateUuid--selected-users.json"],
+]];
+wprism_check_same(["adopted env term 1 as $termUuid (terms/category/$termUuid--uncategorized.json)",
+    "adopted env table row wt_iew_mapping_template:103 as $templateUuid (tables/wt_iew_mapping_template/$templateUuid--selected-users.json)"],
+    ImporterDependencyEvidence::initialApplyWarnings($warningTree, ['original' => 103]),
+    'initial Apply admits the exact term and native template adoption disclosures');
+wprism_check_throws(static fn() => ImporterDependencyEvidence::initialApplyWarnings(['files' => []], ['original' => 103]),
+    RuntimeException::class, 'initial Apply cannot hide a missing canonical adoption identity');
+wprism_check_throws(static fn() => ImporterDependencyEvidence::initialApplyWarnings($warningTree, ['original' => '103']),
+    RuntimeException::class, 'initial Apply cannot weaken the native template identity type');
 $state = ['format' => 'wprism-importer-native-settings/v1', 'tables' => array_fill_keys([
     'posts', 'postmeta', 'options', 'terms', 'term_taxonomy', 'term_relationships', 'termmeta',
     'users', 'usermeta', 'wt_iew_action_history', 'wt_iew_mapping_template'], [['fixture' => 'preserve']]),
