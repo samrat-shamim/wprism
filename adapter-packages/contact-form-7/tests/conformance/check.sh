@@ -552,8 +552,14 @@ jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] |
 pass "competing CF7 applies serialize and leave one exact idempotent result"
 
 # Deactivation is reversible. CF7's native uninstall is destructive (all form
-# posts and wpcf7 option); missing code must refuse, then exact digest-bound
-# reinstall plus explicit repository authority must reconstruct native forms.
+# posts and the wpcf7 option), and missing code must refuse. What recovers from
+# it changed with #565: a mapped identity whose backing row is gone is never
+# recreated or rebound -- not by explicit slug adoption either, because the map
+# guard runs in the target snapshot before any adoption is planned
+# (agent/src/Repository/CanonicalLedgerMapGuard.php). Recovery is the
+# database-matched backup, the sequence polylang/tests/conformance/check.sh
+# already proves for its own complete uninstall: refuse exactly and preserve,
+# refuse the stale identity sidecar, restore the backup, converge.
 wp_conf2 option update wprism_cf7_neighbor 'target-neighbor-preserved' >/dev/null
 wp_conf2 plugin deactivate contact-form-7 >/dev/null
 if wp_conf2 plugin is-active contact-form-7 >/dev/null 2>&1; then
@@ -562,6 +568,20 @@ fi
 REACTIVATE=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_wprism_answered "CF7 deploy after deactivation" json "$REACTIVATE"
 wp_conf2 plugin is-active contact-form-7 >/dev/null || fail "WPrism deploy did not reactivate exact CF7 code"
+# Target-owned wpcf7 state is written BEFORE the backup, so recovery must bring
+# it back rather than merely not disturb it.
+wp_conf2 eval '
+  $option=(array)get_option("wpcf7",[]);
+  $option["wprism_reinstall_target"]="reinstall-env-preserved";
+  update_option("wpcf7",$option);
+' >/dev/null
+REMOVE_ALL_DB="$CONF_REPO2/.tmp-cf7-remove-all.sql"
+REMOVE_ALL_IDENTITY="$CONF_REPO2/.tmp-cf7-remove-all-identity.json"
+wp_conf2 wprism identity-export --repo=/siterepo --out=/siterepo/.tmp-cf7-remove-all-identity.json >/dev/null
+jq -e '.format == "wprism-identity-ledger/v1" and any(.maps[]?; .id_kind == "post")' "$REMOVE_ALL_IDENTITY" >/dev/null \
+  || fail 'CF7 destructive-uninstall recovery sidecar omitted the form post identities'
+wp_conf2 db export /siterepo/.tmp-cf7-remove-all.sql --add-drop-table >/dev/null
+[ -s "$REMOVE_ALL_DB" ] || fail 'CF7 destructive-uninstall recovery database backup is empty'
 # A combined `uninstall --deactivate` keeps WPCF7_VERSION defined in that
 # request, and CF7's uninstall.php intentionally skips deletion in that shape.
 # A second native request after deactivation is the plugin's destructive path.
@@ -591,26 +611,30 @@ wp_conf2 plugin install "$CF7_ARTIFACT" --force >/dev/null
   || fail "CF7 exact reinstall reported wrong version"
 REINSTALL_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_wprism_answered "CF7 deploy after exact reinstall" json "$REINSTALL_DEPLOY"
-wp_conf2 eval '
-  $option=(array)get_option("wpcf7",[]);
-  $option["wprism_reinstall_target"]="reinstall-env-preserved";
-  update_option("wpcf7",$option);
-' >/dev/null
-REINSTALL_BEFORE=$(cf7_target_hash)
-REINSTALL_RC=0
-REINSTALL_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || REINSTALL_RC=$?
-require_wprism_answered "CF7 unforced apply after destructive uninstall" human "$REINSTALL_OUT"
-[ "$REINSTALL_RC" -ne 0 ] && grep -Eq 'slug collisions need explicit resolution|collides with env id' <<<"$REINSTALL_OUT" \
-  || fail "CF7 activation default did not require explicit slug adoption: $REINSTALL_OUT"
-[ "$(cf7_target_hash)" = "$REINSTALL_BEFORE" ] \
-  || fail "CF7 unforced reinstall collision partially mutated target state"
-REINSTALL_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered "CF7 recovery with explicit activation-default adoption" json "$REINSTALL_APPLY"
-jq -e '
-  .canary == "clean" and .verification.result == "pass" and .plan.adopt == 1 and
-  (.warnings | any(contains("adopted env post")))
-' <<<"$REINSTALL_APPLY" >/dev/null \
-  || fail "CF7 exact reinstall did not recover canonical state: $REINSTALL_APPLY"
+STALE_BEFORE=$(cf7_target_hash)
+STALE_PLAN_RC=0
+STALE_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json) || STALE_PLAN_RC=$?
+require_wprism_answered "CF7 plan after destructive uninstall" json "$STALE_PLAN"
+[ "$STALE_PLAN_RC" -ne 0 ] && jq -e '.ok == false and .reason_code == "canonical_identity_recovery_required"' \
+  <<<"$(awk 'NF { line=$0 } END { print line }' <<<"$STALE_PLAN")" >/dev/null \
+  || fail "CF7 destructive uninstall did not refuse canonical identity recovery at plan: $STALE_PLAN"
+STALE_RC=0
+STALE_OUT=$(wp_conf2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin 2>&1) || STALE_RC=$?
+require_wprism_answered "CF7 explicit slug adoption after destructive uninstall" human "$STALE_OUT"
+[ "$STALE_RC" -ne 0 ] && grep -Fq 'canonical mapped identity has no matching live backing row' <<<"$STALE_OUT" \
+  || fail "CF7 slug adoption rebound identities a destructive uninstall destroyed: $STALE_OUT"
+[ "$(cf7_target_hash)" = "$STALE_BEFORE" ] \
+  || fail "CF7 identity recovery refusal partially mutated target state"
+STALE_IDENTITY_RC=0
+STALE_IDENTITY=$(wp_conf2 wprism identity-import --repo=/siterepo --in=/siterepo/.tmp-cf7-remove-all-identity.json 2>&1) \
+  || STALE_IDENTITY_RC=$?
+[ "$STALE_IDENTITY_RC" -ne 0 ] \
+  && grep -Eq 'embedded identity does not verify|identity sidecar witness mismatch' <<<"$STALE_IDENTITY" \
+  || fail "CF7 destructive uninstall accepted an identity sidecar whose data witness was gone: $STALE_IDENTITY"
+wp_conf2 db import /siterepo/.tmp-cf7-remove-all.sql >/dev/null
+wp_conf2 plugin is-active contact-form-7 >/dev/null \
+  || fail 'CF7 database recovery did not restore the exact active-plugin preimage'
+rm -f "$REMOVE_ALL_DB" "$REMOVE_ALL_IDENTITY"
 RECOVERED=$(observe_cf7 conf2)
 printf '%s\n' "$RECOVERED" | jq -e '
   .main.mail.subject == "Concurrent CF7 intent 東京 🚀" and
@@ -633,4 +657,4 @@ wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-cf7-final >/dev/nu
 diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-cf7-final" \
   || fail "CF7 final recovered state was not byte-identical"
 rm -rf "$CONF_REPO2/.tmp-cf7-final"
-pass "deactivate/reactivate, destructive uninstall, absent-code refusal, exact reinstall, explicit recovery, render, and retry are clean"
+pass "deactivate/reactivate, destructive uninstall, absent-code refusal, exact reinstall, identity-recovery refusal, database recovery, render, and convergence are clean"
