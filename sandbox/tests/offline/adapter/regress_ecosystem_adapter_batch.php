@@ -4,8 +4,8 @@ declare(strict_types=1);
 /**
  * Offline product-path contract for the five exact-artifact adapters added by
  * the 2026-08-22 ecosystem probe, including the independently certified
- * Advanced Editor Tools, Classic Editor, Code Snippets and WPS Hide Login,
- * plus Yoast Duplicate Post's withdrawn managed-clone certification.
+ * Advanced Editor Tools, Classic Editor, Code Snippets, WPS Hide Login, and
+ * Yoast Duplicate Post's bounded certification.
  * The assertions load the shipped manifests and disposition registry
  * through Policy::load(); fixtures would
  * miss the byte set that managed sites actually pin.
@@ -97,7 +97,7 @@ $artifacts = [
 ];
 
 $effectiveRanges = $policy->version_ranges();
-$certified = ['advanced-editor-tools', 'classic-editor', 'code-snippets', 'wps-hide-login'];
+$certified = ['advanced-editor-tools', 'classic-editor', 'code-snippets', 'wps-hide-login', 'yoast-duplicate-post'];
 foreach ($artifacts as $name => $artifact) {
     $manifest = $manifests[$name];
     wprism_check_same($artifact['plugin'], $manifest['plugin'] ?? null, "$name pins the observed plugin basename");
@@ -411,7 +411,7 @@ $blockerNames = array_values(array_unique(array_column($policy->certification_re
 sort($blockerNames, SORT_STRING);
 $sortedNames = array_values(array_diff($names, $certified));
 sort($sortedNames, SORT_STRING);
-wprism_check_same($sortedNames, $blockerNames, 'only the withdrawn Yoast managed-clone certification blocks promotion of the combined policy');
+wprism_check_same($sortedNames, $blockerNames, 'the combined ecosystem policy has no stale production-readiness blocker');
 
 $limitations = (string) file_get_contents($root . '/docs/guides/adapter-authoring-limitations.md');
 foreach ([

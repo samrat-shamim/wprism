@@ -9,7 +9,7 @@
       "4.7": {
         "url": "https://downloads.wordpress.org/plugin/duplicate-post.4.7.zip",
         "sha256": "8cbeebf7c2ee982d2ae33833088ba8ac2391cc316a4dd71800a07f5fa128b418",
-        "role": "exercise-fixture"
+        "role": "certified-boundary"
       }
     }
   },
