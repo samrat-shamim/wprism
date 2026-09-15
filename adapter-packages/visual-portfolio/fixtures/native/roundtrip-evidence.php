@@ -35,16 +35,21 @@ final class VisualPortfolioRoundtripEvidence
         foreach ($nodes as $i => $node) {
             $name = ['harbor', 'garden'][$i];
             $media = $record['media'][$name];
-            $images = $xpath->query('.//img', $node);
+            $images = $xpath->query('.//img[not(ancestor::noscript)]', $node);
+            $fallbacks = $xpath->query('.//noscript//img', $node);
             $links = $xpath->query('.//a[@data-vp-popup]', $node);
             self::check($images !== false && $images->length === 1 && $links !== false && $links->length === 1, 'one image and native popup trigger per item');
-            $img = $images->item(0); $link = $links->item(0);
-            self::check(in_array('wp-image-' . $media['id'], preg_split('/\s+/', trim($img->getAttribute('class'))), true), 'rendered attachment role');
+            self::check($fallbacks !== false && $fallbacks->length <= 1, 'at most one native noscript fallback');
+            $link = $links->item(0);
             self::check($link->getAttribute('href') === $media['url'] && $link->getAttribute('data-vp-popup') !== '', 'popup binds the physical original');
-            $url = $img->hasAttribute('data-src') ? $img->getAttribute('data-src') : $img->getAttribute('src');
-            $stem = substr($media['url'], 0, -4);
-            self::check(preg_match('~^' . preg_quote($stem, '~') . '(?:-[1-9][0-9]*x[1-9][0-9]*)?\.png$~D', $url) === 1, 'rendered image belongs to its bound original');
-            $assets[] = $url;
+            foreach ([$images, $fallbacks] as $variant => $imageNodes) foreach ($imageNodes as $img) {
+                self::check(in_array('wp-image-' . $media['id'], preg_split('/\s+/', trim($img->getAttribute('class'))), true), 'rendered attachment role');
+                self::check($variant === 0 || !$img->hasAttribute('data-src'), 'noscript fallback has an immediately loadable source');
+                $url = $img->hasAttribute('data-src') ? $img->getAttribute('data-src') : $img->getAttribute('src');
+                $stem = substr($media['url'], 0, -4);
+                self::check(preg_match('~^' . preg_quote($stem, '~') . '(?:-[1-9][0-9]*x[1-9][0-9]*)?\.png$~D', $url) === 1, 'rendered image belongs to its bound original');
+                $assets[] = $url;
+            }
             $assets[] = $media['url'];
         }
         return array_values(array_unique($assets));

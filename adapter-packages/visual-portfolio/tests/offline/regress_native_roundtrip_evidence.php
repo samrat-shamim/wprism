@@ -45,6 +45,20 @@ foreach (['harbor', 'garden'] as $name) {
 }
 $html .= '</body></html>';
 wprism_check_same(array_column($target['media'], 'url'), VisualPortfolioRoundtripEvidence::rendered($html, $target, 'gallery'), 'real gallery selectors bind both downloadable originals');
+// Official 3.8.1 class-images.php:407-412 emits a noscript original beside
+// the lazy image; both must keep the attachment binding, not count as two items.
+$lazy = preg_replace_callback('~<img class="([^"]+)" src="([^"]+)">~', static fn(array $m): string =>
+    '<noscript><img class="' . $m[1] . '" data-skip-lazy src="' . $m[2] . '"></noscript>'
+    . '<img class="' . $m[1] . ' vp-lazyload" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///w==" data-src="' . $m[2] . '">', $html);
+wprism_check_same(array_column($target['media'], 'url'), VisualPortfolioRoundtripEvidence::rendered($lazy, $target, 'gallery'), 'native lazy images and noscript originals retain both bindings');
+foreach (['fallback-id', 'fallback-url', 'duplicate-active', 'duplicate-fallback'] as $fault) {
+    $bad = $lazy;
+    if ($fault === 'fallback-id') $bad = str_replace('class="wp-image-101" data-skip-lazy', 'class="wp-image-999" data-skip-lazy', $bad);
+    if ($fault === 'fallback-url') $bad = str_replace('data-skip-lazy src="' . $target['home'], 'data-skip-lazy src="' . $source['home'], $bad);
+    if ($fault === 'duplicate-active') $bad = str_replace('</a>', '<img class="wp-image-101" src="' . $target['media']['harbor']['url'] . '"></a>', $bad);
+    if ($fault === 'duplicate-fallback') $bad = str_replace('</noscript>', '<img class="wp-image-101" src="' . $target['media']['harbor']['url'] . '"></noscript>', $bad);
+    wprism_check_throws(static fn() => VisualPortfolioRoundtripEvidence::rendered($bad, $target, 'gallery'), RuntimeException::class, "lazy render rejects $fault");
+}
 foreach (['empty', 'missing-image', 'wrong-id', 'wrong-url', 'missing-popup', 'warning'] as $fault) {
     $bad = $html;
     if ($fault === 'empty') $bad = '';

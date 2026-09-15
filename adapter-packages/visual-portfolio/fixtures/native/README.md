@@ -19,7 +19,8 @@ observations additionally bind eight post roles and two category roles to distin
 local IDs and unchanged durable UUIDs, archive/placeholder settings, four featured
 images, two ordered gallery attachments and original image bytes. Host HTTP checks
 require both gallery image elements to name their target attachment IDs, popup
-links to name the originals, and image URLs to return decodable PNGs. Both legacy
+links to name the originals, and image URLs to return decodable PNGs. Lazy images
+and their native `noscript` fallbacks are checked independently. Both legacy
 archives must render the two projects selected by descending native date.
 
 The shared native geometry probe exercises 96 Core resize cases, including
@@ -37,7 +38,8 @@ bash adapter-packages/visual-portfolio/tests/live/regress_native_roundtrip.sh
 ```
 
 The wrapper uses shared artifact, conformance and owned-pair machinery. Offline
-oracle mutations must pass before a live run. HTTP and native observations stay
-in the disposable repository; private command diagnostics stay in `sandbox/tmp`.
+oracle mutations must pass before a live run. HTTP bodies and their bounded role
+records stay in `sandbox/tmp/vp-native-http.<pair>.*` for diagnosis after pair
+cleanup; private command diagnostics also stay in `sandbox/tmp`.
 Browser editor Save/reopen, interactive filtering/lightbox, destructive recovery,
 additional plugin combinations and other readiness gaps remain separate work.

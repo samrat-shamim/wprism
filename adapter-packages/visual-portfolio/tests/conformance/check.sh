@@ -5,11 +5,12 @@ capture_wprism_json_success VP_TARGET 'Visual Portfolio native target identities
 printf '%s\n' "$VP_TARGET" > "$CONF_REPO2/.tmp-vp-capture/roundtrip-target.json"
 php -r 'require $argv[1]; VisualPortfolioRoundtripEvidence::compare(json_decode(file_get_contents($argv[2]),true,flags:JSON_THROW_ON_ERROR), json_decode(file_get_contents($argv[3]),true,flags:JSON_THROW_ON_ERROR));'   "$VP_CAPSULE/fixtures/native/roundtrip-evidence.php"   "$CONF_REPO1/.tmp-vp-capture/roundtrip-source.json" "$CONF_REPO2/.tmp-vp-capture/roundtrip-target.json"
 pass 'Visual Portfolio native identities, selected settings, original media and gallery references round trip'
-VP_HTTP="$CONF_REPO2/.tmp-vp-capture/http"
-mkdir -p "$VP_HTTP"
+VP_HTTP=$(mktemp -d "$VP_CAPSULE/../../sandbox/tmp/vp-native-http.$CONF_PAIR.XXXXXX")
+printf 'Visual Portfolio HTTP evidence: %s\n' "$VP_HTTP"
 for side in 1 2; do
   port="$CONF1_PORT"; record="$CONF_REPO1/.tmp-vp-capture/roundtrip-source.json"
   if [ "$side" = 2 ]; then port="$CONF2_PORT"; record="$CONF_REPO2/.tmp-vp-capture/roundtrip-target.json"; fi
+  cp "$record" "$VP_HTTP/$side-record.json"
   for kind in gallery archive; do
     slug=vp-author-gallery; [ "$kind" != archive ] || slug=vp-alternate-archive
     curl --fail --silent --show-error --max-time 30 "http://localhost:$port/$slug/" > "$VP_HTTP/$side-$kind.html"
