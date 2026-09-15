@@ -19,24 +19,45 @@ if ($phase === 'pad-target') {
     return;
 }
 if ($phase === 'editor-roundtrip') {
+    $roster = static function (array $blocks) use (&$roster): array {
+        $names = [];
+        foreach ($blocks as $block) {
+            if (is_string($block['blockName'] ?? null)) $names[] = $block['blockName'];
+            $names = array_merge($names, $roster($block['innerBlocks'] ?? []));
+        }
+        return $names;
+    };
     $result = [
         'format' => 'wprism-vp-native-editor-roundtrip/v1',
         'cursor' => get_option('vpf_db_version'),
         'lazy_loading' => Visual_Portfolio_Settings::get_option('lazy_loading', 'vp_images'),
         'pages' => [],
     ];
-    foreach (['vp-author-gallery' => 12, 'vp-alternate-archive' => 1] as $slug => $expectedBlocks) {
+    $expected = [
+        'vp-author-gallery' => [
+            'visual-portfolio/loop', 'visual-portfolio/loop-filter',
+            'visual-portfolio/loop-filter-item', 'visual-portfolio/loop-filter-item',
+            'visual-portfolio/item-template', 'visual-portfolio/item-image',
+            'visual-portfolio/item-title', 'visual-portfolio/item-categories',
+            'visual-portfolio/loop-pagination', 'visual-portfolio/loop-pagination-previous',
+            'visual-portfolio/loop-pagination-numbers', 'visual-portfolio/loop-pagination-next',
+        ],
+        'vp-alternate-archive' => ['visual-portfolio/block'],
+    ];
+    foreach ($expected as $slug => $expectedRoster) {
         $page = get_page_by_path($slug, OBJECT, 'page');
         $check($page instanceof WP_Post && $page->post_status === 'publish', 'native editor page ' . $slug);
         $body = get_post_field('post_content', $page->ID, 'raw');
-        $blocks = parse_blocks($body);
-        $check(is_string($body) && count($blocks) === $expectedBlocks, 'complete native editor block roster ' . $slug);
+        $check(is_string($body) && $roster(parse_blocks($body)) === $expectedRoster,
+            'complete native editor block roster ' . $slug);
         $request = new WP_REST_Request('POST', '/wp/v2/pages/' . $page->ID);
         $request->set_param('content', $body);
         $response = rest_do_request($request);
         $reopened = get_post_field('post_content', $page->ID, 'raw');
-        $check($response->get_status() === 200 && $reopened === $body, 'native Save and reopen retain exact body ' . $slug);
-        $result['pages'][$slug] = ['blocks' => count($blocks), 'sha256' => hash('sha256', $reopened)];
+        $check($response->get_status() === 200 && $reopened === $body
+            && $roster(parse_blocks($reopened)) === $expectedRoster,
+            'native Save and reopen retain exact body and block roster ' . $slug);
+        $result['pages'][$slug] = ['blocks' => count($expectedRoster), 'sha256' => hash('sha256', $reopened)];
     }
     echo json_encode($result, JSON_THROW_ON_ERROR), "\n";
     return;
