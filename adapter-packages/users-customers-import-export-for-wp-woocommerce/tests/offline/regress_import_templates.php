@@ -128,6 +128,18 @@ wprism_check_same(Canon::encode(array_column($entities, 'content', 'uuid')), Can
     'complete import/export recapture reaches the source canonical tree independently of local row order');
 wprism_check_same([false, false, false], $write($tree), 'repeat preserves all identities');
 wprism_check_same($after, $census(), 'repeat preserves the complete native census');
+$omittedPassword = $value;
+$omittedPassword['mapping_form_data']['mapping_fields']['user_pass'] = [[], 0];
+unset($omittedPassword['mapping_form_data']['mapping_selected_fields']['user_pass']);
+$omittedEntity = $original['data'];
+$omittedEntity['columns']['data'] = json_encode($omittedPassword, JSON_THROW_ON_ERROR);
+Canon::write_file($repo . '/state/' . $original['path'], Canon::encode($omittedEntity));
+$omittedTree = RepositoryCompiler::compile($repo, $policy)->tree();
+wprism_check_same([[], 0], json_decode($omittedTree[$uuid]['data']['columns']['data'], true, flags: JSON_THROW_ON_ERROR)
+    ['mapping_form_data']['mapping_fields']['user_pass'], 'disabled password mapping remains an explicit native tuple');
+wprism_check(!isset(json_decode($omittedTree[$uuid]['data']['columns']['data'], true, flags: JSON_THROW_ON_ERROR)
+    ['mapping_form_data']['mapping_selected_fields']['user_pass']), 'omitted password field remains absent from the selected native mapping');
+Canon::write_file($repo . '/state/' . $original['path'], $original['content']);
 $edited = $original;
 $editedValue = $value;
 $editedValue['mapping_form_data']['mapping_selected_fields']['display_name'] = [['field' => 'LocalDisplay']];

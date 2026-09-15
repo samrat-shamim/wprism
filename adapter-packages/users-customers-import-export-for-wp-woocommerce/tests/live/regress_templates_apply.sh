@@ -46,6 +46,16 @@ capture_expected() {
   php "$PACKAGE_ROOT/fixtures/settings-evidence.php" admit-command "$sink/$name" "$PAIR" "$verb" "$expected"
   printf 'ok: %s\n' "$name"
 }
+capture_omitted_password_limitation() {
+  local name="$1" result=0 suffix
+  shift
+  for suffix in stdout stderr exit; do (umask 077; set -C; : > "$sink/$name.$suffix"); done
+  wprism_private_capture_stage "$sink" "$name" "$@" || result=$?
+  [ "$result" -eq 0 ] || fail "$name exited $result; retained $sink/$name"
+  php "$PACKAGE_ROOT/fixtures/omitted-password-evidence.php" admit-limitation "$sink/$name" "$PAIR" \
+    || fail "$name did not reproduce the exact upstream limitation; retained $sink/$name"
+  printf 'ok: %s records the exact upstream warning boundary\n' "$name"
+}
 zip="${IMPORTER_TEMPLATES_ZIP:?local locked Importer 2.7.5 zip required}"
 [[ "$zip" = /* ]] && [ -f "$zip" ] || fail 'absolute native artifact path required'
 [ "$(shasum -a 256 "$zip" | cut -d ' ' -f 1)" = 6b7bd053960bee782e900688dac0cfed9df2519a2a0cdf72f65cf47d4b77e4a2 ] || fail 'wrong locked Importer artifact'
@@ -132,7 +142,7 @@ diff -r "$R1/state" "$R2/state" || fail 'scoped rename recapture changed canonic
 import_side() { local side="$1"; shift; wp_side "$side" --require="$fixture_root/admin-context.php" eval-file "$fixture_root/import-templates-native.php" "$@" --use-include --user=admin; }
 for side in 1 2; do
   role=source; [ "$side" = 1 ] || role=target
-  capture "imports-setup$side" import_side "$side" "setup-$role"
+  capture "imports-setup$side" import_side "$side" "setup-$role-generated"
 done
 capture imports-source template_side 1 observe
 capture imports-capture candidate 1 capture --repo=/siterepo --format=json
@@ -148,8 +158,9 @@ capture imports-provisioned template_side 2 observe
 capture imports-plan candidate 2 plan --repo=/siterepo --format=json
 capture imports-apply candidate 2 apply --repo=/siterepo --adopt-by-slug=tables --format=json
 capture imports-after template_side 2 observe
-for name in 'Reusable input mapping' 'Reusable input copy' 'Draft input mapping'; do
+for name in 'Reusable input mapping' 'Reusable input copy' 'Draft input mapping' 'Generated password mapping'; do
   stem=original; [ "$name" != 'Reusable input copy' ] || stem=copy; [ "$name" != 'Draft input mapping' ] || stem=draft
+  [ "$name" != 'Generated password mapping' ] || stem=generated
   capture "import-$stem-reopen" import_side 2 reopen "$name"
 done
 capture imports-recapture candidate 2 capture --repo=/siterepo --format=json
@@ -161,6 +172,8 @@ pair_live_ownership_repo_host
 diff -r "$R1/state" "$R2/state" || fail 'native import resave changed canonical intent'
 capture import-original-consume import_side 2 consume 'Reusable input mapping'
 capture import-copy-consume import_side 2 consume 'Reusable input copy'
+capture import-generated-new-consume import_side 2 consume 'Generated password mapping'
+capture_omitted_password_limitation import-generated-existing-consume import_side 2 consume 'Generated password mapping'
 capture imports-rotate import_side 2 rotate
 pair_live_ownership_repo_host
 import_uuid=$(php -r '$ids=[]; foreach(glob($argv[1]."/state/tables/wt_iew_mapping_template/*.json") as $path) { $f=json_decode(file_get_contents($path),true,flags:JSON_THROW_ON_ERROR); if($f["columns"]["template_type"]==="import" && $f["columns"]["name"]==="Reusable input mapping") $ids[]=$f["uuid"]; } if(count($ids)!==1) exit(1); echo $ids[0];' "$R1")

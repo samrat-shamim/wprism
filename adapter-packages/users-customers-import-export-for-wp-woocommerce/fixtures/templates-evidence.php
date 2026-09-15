@@ -2,6 +2,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/settings-evidence.php';
+require_once __DIR__ . '/omitted-password-evidence.php';
+require_once __DIR__ . '/template-apply-evidence.php';
 require_once dirname(__DIR__, 3) . '/sandbox/tests/lib/check.php';
 $sink = $argv[1];
 $pair = $argv[2];
@@ -90,12 +92,10 @@ $preserved($renameBefore, $renameAfter, [(int) $renamed['id']]);
 wprism_check_same($renameAfter, $read('renamed-stable'), 'terminal replay preserves the complete native observation');
 wprism_check_same('Renamed_Display', $read('renamed-reopen')['form']['mapping_form_data']['mapping_selected_fields']['display_name'], 'native wizard reopens the renamed header');
 wprism_check_same(['user_login', 'user_email', 'Renamed_Display'], $read('renamed-export')['job']['records'][0], 'native CSV uses the changed header after scoped Apply');
-foreach (['templates', 'renamed'] as $phase) {
-    $apply = $read($phase . '-apply', 'apply');
-    wprism_check($apply['applied'] > 0 && $apply['canary'] === 'clean' && $apply['drift'] === [] && $apply['warnings'] === [] && $apply['actions'] === [],
-        'public template Apply completes without warnings or plugin executable actions: ' . $phase);
-}
-$read('renamed-repeat', 'apply');
+ImporterTemplateApplyEvidence::receipt($read('templates-apply', 'apply'), $template($before, 'Selected users')['id'], 'selected-users');
+$renamedApply = $read('renamed-apply', 'apply');
+ImporterTemplateApplyEvidence::receipt($renamedApply);
+ImporterTemplateApplyEvidence::replay($renamedApply, $read('renamed-repeat', 'apply'));
 foreach (['templates-capture', 'templates-recapture', 'resave-recapture', 'renamed-capture', 'renamed-recapture'] as $name) {
     wprism_check_same([], $read($name, 'capture')['warnings'], 'public template capture completes without warnings: ' . $name);
 }
@@ -116,6 +116,8 @@ $targetSetup = $read('imports-setup2');
 wprism_check($sourceSetup['user'] !== $targetSetup['user'] && $sourceSetup['original'] !== $targetSetup['original'], 'import users and template row IDs differ across environments');
 wprism_check($sourceSetup['copy'] !== null && $sourceSetup['draft'] !== null && $targetSetup['copy'] === null && $targetSetup['draft'] === null,
     'native Save As and blank draft exercise creation beside an existing target');
+wprism_check(is_int($sourceSetup['generated']) && $sourceSetup['generated'] > 0 && $targetSetup['generated'] === null,
+    'password-omitting template is independently created from source intent');
 $source = $read('imports-source');
 $before = $read('imports-before');
 $after = $read('imports-after');
@@ -126,7 +128,9 @@ foreach ($bindings as $binding) wprism_check(in_array($binding, $missing, true),
 wprism_check_same([], $read('imports-plan', 'plan')['env_missing'], 'independent target CSV bindings clear the public missing checklist');
 $changedIds = [];
 $targetFile = json_decode($importTemplate($before, 'Reusable input mapping')['data'], true, flags: JSON_THROW_ON_ERROR)['method_import_form_data']['wt_iew_local_file'];
-foreach (['original' => 'Reusable input mapping', 'copy' => 'Reusable input copy', 'draft' => 'Draft input mapping'] as $stem => $name) {
+$generatedTargetFile = preg_replace('~/target-input\.csv$~D', '/generated-password-target.csv', $targetFile);
+foreach (['original' => 'Reusable input mapping', 'copy' => 'Reusable input copy', 'draft' => 'Draft input mapping',
+    'generated' => 'Generated password mapping'] as $stem => $name) {
     $from = $importTemplate($source, $name);
     $to = $importTemplate($after, $name);
     $changedIds[] = (int) $to['id'];
@@ -137,12 +141,15 @@ foreach (['original' => 'Reusable input mapping', 'copy' => 'Reusable input copy
     $opened = $read('import-' . $stem . '-reopen');
     wprism_check_same($form, $opened['form'], 'native import wizard reopens the complete applied form: ' . $stem);
     if ($stem === 'draft') wprism_check_same('', $opened['local_file'], 'native blank draft stays empty without a binding');
+    elseif ($stem === 'generated') wprism_check_same($generatedTargetFile, $opened['local_file'], 'native generated-password control holds its independent target CSV');
     else wprism_check_same($targetFile, $opened['local_file'], 'native import control holds the exact independently created target CSV: ' . $stem);
 }
 wprism_check_same($targetSetup['original'], (int) $importTemplate($after, 'Reusable input mapping')['id'], 'explicit import adoption preserves the target ID');
-wprism_check_same(count($before['tables']['wt_iew_mapping_template']) + 2, count($after['tables']['wt_iew_mapping_template']), 'only copy and blank draft are created');
+wprism_check_same(count($before['tables']['wt_iew_mapping_template']) + 3, count($after['tables']['wt_iew_mapping_template']), 'only copy, blank draft and generated-password template are created');
 $preserved($before, $after, $changedIds);
 foreach (['import-original-consume', 'import-copy-consume'] as $name) wprism_check_same('Target input', $read($name)['display_name'], 'actual mapped-password job consumes the saved target mapping: ' . $name);
+ImporterOmittedPasswordEvidence::result($read('import-generated-new-consume'), false);
+ImporterOmittedPasswordEvidence::admittedLimitation($sink . '/import-generated-existing-consume', $pair);
 $rotationBefore = $read('rotation-before');
 $rotationAfter = $read('rotation-after');
 $rotated = $importTemplate($rotationAfter, 'Reusable input mapping');
@@ -153,12 +160,10 @@ $expectedForm['method_import_form_data']['wt_iew_local_file'] = preg_replace('~/
 wprism_check_same($expectedForm, json_decode($rotated['data'], true), 'scoped rotation changes only the selected pointer and regenerated cursor');
 wprism_check_same($rotationAfter, $read('rotation-stable'), 'import terminal replay preserves all native state');
 wprism_check_same('Rotated input', $read('rotation-consume')['display_name'], 'native importer consumes rotated target bytes');
-foreach (['imports-apply', 'rotation-apply'] as $name) {
-    $apply = $read($name, 'apply');
-    wprism_check($apply['applied'] > 0 && $apply['canary'] === 'clean' && $apply['drift'] === [] && $apply['warnings'] === [] && $apply['actions'] === [],
-        'public import Apply completes without warnings or plugin executables: ' . $name);
-}
-$read('rotation-repeat', 'apply');
+ImporterTemplateApplyEvidence::receipt($read('imports-apply', 'apply'), $importTemplate($before, 'Reusable input mapping')['id'], 'reusable-input-mapping');
+$rotationApply = $read('rotation-apply', 'apply');
+ImporterTemplateApplyEvidence::receipt($rotationApply);
+ImporterTemplateApplyEvidence::replay($rotationApply, $read('rotation-repeat', 'apply'));
 foreach (['imports-capture', 'imports-recapture', 'imports-resave-capture', 'rotation-recapture'] as $name) {
     wprism_check_same([], $read($name, 'capture')['warnings'], 'import Capture is warning-free: ' . $name);
 }
