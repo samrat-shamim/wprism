@@ -7,6 +7,11 @@ require_once $root . '/sandbox/tests/lib/SqlDumpEvidence.php';
 
 final class ImporterDependencyEvidence {
     public const PLUGIN = 'users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php';
+    public const WRONG_PLUGIN = 'users-customers-import-export-for-wp-woocommerce/importer-fixture-wrong.php';
+    public const EXACT_SHA256 = '97006bae88c3a746cb3701da7138a4772d3a521553a3bdbe7ad67f5a75df40e1';
+    public const PRIOR_SHA256 = '1b25dd2f8ef5aef832180bbed8b2939187e9787f27ca6a545bcb3a86d7aba50d';
+    public const MAXIMUM_SHA256 = 'c909e39e3814217076b53839cf1c4af4e910cbf7bd70dda0bf5f24f37214ee99';
+    public const UNREADABLE_SHA256 = '071da64aafb961a4fd00c7666ddfb93f1550feee895f4d444cbea40e4bf490cc';
 
     public static function profile(string $case, ?string $command = null): array {
         $command ??= in_array($case, ['inactive', 'deactivated'], true) ? 'apply' : 'deploy';
@@ -19,8 +24,10 @@ final class ImporterDependencyEvidence {
             $finding = "active_plugins in state/options/core.json declares '$plugin', and its code is installed, but it is not active in this environment. Run 'wprism deploy <env>' before apply so activation hooks and schema migrations complete first.";
         } else {
             $finding = match ($case) {
-                'missing' => "active_plugins in state/options/core.json declares '$plugin' but $plugin does not exist in this environment (checked against this environment's wp-content/plugins/ — phase 1 has no code/ deploy transport, so 'in code' means 'installed on the env'). Install/vendor the plugin here, or this branch's code/ changes haven't reached this environment yet.",
+                'missing', 'wrong-basename' => "active_plugins in state/options/core.json declares '$plugin' but $plugin does not exist in this environment (checked against this environment's wp-content/plugins/ — phase 1 has no code/ deploy transport, so 'in code' means 'installed on the env'). Install/vendor the plugin here, or this branch's code/ changes haven't reached this environment yet.",
                 'prior' => "$plugin 2.7.4 is active in this environment, outside the 'users-customers-import-export-for-wp-woocommerce' manifest's declared version_range (>=2.7.5 <2.7.6, pinned by site.wprism.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.",
+                'maximum' => "$plugin 2.7.6 is active in this environment, outside the 'users-customers-import-export-for-wp-woocommerce' manifest's declared version_range (>=2.7.5 <2.7.6, pinned by site.wprism.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.",
+                'unreadable' => "$plugin (unknown version) is active in this environment, outside the 'users-customers-import-export-for-wp-woocommerce' manifest's declared version_range (>=2.7.5 <2.7.6, pinned by site.wprism.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.",
                 default => throw new RuntimeException('unknown Importer dependency refusal'),
             };
         }
@@ -31,6 +38,34 @@ final class ImporterDependencyEvidence {
         return ['command' => $command, 'reason_code' => $command . '_failed', 'nodes' => [[
             'class' => RuntimeException::class, 'parent_index' => null, 'relation' => 'root', 'message' => $message,
         ]]];
+    }
+
+    public static function premise(string $case, array $actual): bool {
+        $tables = ['wt_iew_mapping_template' => true, 'wt_iew_action_history' => true];
+        $expected = match ($case) {
+            'installed' => self::observation('2.7.5', false, null, ['wt_iew_mapping_template' => false,
+                'wt_iew_action_history' => false], self::EXACT_SHA256),
+            'inactive', 'deactivated' => self::observation('2.7.5', false, null, $tables, self::EXACT_SHA256),
+            'missing' => self::observation(null, false, null, $tables, null),
+            'prior' => self::observation('2.7.4', false, null, $tables, self::PRIOR_SHA256),
+            'maximum' => self::observation('2.7.6', true, '1', $tables, self::MAXIMUM_SHA256,
+                backupSha256: self::EXACT_SHA256),
+            'unreadable' => self::observation(null, true, '1', $tables, self::UNREADABLE_SHA256,
+                backupSha256: self::EXACT_SHA256),
+            'wrong-basename' => self::observation(null, false, '1', $tables, null, '2.7.5', true,
+                self::EXACT_SHA256, self::EXACT_SHA256),
+            'boundary-restored' => self::observation('2.7.5', true, '1', $tables, self::EXACT_SHA256),
+            default => throw new RuntimeException('unknown Importer dependency premise'),
+        };
+        return $actual === $expected;
+    }
+
+    private static function observation(?string $version, bool $active, ?string $marker, array $tables,
+        ?string $entrySha256, ?string $wrongVersion = null, bool $wrongActive = false,
+        ?string $wrongSha256 = null, ?string $backupSha256 = null): array {
+        return ['version' => $version, 'active' => $active, 'loaded' => false, 'marker' => $marker, 'tables' => $tables,
+            'wrong_version' => $wrongVersion, 'wrong_active' => $wrongActive, 'entry_sha256' => $entrySha256,
+            'wrong_sha256' => $wrongSha256, 'backup_sha256' => $backupSha256];
     }
 
     public static function retained(array $before, array $after): bool {
@@ -69,8 +104,7 @@ $read = static function (string $name, string $verb = '', int $exit = 0) use ($s
     return json_decode(WPrismTest\PrivateCommandOutput::readObject($stem, $transport, expectedExit: $exit), true, 512, JSON_THROW_ON_ERROR);
 };
 $beforeActivation = $read('installed-inactive');
-wprism_check($beforeActivation['version'] === '2.7.5' && !$beforeActivation['active'] && !$beforeActivation['loaded']
-    && $beforeActivation['tables'] === ['wt_iew_mapping_template' => false, 'wt_iew_action_history' => false],
+wprism_check(ImporterDependencyEvidence::premise('installed', $beforeActivation),
     'fresh target has exact inactive code and neither native plugin table before deployment');
 foreach (['initial', 'prepared', 'reactivated', 'reinstalled'] as $case) {
     $deploy = $read("$case-deploy", 'deploy');
@@ -84,10 +118,19 @@ foreach (['initial', 'prepared', 'reactivated', 'reinstalled'] as $case) {
     wprism_check($admin === array_replace($state, ['loaded' => true]),
         'subsequent native admin bootstrap exposes the same existing lifecycle postconditions: ' . $case);
 }
+$restoredDeploy = $read('boundary-restored-deploy', 'deploy');
+wprism_check($restoredDeploy['activated'] === [] && $restoredDeploy['deactivated'] === [] && $restoredDeploy['warnings'] === [],
+    'deployment recognizes the restored exact active boundary without lifecycle work');
+$restored = $read('boundary-restored-status');
+wprism_check(ImporterDependencyEvidence::premise('boundary-restored', $restored),
+    'dependency faults restore the exact supported entry, basename and active lifecycle');
+$restoredAdmin = $read('boundary-restored-admin-status');
+wprism_check($restoredAdmin === array_replace($restored, ['loaded' => true]),
+    'restored exact code loads through a native administrator bootstrap');
 $repeat = $read('repeat-deploy', 'deploy');
 wprism_check($repeat['activated'] === [] && $repeat['deactivated'] === [] && $repeat['warnings'] === [],
     'settled deployment repeats without activation hooks');
-foreach (['initial', 'reinstalled'] as $case) {
+foreach (['initial', 'reinstalled', 'boundary-restored'] as $case) {
     $apply = $read("$case-apply", 'apply');
     $warnings = [];
     if ($case === 'initial') {
@@ -108,14 +151,20 @@ wprism_check(count($baseline['tables']['wt_iew_action_history']) === 4 && count(
     && isset($baseline['files']['webtoffee_export/.htaccess'], $baseline['files']['webtoffee_export/index.php'])
     && count(array_filter(array_keys($baseline['files']), static fn(string $path): bool => str_ends_with($path, '.csv'))) === 4,
     'retention has four saved templates/jobs, four CSVs and both native directory protection files');
-foreach (['deactivated', 'reactivated', 'uninstalled', 'reinstalled'] as $case) {
+foreach (['deactivated', 'reactivated', 'uninstalled', 'reinstalled', 'boundary-restored'] as $case) {
     wprism_check(ImporterDependencyEvidence::retained($baseline, $read("$case-native")),
         'native lifecycle retains complete template/history/core data rows, authored settings and operational files: ' . $case);
 }
-foreach (['inactive' => ['2.7.5', 'apply'], 'deactivated' => ['2.7.5', 'apply'], 'missing' => [null, 'deploy'], 'prior' => ['2.7.4', 'deploy']] as $case => [$version, $verb]) {
+foreach (['inactive' => 'apply', 'deactivated' => 'apply', 'missing' => 'deploy', 'prior' => 'deploy',
+    'maximum' => 'deploy', 'unreadable' => 'deploy', 'wrong-basename' => 'deploy'] as $case => $verb) {
     $status = $read("$case-status");
-    wprism_check($status['version'] === $version && !$status['active'] && !$status['loaded'] && $status['marker'] === null,
+    wprism_check(ImporterDependencyEvidence::premise($case, $status),
         'exact native dependency refusal premise: ' . $case);
+    if ($case === 'wrong-basename') {
+        $admin = $read('wrong-basename-admin-status');
+        wprism_check($admin === array_replace($status, ['loaded' => true]),
+            'the actively loaded wrong basename cannot satisfy the declared dependency');
+    }
     $public = $read("$case-refusal", $verb, 1);
     wprism_check(($public['format'] ?? null) === 'wprism-command-refusal/v1' && ($public['ok'] ?? null) === false
         && ($public['command'] ?? null) === $verb && ($public['reason_code'] ?? null) === ImporterDependencyEvidence::profile($case)['reason_code']
@@ -137,7 +186,10 @@ foreach (['inactive' => ['2.7.5', 'apply'], 'deactivated' => ['2.7.5', 'apply'],
         WPrismTest\FilesystemTreeEvidence::assertRecord($tree['state'], 'state');
         WPrismTest\FilesystemTreeEvidence::assertRecord($tree['policy'], 'site.wprism.json');
         wprism_check(count($tree['state']['files']) > 0, 'canonical dependency snapshot is nonempty: ' . $case . '-' . $when);
-        $images[$when] = [$tables, $dump, $tree];
+        $code = $read("$case-$when-code");
+        wprism_check(ImporterDependencyEvidence::premise($case, $code),
+            'refusal image retains the exact native dependency premise: ' . $case . '-' . $when);
+        $images[$when] = [$tables, $dump, $tree, $code];
     }
     wprism_check($images['before'] === $images['after'], 'refusal preserves the complete native database, canonical files and policy: ' . $case);
 }

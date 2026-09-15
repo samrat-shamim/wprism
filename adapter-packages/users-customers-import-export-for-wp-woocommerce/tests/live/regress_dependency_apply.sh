@@ -48,6 +48,7 @@ snapshot() {
   capture "$name-database" wp_side 2 db export - --single-transaction --skip-lock-tables --skip-add-locks \
     --skip-dump-date --order-by-primary --hex-blob --complete-insert --skip-extended-insert --quiet
   capture "$name-state" php "$PACKAGE_ROOT/fixtures/dependency-evidence.php" snapshot "$PAIR_LIVE_OWNERSHIP_SITE2"
+  capture "$name-code" status
 }
 refusal() {
   local name="$1" verb="$2" result=0 suffix
@@ -66,8 +67,10 @@ pair_live_ownership_up
 fixture=/var/www/html/wp-content/mu-plugins/adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures
 settings() { local side="$1"; shift; wp_side "$side" --require="$fixture/admin-context.php" eval-file "$fixture/settings-native.php" "$@" --use-include --user=admin; }
 templates() { local side="$1"; shift; wp_side "$side" --require="$fixture/admin-context.php" eval-file "$fixture/templates-native.php" "$@" --use-include --user=admin; }
-status() { wp_side 2 --skip-plugins eval-file "$fixture/dependency-native.php" --use-include --user=admin; }
-admin_status() { wp_side 2 --require="$fixture/admin-context.php" eval-file "$fixture/dependency-native.php" --use-include --user=admin; }
+dependency_native() { wp_side 2 --skip-plugins eval-file "$fixture/dependency-native.php" "$@" --use-include --user=admin; }
+dependency_admin() { wp_side 2 --skip-plugins --require="$fixture/admin-context.php" eval-file "$fixture/dependency-native.php" "$@" --use-include --user=admin; }
+status() { dependency_native boundary-observe; }
+admin_status() { wp_side 2 --require="$fixture/admin-context.php" eval-file "$fixture/dependency-native.php" boundary-observe --use-include --user=admin; }
 install() { local side="$1" archive="$2"; shift 2; "${COMPOSE[@]}" run --rm -T -v "$archive:/importer.zip:ro" "cli$side" wp plugin install /importer.zip "$@"; }
 for side in 1 2; do
   capture "cron$side" wp_side "$side" config set DISABLE_WP_CRON true --raw
@@ -130,6 +133,28 @@ capture reinstalled-status status
 capture reinstalled-admin-status admin_status
 capture reinstalled-apply candidate 2 apply --repo=/siterepo --format=json
 capture reinstalled-native settings 2 raw-observe
+capture entry-backup dependency_native backup
+capture maximum-header dependency_native maximum-header
+capture maximum-status status
+refusal maximum deploy
+capture maximum-restore dependency_native restore-header
+capture unreadable-header dependency_native unreadable-header
+capture unreadable-status status
+refusal unreadable deploy
+capture unreadable-restore dependency_native restore-header
+capture wrong-basename dependency_native wrong-basename
+capture wrong-activate dependency_admin activate-wrong
+capture wrong-basename-status status
+capture wrong-basename-admin-status admin_status
+refusal wrong-basename deploy
+capture basename-restore dependency_native restore-basename
+capture exact-activate dependency_admin activate-exact
+capture backup-cleanup dependency_native cleanup
+capture boundary-restored-deploy candidate 2 deploy --repo=/siterepo --format=json
+capture boundary-restored-status status
+capture boundary-restored-admin-status admin_status
+capture boundary-restored-apply candidate 2 apply --repo=/siterepo --format=json
+capture boundary-restored-native settings 2 raw-observe
 capture final-capture candidate 2 capture --repo=/siterepo --format=json
 pair_live_ownership_repo_host
 diff -r "$R1/state" "$R2/state" || fail 'native lifecycle changed canonical intent'
