@@ -48,6 +48,7 @@ if ($phase === 'editor-roundtrip') {
         $page = get_page_by_path($slug, OBJECT, 'page');
         $check($page instanceof WP_Post && $page->post_status === 'publish', 'native editor page ' . $slug);
         $body = get_post_field('post_content', $page->ID, 'raw');
+        $modified = ['post_modified' => $page->post_modified, 'post_modified_gmt' => $page->post_modified_gmt];
         $check(is_string($body) && $roster(parse_blocks($body)) === $expectedRoster,
             'complete native editor block roster ' . $slug);
         $request = new WP_REST_Request('POST', '/wp/v2/pages/' . $page->ID);
@@ -57,6 +58,19 @@ if ($phase === 'editor-roundtrip') {
         $check($response->get_status() === 200 && $reopened === $body
             && $roster(parse_blocks($reopened)) === $expectedRoster,
             'native Save and reopen retain exact body and block roster ' . $slug);
+        // The no-op REST Save advances both modified columns. Restore only
+        // that test-owned witness; the harness's full recapture rejects every
+        // other authored change after this fixture returns.
+        global $wpdb;
+        $wpdb->last_error = '';
+        $restored = $wpdb->update($wpdb->posts, $modified, ['ID' => $page->ID], ['%s', '%s'], ['%d']);
+        clean_post_cache($page->ID);
+        $restoredPage = get_post($page->ID);
+        $check($restored !== false && $wpdb->last_error === '' && $restoredPage instanceof WP_Post
+            && $restoredPage->post_modified === $modified['post_modified']
+            && $restoredPage->post_modified_gmt === $modified['post_modified_gmt']
+            && get_post_field('post_content', $page->ID, 'raw') === $body,
+            'bounded editor timestamp witness cleanup ' . $slug);
         $result['pages'][$slug] = ['blocks' => count($expectedRoster), 'sha256' => hash('sha256', $reopened)];
     }
     echo json_encode($result, JSON_THROW_ON_ERROR), "\n";

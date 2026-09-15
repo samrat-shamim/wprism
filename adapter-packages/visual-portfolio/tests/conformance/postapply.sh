@@ -6,4 +6,4 @@ jq -e '.format == "wprism-vp-native-editor-roundtrip/v1" and .cursor == "3.8.1" 
   .lazy_loading == "full" and .pages["vp-author-gallery"].blocks == 12 and
   .pages["vp-alternate-archive"].blocks == 1' <<<"$VP_EDITOR_ROUNDTRIP" >/dev/null \
   || fail 'Visual Portfolio target editor did not retain the current authored setting and complete block roster'
-pass 'Visual Portfolio current authored settings survive native editor Save and reopen before final recapture'
+pass 'Visual Portfolio current authored settings survive native editor Save/reopen; its timestamp witness is removed before final recapture'
