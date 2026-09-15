@@ -71,12 +71,12 @@
  * the difference ENUMERATED, never assumed. It is measured below and the
  * difference is asserted rather than reconciled:
  *
- *   F1  All 33 signer-partition keys are in use across the shipped
- *       manifests. Feature-bearing adapters also declare four keys carried by
- *       the feature roster rather than that partition; their signer verdicts
- *       stay clean because § v3.21 classifies those keys with their features. Two of
- *       the three previously unused partition keys were channels admitted in
- *       the change that reads them:
+ *   F1  The shipped union contains every signer-partition key except the three
+ *       named below. Feature-bearing adapters also declare keys carried by the
+ *       feature roster rather than that partition; their signer verdicts stay
+ *       clean because § v3.21 classifies those keys with their features. Two
+ *       of the unused partition keys were channels admitted in the change that
+ *       reads them:
  *       WP-4.6's `environment` (§ v3.5) and WP-4.3's `theme_version_range`
  *       (§ v3.3 resolution 1), declared by none of them.
  *   F2  RESOLVED by WP-4.3. The finding was that the third unused partition key
@@ -436,7 +436,7 @@ foreach ($discovered as $path => $manifest) {
 
 echo "\nRULE V3-KEYS: closed top-level manifest key set, single-sourced with the signer partition\n";
 
-// The measurement WP-1.6 owes: the union in use, against the 31.
+// The measurement WP-1.6 owes: the union in use, against the signer partition.
 $union = [];
 foreach ($shipped as $name => $manifest) {
     foreach (array_keys($manifest) as $key) {
@@ -466,20 +466,27 @@ foreach ($unionKeys as $key) {
 }
 $report('partition keys no shipped manifest declares: ' . ($knownUnused === [] ? '(none)' : implode(', ', $knownUnused)));
 
-// F1 — the difference, enumerated in both directions. Redirection's and WPForms'
-// feature-claimed keys deliberately sit in § v3.21's roster rather than
-// duplicating the signer partition.
+// F1 — the difference, enumerated in both directions. Feature-claimed keys
+// deliberately sit in § v3.21's roster rather than duplicating the signer
+// partition. Project the exact expected set from that engine-owned roster so
+// shipping a new feature section cannot leave this dry run with a stale copy.
+$featureClaimedKeys = array_keys(AdapterContractGrammar::feature_key_arms());
+sort($featureClaimedKeys, SORT_STRING);
 wprism_check_same(
-    ['attr_id_codecs', 'block_content', 'block_media_derivatives', 'block_values', 'body_refs', 'column_codecs', 'declaration_evidence', 'engine_features', 'incompatible_plugins'],
+    $featureClaimedKeys,
     $unknownInUse,
-    'F1: every shipped key outside the signer partition belongs to an explicitly declared feature roster'
+    'F1: every shipped key outside the signer partition is projected from the explicitly declared feature roster'
 );
 wprism_check_same(
     [],
-    array_values(array_diff($unknownInUse, array_keys(AdapterContractGrammar::feature_key_arms()))),
+    array_values(array_diff($unknownInUse, $featureClaimedKeys)),
     'F1: every shipped key outside the partition has a certificate arm in the feature roster'
 );
-wprism_check_same(39, count($unionKeys), 'F1: the in-use union is 39 keys');
+wprism_check_same(
+    count($closedSet) - count($knownUnused) + count($featureClaimedKeys),
+    count($unionKeys),
+    'F1: the in-use union is the declared signer keys plus the feature roster, minus unused signer channels'
+);
 // Three keys the partition admits and no shipped adapter declares, and they are
 // there for different reasons: `theme` predates the library's plugin-only
 // contents; `environment` is WP-4.6's narrowing channel and `theme_version_range`

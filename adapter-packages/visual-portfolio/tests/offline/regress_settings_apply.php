@@ -129,7 +129,8 @@ $compiled->write($artifact);
 $contract = ScopeContract::resolve($compiled, $policy, ['option:vp_general']);
 wprism_check(!in_array($uuid(1), ScopedStateOverlay::selected_identities($contract), true), 'old target archive is outside the immutable authored scope');
 WpStore::reset()->seedOptions(['home' => 'https://target.example.test', 'siteurl' => 'https://target.example.test',
-    'admin_email' => 'admin@target.example.test', 'active_plugins' => [$plugin], 'stylesheet' => 'fixture', 'template' => 'fixture'])->ensureUploadDir();
+    'admin_email' => 'admin@target.example.test', 'active_plugins' => [$plugin], 'stylesheet' => 'fixture',
+    'template' => 'fixture', 'vpf_db_version' => '3.8.1'])->ensureUploadDir();
 $GLOBALS['wp_object_cache'] = new WP_Object_Cache();
 wprism_wp_store()->version = '7.1';
 $GLOBALS['wp_rewrite'] = new WP_Rewrite();
@@ -143,7 +144,8 @@ $db->seedTable('wp_options', [
     ['option_id' => 2, 'option_name' => 'stylesheet', 'option_value' => 'fixture', 'autoload' => 'yes'],
     ['option_id' => 3, 'option_name' => 'template', 'option_value' => 'fixture', 'autoload' => 'yes'],
     ['option_id' => 4, 'option_name' => 'vp_general', 'option_value' => serialize($target), 'autoload' => 'auto'],
-])->setAutoIncrement('wp_options', 5, 'option_id')->seedTable('wp_posts', $posts)->setAutoIncrement('wp_posts', 900, 'ID')
+    ['option_id' => 5, 'option_name' => 'vpf_db_version', 'option_value' => '3.8.1', 'autoload' => 'yes'],
+])->setAutoIncrement('wp_options', 6, 'option_id')->seedTable('wp_posts', $posts)->setAutoIncrement('wp_posts', 900, 'ID')
     ->seedTable('wp_users', [array_replace(array_fill_keys($schema['users'], ''), ['ID' => 1, 'user_login' => 'admin'])])->seedTable('wp_postmeta', [
         ['meta_id' => 1, 'post_id' => 801, 'meta_key' => '_vp_post_type_mapped', 'meta_value' => 'portfolio'],
         ['meta_id' => 2, 'post_id' => 801, 'meta_key' => '_vp_views_count', 'meta_value' => '42'],

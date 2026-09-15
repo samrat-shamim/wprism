@@ -8,7 +8,7 @@
     "manifest-provider-fresh-process/v1", "manifest-provider-runtime/v1", "post-meta-invalidation/v1",
     "provider-filesystem-file-snapshot/v1", "provider-native-option-inputs/v1",
     "provider-native-post-types/v1", "provider-physical-table-rows/v1",
-    "spec-window/v1"
+    "spec-window/v1", "storage-prerequisites/v1"
   ],
   "providers": [{
     "id": "visual-portfolio-settings", "source": "manifest", "version": "1.0.0",
@@ -126,6 +126,9 @@
     "vpf_ask_review_notice_time": {"class": "runtime"},
     "vpf_db_version": {"class": "runtime"}
   },
+  "storage_prerequisites": [
+    {"option": "vpf_db_version", "equals": "3.8.1"}
+  ],
   "post_types": {"portfolio": {"class": "authored"}},
   "post_meta": {
     "_vp_format_video_url": {"class": "authored"},
