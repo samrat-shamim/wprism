@@ -17,7 +17,7 @@
 
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 402 offline suites green"
+	@echo "regress-offline-all: 403 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-action-provider-grammar \
@@ -149,6 +149,7 @@ regress-offline-corpus: code-half-unit \
 	regress-deploy-checkpoint \
 	regress-deploy-command \
 	regress-deploy-planner \
+	regress-derived-post-body \
 	regress-discovery-grammar \
 	regress-disposition-split \
 	regress-docker-exec-mode \
@@ -422,4 +423,4 @@ regress-offline-corpus: code-half-unit \
 	regress-wp-cli-child-process \
 	regress-wpforms-lite-adapter \
 	regress-wpforms-lite-term-deletion
-	@echo "regress-offline-corpus: 402 offline suites green"
+	@echo "regress-offline-corpus: 403 offline suites green"

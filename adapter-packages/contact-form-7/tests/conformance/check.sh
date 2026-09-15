@@ -108,6 +108,28 @@ cf7_target_hash() {
   '
 }
 
+# The main form's stored body against CF7's own derivation of the properties
+# apply wrote, computed on conf2 by CF7's loader and flattener. Only digests,
+# a length and booleans leave the target: the derivation holds mail addresses.
+cf7_target_body_evidence() {
+  local out
+  out=$(wp_conf2 eval '
+    $post = get_page_by_path("conformance-contact-form", OBJECT, "wpcf7_contact_form");
+    $form = $post ? WPCF7_ContactForm::get_instance($post->ID) : null;
+    $stored = $post ? (string) $post->post_content : "";
+    $derived = $form ? trim(implode("\n", wpcf7_array_flatten($form->get_properties()))) : null;
+    echo wp_json_encode([
+      "stored_sha256" => $post ? hash("sha256", $stored) : null,
+      "derived_sha256" => is_string($derived) ? hash("sha256", $derived) : null,
+      "length" => strlen($stored),
+      "stale" => str_contains($stored, "Hostile target main form"),
+      "target_home" => str_contains($stored, home_url("/")),
+    ]), "\n";
+  ' | awk 'NF { line=$0 } END { print line }')
+  require_observed_nonempty "conf2 CF7 main form body evidence" "$out"
+  printf '%s\n' "$out"
+}
+
 SOURCE=$(observe_cf7 conf1)
 TARGET=$(observe_cf7 conf2)
 TARGET_PREMISE=$(cat "${CONF_REPO2:-siterepo/conf2}/.tmp-cf7-target.json")
@@ -138,6 +160,43 @@ printf '%s\n' "$TARGET" | jq -e '
   ] and
   (.legacy.form | contains("legacy-literal")) and (.legacy.mail.body | contains($home))
 ' >/dev/null || fail "CF7 native properties, long data, legacy storage, or target sovereignty did not converge: $TARGET"
+
+# derived-post-body/v1: a form's post_content is CF7's own flattening of the
+# properties this adapter carries as meta, so it is not canonical state
+# (agent/src/Grammar/DerivedBodyGrammar.php). Each witness fails against a
+# distinct defect:
+#  - published state carries an EMPTY body for every form. Carrying it published
+#    a second, undeclared copy of that state -- the copy whose source admin
+#    address capture's clearance refused;
+#  - the adopted target form's body is CF7's own derivation of the properties
+#    apply wrote: the contact-form-7-form-content provider rebuilt it. Without
+#    the provider it is still the stale body postdeploy.sh's save() derived
+#    ("Hostile target main form"); a carried source body holds the SOURCE home
+#    URL the target's rebound mail body does not, so it cannot equal the
+#    target's derivation; an apply that wrote the empty canonical body fails
+#    the length floor.
+CF7_STATE_BODIES=$(wp_conf1 eval '
+  $bodies = [];
+  foreach (glob("/siterepo/state/posts/wpcf7_contact_form/*.md") ?: [] as $file) {
+      [, $body] = \WPrism\Canon::parse_post_file((string) file_get_contents($file));
+      $bodies[basename($file)] = strlen($body);
+  }
+  ksort($bodies);
+  echo wp_json_encode($bodies), "\n";
+' | awk 'NF { line=$0 } END { print line }')
+require_observed_nonempty "CF7 published form bodies" "$CF7_STATE_BODIES"
+jq -e '
+  (keys | any(endswith("--conformance-contact-form.md"))) and
+  (to_entries | all(.value == 0))
+' <<<"$CF7_STATE_BODIES" >/dev/null \
+  || fail "CF7 published state carries a non-empty derived form body: $CF7_STATE_BODIES"
+CF7_TARGET_BODY=$(cf7_target_body_evidence)
+jq -e '
+  (.stored_sha256 | type == "string") and .stored_sha256 == .derived_sha256 and
+  .length > 25000 and .stale == false and .target_home == true
+' <<<"$CF7_TARGET_BODY" >/dev/null \
+  || fail "CF7 apply did not rebuild the adopted target form body from its applied properties: $CF7_TARGET_BODY"
+pass "derived form body: published state carries none, and the target rebuilds it from the properties apply wrote"
 
 SOURCE_MAIN=$(jq -r '.main.id' <<<"$SOURCE")
 TARGET_MAIN=$(jq -r '.main.id' <<<"$TARGET")
@@ -306,14 +365,26 @@ wp_conf1 eval '
   update_post_meta($p->ID,"_mail",$b["mail"]);
 ' >/dev/null
 
+# Both property generations on one form is a repository-shape fault, refused by
+# the compiler (runtime/interpreters/contact-form-7.php repository_diagnostics)
+# rather than at classification: apply's locked target context legitimately
+# meets both spellings once while converging a target to the other generation
+# (tests/offline/regress_contact_form_7_storage_generation_apply.php). Capture
+# compiles its staged candidate before publishing, so the refusal is still
+# capture's, names the exact property, and must publish nothing.
 wp_conf1 eval '
   $p=get_page_by_path("conformance-legacy-storage", OBJECT, "wpcf7_contact_form");
   update_post_meta($p->ID,"_form",get_post_meta($p->ID,"form",true));
 ' >/dev/null
+DUAL_STATUS=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 DUAL_RC=0
 DUAL_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || DUAL_RC=$?
-[ "$DUAL_RC" -ne 0 ] && grep -q "both 'form' and '_form'" <<<"$DUAL_OUT" \
+[ "$DUAL_RC" -ne 0 ] \
+  && grep -q "conformance-legacy-storage.md:meta._form" <<<"$DUAL_OUT" \
+  && grep -q "Contact Form 7 form has both current '_form' and legacy 'form' properties" <<<"$DUAL_OUT" \
   || fail "CF7 dual legacy/current storage did not refuse: $DUAL_OUT"
+[ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$DUAL_STATUS" ] \
+  || fail "CF7 dual-storage refusal partially published canonical state"
 wp_conf1 eval '$p=get_page_by_path("conformance-legacy-storage",OBJECT,"wpcf7_contact_form"); delete_post_meta($p->ID,"_form");' >/dev/null
 
 wp_conf1 eval '
@@ -429,8 +500,19 @@ wp_conf2 db query '
 FAULT_RC=0
 FAULT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || FAULT_RC=$?
 require_wprism_answered "CF7 injected transaction failure" human "$FAULT_OUT"
-[ "$FAULT_RC" -ne 0 ] && grep -q 'wprism_cf7_fail_messages' <<<"$FAULT_OUT" \
-  || fail "CF7 injected late database failure did not surface exactly: $FAULT_OUT"
+# Apply writes authored post meta through Db's checked mutation, whose refusal
+# carries no driver text on purpose (agent/src/Kernel/DatabaseExceptions.php:14):
+# the native error renders the statement, so it can echo meta payloads -- here,
+# CF7 mail and message properties. The constraint name therefore never reaches
+# the operator, and asserting it would be asserting a leak. Attribute through
+# the product boundary and assert the redaction instead, the idiom
+# the-events-calendar/tests/conformance/check.sh already uses for its own late
+# postmeta constraint.
+[ "$FAULT_RC" -ne 0 ] \
+  && grep -Fq 'wprism: database mutation failed: apply reconcile authored post meta' <<<"$FAULT_OUT" \
+  || fail "CF7 injected late database failure did not surface at the product boundary: $FAULT_OUT"
+! grep -q 'wprism_cf7_fail_messages' <<<"$FAULT_OUT" \
+  || fail "CF7 late-failure refusal leaked native driver text, which renders SQL values, into operator output: $FAULT_OUT"
 [ "$(cf7_target_hash)" = "$FAULT_BEFORE" ] \
   || fail "CF7 failed transaction left partial post/meta writes"
 [ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
@@ -446,6 +528,10 @@ printf '%s\n' "$RETRIED" | jq -e '
   (.main.mail.subject | contains("CF7 transaction subject 東京 🚀")) and
   (.main.messages.mail_sent_ok | contains($observed.home))
 ' >/dev/null || fail "CF7 retry did not converge through its native API: $RETRIED"
+# The failed apply committed nothing, so no rebuild ran; the retry's must.
+CF7_RETRY_BODY=$(cf7_target_body_evidence)
+jq -e '.stored_sha256 == .derived_sha256 and .stale == false' <<<"$CF7_RETRY_BODY" >/dev/null \
+  || fail "CF7 retry did not rebuild the form body from its converged properties: $CF7_RETRY_BODY"
 pass "late CF7 metadata failure rolls back every write, retains authority, and retries cleanly"
 
 # Two real processes race one new repository intent. One may wait and observe
@@ -487,8 +573,14 @@ jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] |
 pass "competing CF7 applies serialize and leave one exact idempotent result"
 
 # Deactivation is reversible. CF7's native uninstall is destructive (all form
-# posts and wpcf7 option); missing code must refuse, then exact digest-bound
-# reinstall plus explicit repository authority must reconstruct native forms.
+# posts and the wpcf7 option), and missing code must refuse. What recovers from
+# it changed with #565: a mapped identity whose backing row is gone is never
+# recreated or rebound -- not by explicit slug adoption either, because the map
+# guard runs in the target snapshot before any adoption is planned
+# (agent/src/Repository/CanonicalLedgerMapGuard.php). Recovery is the
+# database-matched backup, the sequence polylang/tests/conformance/check.sh
+# already proves for its own complete uninstall: refuse exactly and preserve,
+# refuse the stale identity sidecar, restore the backup, converge.
 wp_conf2 option update wprism_cf7_neighbor 'target-neighbor-preserved' >/dev/null
 wp_conf2 plugin deactivate contact-form-7 >/dev/null
 if wp_conf2 plugin is-active contact-form-7 >/dev/null 2>&1; then
@@ -497,6 +589,20 @@ fi
 REACTIVATE=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_wprism_answered "CF7 deploy after deactivation" json "$REACTIVATE"
 wp_conf2 plugin is-active contact-form-7 >/dev/null || fail "WPrism deploy did not reactivate exact CF7 code"
+# Target-owned wpcf7 state is written BEFORE the backup, so recovery must bring
+# it back rather than merely not disturb it.
+wp_conf2 eval '
+  $option=(array)get_option("wpcf7",[]);
+  $option["wprism_reinstall_target"]="reinstall-env-preserved";
+  update_option("wpcf7",$option);
+' >/dev/null
+REMOVE_ALL_DB="$CONF_REPO2/.tmp-cf7-remove-all.sql"
+REMOVE_ALL_IDENTITY="$CONF_REPO2/.tmp-cf7-remove-all-identity.json"
+wp_conf2 wprism identity-export --repo=/siterepo --out=/siterepo/.tmp-cf7-remove-all-identity.json >/dev/null
+jq -e '.format == "wprism-identity-ledger/v1" and any(.maps[]?; .id_kind == "post")' "$REMOVE_ALL_IDENTITY" >/dev/null \
+  || fail 'CF7 destructive-uninstall recovery sidecar omitted the form post identities'
+wp_conf2 db export /siterepo/.tmp-cf7-remove-all.sql --add-drop-table >/dev/null
+[ -s "$REMOVE_ALL_DB" ] || fail 'CF7 destructive-uninstall recovery database backup is empty'
 # A combined `uninstall --deactivate` keeps WPCF7_VERSION defined in that
 # request, and CF7's uninstall.php intentionally skips deletion in that shape.
 # A second native request after deactivation is the plugin's destructive path.
@@ -526,26 +632,30 @@ wp_conf2 plugin install "$CF7_ARTIFACT" --force >/dev/null
   || fail "CF7 exact reinstall reported wrong version"
 REINSTALL_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_wprism_answered "CF7 deploy after exact reinstall" json "$REINSTALL_DEPLOY"
-wp_conf2 eval '
-  $option=(array)get_option("wpcf7",[]);
-  $option["wprism_reinstall_target"]="reinstall-env-preserved";
-  update_option("wpcf7",$option);
-' >/dev/null
-REINSTALL_BEFORE=$(cf7_target_hash)
-REINSTALL_RC=0
-REINSTALL_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || REINSTALL_RC=$?
-require_wprism_answered "CF7 unforced apply after destructive uninstall" human "$REINSTALL_OUT"
-[ "$REINSTALL_RC" -ne 0 ] && grep -Eq 'slug collisions need explicit resolution|collides with env id' <<<"$REINSTALL_OUT" \
-  || fail "CF7 activation default did not require explicit slug adoption: $REINSTALL_OUT"
-[ "$(cf7_target_hash)" = "$REINSTALL_BEFORE" ] \
-  || fail "CF7 unforced reinstall collision partially mutated target state"
-REINSTALL_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered "CF7 recovery with explicit activation-default adoption" json "$REINSTALL_APPLY"
-jq -e '
-  .canary == "clean" and .verification.result == "pass" and .plan.adopt == 1 and
-  (.warnings | any(contains("adopted env post")))
-' <<<"$REINSTALL_APPLY" >/dev/null \
-  || fail "CF7 exact reinstall did not recover canonical state: $REINSTALL_APPLY"
+STALE_BEFORE=$(cf7_target_hash)
+STALE_PLAN_RC=0
+STALE_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json) || STALE_PLAN_RC=$?
+require_wprism_answered "CF7 plan after destructive uninstall" json "$STALE_PLAN"
+[ "$STALE_PLAN_RC" -ne 0 ] && jq -e '.ok == false and .reason_code == "canonical_identity_recovery_required"' \
+  <<<"$(awk 'NF { line=$0 } END { print line }' <<<"$STALE_PLAN")" >/dev/null \
+  || fail "CF7 destructive uninstall did not refuse canonical identity recovery at plan: $STALE_PLAN"
+STALE_RC=0
+STALE_OUT=$(wp_conf2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin 2>&1) || STALE_RC=$?
+require_wprism_answered "CF7 explicit slug adoption after destructive uninstall" human "$STALE_OUT"
+[ "$STALE_RC" -ne 0 ] && grep -Fq 'canonical mapped identity has no matching live backing row' <<<"$STALE_OUT" \
+  || fail "CF7 slug adoption rebound identities a destructive uninstall destroyed: $STALE_OUT"
+[ "$(cf7_target_hash)" = "$STALE_BEFORE" ] \
+  || fail "CF7 identity recovery refusal partially mutated target state"
+STALE_IDENTITY_RC=0
+STALE_IDENTITY=$(wp_conf2 wprism identity-import --repo=/siterepo --in=/siterepo/.tmp-cf7-remove-all-identity.json 2>&1) \
+  || STALE_IDENTITY_RC=$?
+[ "$STALE_IDENTITY_RC" -ne 0 ] \
+  && grep -Eq 'embedded identity does not verify|identity sidecar witness mismatch' <<<"$STALE_IDENTITY" \
+  || fail "CF7 destructive uninstall accepted an identity sidecar whose data witness was gone: $STALE_IDENTITY"
+wp_conf2 db import /siterepo/.tmp-cf7-remove-all.sql >/dev/null
+wp_conf2 plugin is-active contact-form-7 >/dev/null \
+  || fail 'CF7 database recovery did not restore the exact active-plugin preimage'
+rm -f "$REMOVE_ALL_DB" "$REMOVE_ALL_IDENTITY"
 RECOVERED=$(observe_cf7 conf2)
 printf '%s\n' "$RECOVERED" | jq -e '
   .main.mail.subject == "Concurrent CF7 intent 東京 🚀" and
@@ -568,4 +678,4 @@ wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-cf7-final >/dev/nu
 diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-cf7-final" \
   || fail "CF7 final recovered state was not byte-identical"
 rm -rf "$CONF_REPO2/.tmp-cf7-final"
-pass "deactivate/reactivate, destructive uninstall, absent-code refusal, exact reinstall, explicit recovery, render, and retry are clean"
+pass "deactivate/reactivate, destructive uninstall, absent-code refusal, exact reinstall, identity-recovery refusal, database recovery, render, and convergence are clean"

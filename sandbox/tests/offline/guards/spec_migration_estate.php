@@ -285,7 +285,12 @@ function rehearsal_site_plan(): array {
         'multilingual' => [
             'kind' => 'cohort',
             'pins' => ['digest'],
-            'shipped' => ['core', 'contact-form-7', 'wps-hide-login'],
+            // contact-form-7 sat here until it declared `derived-post-body/v1`,
+            // which requires spec_version 3. A restamped adapter is exactly the
+            // "later per-adapter restamp" this drill keeps out: state A is the
+            // tree's spec MINUS ONE, so a v3 manifest is outside its acceptance
+            // window and the pre-flag agent cannot materialize it at all.
+            'shipped' => ['core', 'classic-editor', 'wps-hide-login'],
             'about' => 'a second retained-v2 digest-pinned set, so a single adapter cannot carry the neutrality claim',
         ],
         'certified-alpha' => [
@@ -300,7 +305,7 @@ function rehearsal_site_plan(): array {
         'certified-beta' => [
             'kind' => 'cohort',
             'pins' => ['bare', 'site-override'],
-            'shipped' => ['core', 'contact-form-7'],
+            'shipped' => ['core', 'classic-editor'],
             'adapter' => 'estate-shop',
             'key' => 'site-key-beta',
             'about' => 'a certified site adapter under a SECOND operator key, held by a source-only override pin',

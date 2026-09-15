@@ -396,7 +396,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'change-wp-admin-login' => 'd40c6a95254de737ac2c42080a5f79daf4c5d75901df2f5f436669b88e43a415',
     'classic-editor' => '908c6cd00f9cd389b40105bbb1f906ae5271ad13dfafcbc65d4face4ff2156ea',
     'code-snippets' => 'f3c1dd976c6fee9ab0d3287053dadf8a38f1976c180121439481ee9a7602402e',
-    'contact-form-7' => '53fdac96618f559d7620aa8dbc6af75d1cc1ba1e3b1f408ceb7fc2a8a7930fb9',
+    'contact-form-7' => '2d725ef62bd0157170c5839392aabbbe0ee32791d5f728cd63cdf15565d6e7aa',
     'core' => '9f9a23cfb2be0b8dd693cecd1df6adb4e9082ca8d589675ce95bfae85c185b63',
     'elementor' => '5383779c98b51bb94e2aab363d72729fd55003798656f7d025f8773ae5793d64',
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
@@ -422,11 +422,11 @@ const WPRISM_CURRENT_DIGESTS = [
 // WPRISM_CURRENT_DIGESTS and every 'moves only <subject>' assertion still hold, so
 // woocommerce is measurably the only identity that moved. The same five numbers are
 // independently re-pinned in regress_spec_v3_digest_neutrality.php and agree there.
-const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = 'aedd218a805b0b7756e73a2f3e7f4b4c8d5ea46cba9372bc9f6bb33b0e50d17c';
-const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = '77f3026e24c715a219c446ee4a8b43174a0c08db538853dfc0b313d64983becf';
+const WPRISM_CURRENT_RANK_WORLD_MANIFEST_HASH = 'dcd81ea6184670f6b2c9e89f7a262d16b7540da312ce2a389cd70ec13e142d43';
+const WPRISM_CURRENT_YOAST_WORLD_MANIFEST_HASH = 'cf99174a69ab377c55438f9d0b3753f32c70338ebe09b44eacba0df5e448c0d8';
 const WPRISM_CURRENT_REGISTRY_SHA = 'ab45dd77fb0e1c80d36121bd45fdf7da559467d3ec961f837eef5c04923485c7';
-const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = 'd042190a3b20e7e4f45dd02ba76284fc76d1fa97c739b8b880a4f20eefa64919';
-const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = '0e139f47591e96c49d93cccf4d87c57d097b665e877cbeddeb2ef1bca1e7be63';
+const WPRISM_CURRENT_RANK_WORLD_SNAPSHOT_SHA = '5e5711da82585882b8f9f14976144bd6715dbd85dea0a8adb0ed366feb2b5dc5';
+const WPRISM_CURRENT_YOAST_WORLD_SNAPSHOT_SHA = 'acb63ab75ba74c2cd5cd4fd2313fad1f828002ecdf6559ffc0fd3bd6058d7beb';
 
 $liveRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(

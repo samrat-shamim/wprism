@@ -1,9 +1,55 @@
 {
-  "spec_version": 2,
+  "spec_version": 3,
+  "engine_features": ["derived-post-body/v1", "manifest-provider-runtime/v1", "spec-window/v1"],
   "name": "contact-form-7",
   "interpreter": "contact-form-7",
   "plugin": "contact-form-7/wp-contact-form-7.php",
   "version_range": {"min": "6.0", "max": "6.2.0"},
+  "providers": [
+    {
+      "id": "contact-form-7-form-content",
+      "version": "1.0.0",
+      "source": "manifest",
+      "plugin": "contact-form-7/wp-contact-form-7.php",
+      "requires": {
+        "functions": ["clean_post_cache", "wpcf7_array_flatten"],
+        "classes": ["WPCF7_ContactForm"]
+      },
+      "capabilities": ["rebuild_form_content"],
+      "contracts": {
+        "rebuild_form_content": {
+          "args": {},
+          "reads": ["post:wpcf7_contact_form", "table:postmeta", "table:posts"],
+          "writes": ["table:posts"],
+          "scope": "entity",
+          "idempotent": true,
+          "timeout_seconds": 60,
+          "scoped": {
+            "operation_envelope": "wprism-scoped-effect-operation/v1",
+            "reconcile": true,
+            "invoke_after": "reconcile"
+          }
+        }
+      }
+    }
+  ],
+  "actions": [
+    {
+      "kind": "provider",
+      "provider": "contact-form-7-form-content",
+      "capability": "rebuild_form_content",
+      "args": {},
+      "triggers": ["post:wpcf7_contact_form"],
+      "effects": [
+        {
+          "id": "contact-form-7-form-content",
+          "kind": "database",
+          "mode": "restorable",
+          "selector": {"scope": "database_checkpoint", "type": "table", "value": "posts"}
+        }
+      ]
+    }
+  ],
   "notes": [
     "issue #3509 records the wpcf7 environment classification below.",
     "The admitted line is exactly the audited Contact Form 7 6.0.x and 6.1.x releases ([6.0, 6.2.0)). The exact wordpress.org 6.0 package and current 6.1.7 are the boundary artifacts; 5.9.8 is the adjacent installed negative control. The minimum deliberately matches the official plugin header's 6.0 spelling because PHP version comparison does not treat 6.0 as >= 6.0.0. A future 6.2 release remains blocked until its source and exact artifact are reviewed rather than being trusted by a broad major-version range.",
@@ -12,6 +58,7 @@
     "The legacy formatter emits [contact-form <old_id> \"<title>\"], whose positional integer resolves through _old_cf7_unit_id rather than wp_posts.ID. The positional rule canonicalizes that alternate to the same post token in post bodies and structured string leaves, then restores the repository-authored alternate; missing, duplicate, non-positive, non-decimal, overflow, and wrong-domain values refuse loudly.",
     "CF7 6.x still reads the pre-3.3 unprefixed form/mail/mail_2/messages/additional_settings property names. The digest-bound interpreter admits exactly one current-or-legacy spelling per property and rejects dual or incomplete storage. It also classifies native _config_errors/_config_validation/_flamingo residue as runtime and _constant_contact/_sendinblue integration configuration as environment-owned, only in an anchored CF7 form context; unknown plugin extensions stay unclassified and loud.",
     "The manifest declares the non-public wpcf7_contact_form post type so Capture can discover and gate CF7 forms; site.wprism.json still controls the site's broader post_type scope.",
+    "A form's post_content is derived, not authored: WPCF7_ContactForm::save() stores trim(implode(\"\\n\", wpcf7_array_flatten($props))) of the same five properties this adapter carries as meta. Carrying it published a second, undeclared copy of that state, including the source site's admin address, which the default form's sender holds and only the reviewed _mail rule may carry. The body is therefore declared derived (derived-post-body/v1): capture records it empty and apply writes none. CF7 still reads it implicitly, because its admin forms list and REST contact-forms?search= pass s to WP_Query, which searches post_content; so the contact-form-7-form-content provider re-derives it on the target after apply, through CF7's own loader and flattener, for exactly the forms that apply touched. It writes only that column, never calls save(), and verifies the stored bytes against the derivation.",
     "wpcf7 is environment-owned and optional: the one settings blob mixes the installed-version upgrade gate, validation/admin state, and optional reCAPTCHA, Turnstile, Stripe, and Brevo credentials. It never enters canonical state and has no authored sub-key carve-out; target values must survive apply unchanged."
   ],
   "options": {
@@ -28,7 +75,7 @@
     "_messages": {"class": "authored", "plain_data": true, "allow_pii": true}
   },
   "post_types": {
-    "wpcf7_contact_form": {}
+    "wpcf7_contact_form": {"body": "derived"}
   },
   "shortcode_attrs": {
     "contact-form-7": [

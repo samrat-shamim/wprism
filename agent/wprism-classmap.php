@@ -130,6 +130,7 @@ return [
     'WPrism\\DependencyRegenerator' => 'src/Rebuild/DependencyRegenerator.php',
     'WPrism\\Deploy' => 'src/Promotion/Deploy.php',
     'WPrism\\DeployPlanner' => 'src/Promotion/DeployPlanner.php',
+    'WPrism\\DerivedBodyGrammar' => 'src/Grammar/DerivedBodyGrammar.php',
     'WPrism\\DiscoveryGrammar' => 'src/Policy/DiscoveryGrammar.php',
     'WPrism\\DurableFilesystem' => 'src/Kernel/DurableFilesystem.php',
     'WPrism\\DynamicOptionResolver' => 'src/Grammar/DynamicOptionResolver.php',

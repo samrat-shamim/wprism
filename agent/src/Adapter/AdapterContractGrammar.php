@@ -54,6 +54,7 @@ require_once __DIR__ . '/../Policy/ManifestGrammar.php';
 // leaf in Grammar (JsonRefs/ReferenceRules/Secrets, all Kernel), so this costs
 // the same one stat and cannot circle back through this file.
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
+require_once __DIR__ . '/../Grammar/DerivedBodyGrammar.php';
 // Redirection's action_data column is the measured mixed serialized/text
 // demand; this leaf owns the value-vocabulary feature name that gates it.
 require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
@@ -420,6 +421,7 @@ final class AdapterContractGrammar {
         BodyRefGrammar::PRESERVED_TYPE_FEATURE => ['since' => 3, 'keys' => []],
         BodyRefGrammar::URL_FEATURE => ['since' => 3, 'keys' => []],
         BodyRefGrammar::PII_FEATURE => ['since' => 3, 'keys' => []],
+        DerivedBodyGrammar::FEATURE => ['since' => 3, 'keys' => []],
     ];
 
     /**

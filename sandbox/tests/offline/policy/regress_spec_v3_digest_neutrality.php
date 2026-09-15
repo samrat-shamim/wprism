@@ -38,12 +38,12 @@ use WPrism\Policy;
 // The native pa_* hierarchy fact moves only Woo's manifest and adapter digest.
 // Its three containing pin sets move with it; the disposition registry, pin
 // order, neighbouring adapters and all unrelated snapshots stay byte-identical.
-const BASELINE_FIXTURE_SHA256 = '9abc730402b5d50df31ae4cf3ee2b1f7adc97fee6dcb8bcde2c6c8cb2e832d53';
-const RANK_WORLD_MANIFEST_HASH = 'aedd218a805b0b7756e73a2f3e7f4b4c8d5ea46cba9372bc9f6bb33b0e50d17c';
-const YOAST_WORLD_MANIFEST_HASH = '77f3026e24c715a219c446ee4a8b43174a0c08db538853dfc0b313d64983becf';
+const BASELINE_FIXTURE_SHA256 = '8a08f90dafdced2a2b381b44d56d0bc62b732837ad5cd48e480459b45cb456ec';
+const RANK_WORLD_MANIFEST_HASH = 'dcd81ea6184670f6b2c9e89f7a262d16b7540da312ce2a389cd70ec13e142d43';
+const YOAST_WORLD_MANIFEST_HASH = 'cf99174a69ab377c55438f9d0b3753f32c70338ebe09b44eacba0df5e448c0d8';
 const REGISTRY_SHA256 = 'ab45dd77fb0e1c80d36121bd45fdf7da559467d3ec961f837eef5c04923485c7';
-const RANK_WORLD_SNAPSHOT_SHA256 = 'd042190a3b20e7e4f45dd02ba76284fc76d1fa97c739b8b880a4f20eefa64919';
-const YOAST_WORLD_SNAPSHOT_SHA256 = '0e139f47591e96c49d93cccf4d87c57d097b665e877cbeddeb2ef1bca1e7be63';
+const RANK_WORLD_SNAPSHOT_SHA256 = '5e5711da82585882b8f9f14976144bd6715dbd85dea0a8adb0ed366feb2b5dc5';
+const YOAST_WORLD_SNAPSHOT_SHA256 = 'acb63ab75ba74c2cd5cd4fd2313fad1f828002ecdf6559ffc0fd3bd6058d7beb';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';

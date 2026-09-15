@@ -477,7 +477,7 @@
             ]
           }
         ],
-        "file_count": 28,
+        "file_count": 29,
         "files": [
           "AttrIdCodecGrammar.php",
           "AttributeGrammar.php",
@@ -486,6 +486,7 @@
           "BodyRefGrammar.php",
           "ColumnCodecGrammar.php",
           "ContentAttributeRuleResolver.php",
+          "DerivedBodyGrammar.php",
           "DynamicOptionResolver.php",
           "ExactOptionResolver.php",
           "FieldGrammar.php",

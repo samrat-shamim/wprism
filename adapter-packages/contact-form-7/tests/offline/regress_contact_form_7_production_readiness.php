@@ -3,11 +3,15 @@ declare(strict_types=1);
 
 /** Closed offline matrix for CF7 6.x property, identity, and residue shapes. */
 
-if (!defined('WPRISM_SPEC_VERSION')) {
-    define('WPRISM_SPEC_VERSION', 2);
-}
-
 $repoRoot = dirname(__DIR__, 4);
+// This suite used to carry `define('WPRISM_SPEC_VERSION', 2)`. That literal was
+// free while CF7's own manifest was spec 2; declaring `derived-post-body/v1`
+// makes it spec 3, and a private copy of the number would then refuse this
+// capsule's own manifest for being NEWER than the engine the suite pretended to
+// be. agent_version.php exists for exactly this rot (WP-4.12) — read the source
+// of record instead of retyping it.
+require_once $repoRoot . '/sandbox/tests/lib/agent_version.php';
+wprism_test_define_agent_versions();
 require_once $repoRoot . '/sandbox/tests/lib/check.php';
 require_once $repoRoot . '/sandbox/tests/lib/wp_stubs.php';
 require_once $repoRoot . '/agent/src/Kernel/Canon.php';
@@ -153,17 +157,23 @@ foreach ([
     );
 }
 
+// Dual storage is a repository-shape fault, refused by the compiler — which
+// capture runs over its staged candidate before publishing — rather than by
+// classification. Apply classifies a union no row holds: its locked context
+// keeps the rows it is about to delete, so converging a target to the other
+// generation meets both spellings once, and a classification refusal there
+// was the CF7 conformance apply's failure
+// (regress_contact_form_7_storage_generation_apply.php).
 $dual = cf7_readiness_meta();
 $dual['form'] = $dual['_form'];
-wprism_check_throws(
-    static fn() => $policy->meta_rule_for_post('form', $dual),
-    RuntimeException::class,
-    'dual current/legacy storage refuses classification',
-    'both'
+wprism_check_same(
+    ['class' => 'authored'],
+    $policy->meta_rule_for_post('form', $dual),
+    'dual current/legacy storage still classifies: the shape refusal belongs to repository compilation'
 );
 wprism_check(
     str_contains(implode(' | ', cf7_readiness_messages(cf7_readiness_diagnostics($interpreter, $dual))), 'both current'),
-    'dual current/legacy storage is also rejected from a hand-edited repository'
+    'dual current/legacy storage is rejected by repository compilation, which capture runs before publishing'
 );
 
 foreach (['form', 'mail', 'mail_2', 'messages', 'additional_settings'] as $name) {
