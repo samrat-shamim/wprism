@@ -22,6 +22,12 @@ require both gallery image elements to name their target attachment IDs, popup
 links to name the originals, and image URLs to return decodable PNGs. Both legacy
 archives must render the two projects selected by descending native date.
 
+The shared native geometry probe exercises 96 Core resize cases, including
+unconstrained dimensions, extreme aspect ratios and positional crops. The image
+engine charges each registered size no more than the original's pixel area:
+Core/GD cannot upscale, so a `9999` height does not imply a giant output. The
+existing aggregate budget remains enforced by the offline materializer suite.
+
 Run from a clean exact checkout with a unique disposable pair:
 
 ```sh

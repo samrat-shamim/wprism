@@ -13,3 +13,7 @@ pass 'Visual Portfolio source captures and compiles with complete native and can
 
 capture_wprism_json_success VP_ROUNDTRIP_SOURCE 'Visual Portfolio independent native source roles' wp_conf1 eval-file /siterepo/.tmp-vp-capture/roundtrip-native.php observe --use-include --user=admin
 printf '%s\n' "$VP_ROUNDTRIP_SOURCE" > "$CONF_REPO1/.tmp-vp-capture/roundtrip-source.json"
+
+cp "$VP_CAPSULE/../../sandbox/tests/live/apply/native_image_geometry.php" "$CONF_REPO1/.tmp-vp-capture/"
+capture_wprism_json_success VP_GEOMETRY 'native Core bounded resize geometry' wp_conf1 eval-file /siterepo/.tmp-vp-capture/native_image_geometry.php --use-include --user=admin
+printf '%s\n' "$VP_GEOMETRY"
