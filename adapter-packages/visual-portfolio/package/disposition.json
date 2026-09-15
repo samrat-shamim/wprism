@@ -1,11 +1,11 @@
 {
   "status": "experimental",
-  "reason": "Visual Portfolio 3.8.1 declares experimental agent deployment through native activation, capture, immutable compilation, bounded native post-query Apply and scoped archive/settings repair, including explicit requests returning to earlier artifacts. A dedicated lifecycle action runs the plugin's public migration routine in an engine-owned transaction and proves the exact cursor and bounded database postimage again in an independent fresh WordPress boot. Its complete options/posts/postmeta effects are checkpoint-restorable, so the host can infer storage-only settlement without duplicating provider identity in the prerequisite. The agent-roundtrip profile exercises that provider boundary while host production deployment remains refused. Irreversible settings effects, broader lifecycle combinations and production qualification remain open.",
+  "reason": "Visual Portfolio 3.8.1 declares experimental capture, immutable compilation, bounded native post-query Apply and scoped archive/settings repair, including explicit requests returning to earlier artifacts. A dedicated lifecycle action runs the plugin's public migration routine in an engine-owned transaction and proves the exact cursor and bounded database postimage again in an independent fresh WordPress boot. Its complete options/posts/postmeta effects are checkpoint-restorable, so a certified host can infer storage-only settlement without duplicating provider identity in the prerequisite. Because provider phases require host checkpoint/session ordering while experimental disposition blocks host promotion, deploy remains deliberately unclaimed. The agent-apply-roundtrip profile pins both deployment refusals, establishes disposable native lifecycle state, and exercises the provider and Apply boundary. Irreversible settings effects, broader lifecycle combinations and production qualification remain open.",
   "supported_versions": {"plugin": "visual-portfolio/class-visual-portfolio.php", "range": {"min": "3.8.1", "max": "3.8.2"}},
   "capabilities": {
     "entity_sections": ["post_types", "taxonomies"],
     "field_sections": ["options", "post_meta", "block_attrs", "block_values"],
-    "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture"],
+    "operations": ["capture", "compile", "plan", "apply", "recapture"],
     "lifecycle_phases": ["lifecycle_settle"],
     "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific entity deletion"]}
   },

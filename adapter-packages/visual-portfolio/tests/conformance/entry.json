@@ -1,7 +1,7 @@
 {
   "manifest": "visual-portfolio",
   "entry": {
-    "mode": "agent-roundtrip",
+    "mode": "agent-apply-roundtrip",
     "disable_target_cron": true,
     "pin": ["core", "visual-portfolio"],
     "plugins": [{"slug": "visual-portfolio", "version": "3.8.1"}],

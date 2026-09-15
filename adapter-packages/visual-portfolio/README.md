@@ -1,8 +1,9 @@
 # Visual Portfolio
 
 Experimental declarations for the official free **3.8.1** artifact. This capsule
-exercises source capture, immutable compilation, codec fixed points and a bounded
-native settings and post-query Apply lanes. It does not authorize production release.
+exercises source capture, immutable compilation, codec fixed points and bounded
+native settings, storage-migration and post-query Apply lanes. Deploy remains
+unclaimed until certified host qualification; this does not authorize production release.
 
 The manifest uses 41 exact block groups and one composed query object for 470
 value declarations, plus four explicit unsupported attributes. Separate manifest

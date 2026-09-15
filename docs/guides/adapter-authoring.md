@@ -78,6 +78,17 @@ mode cannot emit a certified conformance vector and does not grant production
 promotion. Certification also requires the owned version matrix and ready
 evidence across all twelve scenario families; see the package validator.
 
+If a schema or lifecycle provider makes standalone target deploy correctly
+refuse for lack of the host checkpoint/session ordering, do not keep a hollow
+experimental `deploy` claim just to reuse that profile. Use
+`mode: "agent-apply-roundtrip"`: it requires experimental
+capture/compile/plan/apply/recapture claims with deploy absent, proves both the
+host certification refusal and the direct provider-boundary refusal, then lets
+the disposable harness establish exact native plugin/theme lifecycle state.
+Package hooks still exercise the real provider, Apply, native consumers and
+recapture paths. Deployment becomes claimable only when certified host evidence
+can exercise it; fixture lifecycle setup is explicitly not deploy evidence.
+
 An entry may declare `adopt_by_slug` as a unique array drawn from `terms`,
 `posts`, `menus`, and `tables`. The default is `["terms", "posts"]`; an empty
 array explicitly selects no adoption. This is fixture intent for an existing

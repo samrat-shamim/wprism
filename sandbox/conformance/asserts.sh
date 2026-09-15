@@ -362,16 +362,36 @@ capture_wprism_json_refusal() { # <OUT_VAR> <what> <command> [args...]
 # assignment aborted before inspecting that answer. Independent shipped claims
 # bind status/operations; complete streams bind diagnostics/exit. Plan must keep
 # exactly its source promote blockers, never acquire an unreviewed exception.
+assert_experimental_host_refusal() { # <host exit> <host output>
+  [ "$1" = 1 ] || fail 'experimental host deployment must refuse, never report promotion success'
+  assert_no_php_runtime_diagnostics 'experimental host refusal' "$2"
+  grep -Fxq 'wprism: deploy: refusing before promotion-begin; only certified adapters may enter deployment' <<<"$2" \
+    || fail 'experimental host refusal is not the expected certification boundary'
+  if grep -q '^deploy complete:' <<<"$2"; then fail 'experimental evidence cannot accept host promotion success'; fi
+}
+
 assert_agent_roundtrip_refusal() { # <independent claims JSON> <host exit> <host output>
   jq -e 'type == "array" and length > 0 and any(.[]; .status == "experimental") and
     all(.[]; (.status == "certified" or .status == "experimental") and
       (.operations | index("deploy") != null and index("apply") != null))' <<<"$1" >/dev/null \
     || fail 'agent-roundtrip requires independently declared experimental deploy/apply claims'
-  [ "$2" = 1 ] || fail 'agent-roundtrip host deployment must refuse, never report promotion success'
-  assert_no_php_runtime_diagnostics 'agent-roundtrip host refusal' "$3"
-  grep -Fxq 'wprism: deploy: refusing before promotion-begin; only certified adapters may enter deployment' <<<"$3" \
-    || fail 'agent-roundtrip host refusal is not the expected certification boundary'
-  if grep -q '^deploy complete:' <<<"$3"; then fail 'agent-roundtrip cannot accept host promotion success'; fi
+  assert_experimental_host_refusal "$2" "$3"
+}
+
+# An adapter with a host-owned provider phase cannot honestly claim standalone
+# deploy: the direct target command refuses before mutation because it lacks the
+# host checkpoint/session ordering. This profile still exercises the public
+# capture/compile/plan/apply/recapture path after the disposable harness performs
+# native lifecycle setup, while pinning both deployment refusals separately.
+assert_agent_apply_roundtrip_refusal() { # <independent claims JSON> <host exit> <host output>
+  jq -e 'type == "array" and length > 0 and any(.[]; .status == "experimental") and
+    all(.[]; (.status == "certified" or .status == "experimental") and
+      (if .status == "experimental" then
+        ((["apply","capture","compile","plan","recapture"] - .operations) | length == 0) and
+        (.operations | index("deploy") == null)
+      else true end))' <<<"$1" >/dev/null \
+    || fail 'agent-apply-roundtrip requires experimental capture/compile/plan/apply/recapture claims and leaves deploy unclaimed'
+  assert_experimental_host_refusal "$2" "$3"
 }
 
 run_wprism_capture_plan() { # <independent claims JSON> <wp command/function> <repo>

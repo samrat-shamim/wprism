@@ -1,11 +1,10 @@
 # Native authoring round trip
 
 The capsule conformance profile exercises the exact free 3.8.1 artifact through
-experimental agent deployment and Apply. The shared harness still requires the
-host production-deployment refusal; this profile does not promote readiness.
-The experimental disposition explicitly declares `deploy` as well as `apply`.
-This shipped claim changes adapter identity, so existing deployments must
-recompile and re-pin; the conformance guard is never bypassed.
+the public Apply path after package-owned provider settlement. The shared harness
+requires both the host certification refusal and the direct target refusal for
+host-owned provider phases, then establishes disposable native lifecycle state.
+Deploy remains unclaimed; this profile does not promote readiness.
 
 The retained native gallery and legacy archive bodies, settings and images are
 written on source through the existing fixture's WordPress/REST paths. Four
@@ -14,15 +13,15 @@ allocation. Before authoring, the source begins without `vpf_db_version` and the
 plugin's public `Visual_Portfolio_Migrations::init()` procedure advances it to
 3.8.1 and reaches a second-run fixed point across the bounded observed option,
 post and postmeta migration surface. The target starts with
-plugin files only, and agent activation naturally leaves the cursor absent. A
+plugin files only, and fixture activation naturally leaves the cursor absent. A
 real public Apply then returns the value-free `storage_prerequisite_unmet`
 envelope without changing the bounded migration surface. The same refusal and
 non-mutation proof runs for a stale 3.8.0 cursor. In both cases the dedicated
 lifecycle provider invokes the plugin's own procedure through the engine provider
 phase, under its declared database transaction and two fresh WordPress boots; the
 fixture never writes a current cursor directly. The same-manifest effect declaration
-makes storage-only host settlement discoverable. Certified host promotion remains
-blocked by the experimental disposition and is a separate qualification milestone.
+makes storage-only host settlement discoverable. Certified host deployment remains
+unclaimed and is a separate qualification milestone.
 
 After storage settles, 32 trash posts and 32 inserted/deleted categories advance
 target identity spaces. The term padding leaves no authored target-only
