@@ -26,3 +26,9 @@ for side in 1 2; do
   done
 done
 pass 'Visual Portfolio complete HTTP galleries and archives render bound identities and downloadable images on both sites'
+capture_wprism_json_success VP_POST_CONSUMER 'Visual Portfolio post-consumer storage state' \
+  wp_conf2 eval-file /siterepo/.tmp-vp-capture/migration.php observe --use-include --user=admin
+jq -e '.format == "wprism-vp-native-migration/v1" and .state.cursor == "3.8.1" and
+  .state.lazy_loading == "full"' <<<"$VP_POST_CONSUMER" >/dev/null \
+  || fail 'Visual Portfolio HTTP consumption changed the settled cursor or current authored lazy-loading value'
+pass 'Visual Portfolio HTTP consumers retain settled storage and the current authored lazy-loading value'

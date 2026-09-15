@@ -35,6 +35,12 @@ use WPrismTest\WpStore;
 $capsule = dirname(__DIR__, 2);
 $manifest = Canon::decode(Canon::read_file($capsule . '/package/manifest.json'));
 $native = Canon::decode(Canon::read_file($capsule . '/fixtures/native/options.json'));
+wprism_check(in_array('storage-prerequisites/v1', $manifest['engine_features'], true),
+    'Visual Portfolio negotiates the generic storage prerequisite feature');
+wprism_check_same([['option' => 'vpf_db_version', 'equals' => '3.8.1']], $manifest['storage_prerequisites'],
+    'the exact 3.8.1 native migration cursor gates authored observation and replay');
+wprism_check_same(['class' => 'runtime'], $manifest['options']['vpf_db_version'],
+    'the migration cursor remains target-local runtime state');
 $core = Canon::decode(Canon::read_file("$root/platform/adapter-library/core/manifest.json"));
 $site = FrozenPolicy::site([$core, $manifest], WPRISM_SPEC_VERSION);
 $site['policy']['post_types'] = ['page', 'portfolio'];

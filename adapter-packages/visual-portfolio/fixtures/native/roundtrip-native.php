@@ -18,6 +18,29 @@ if ($phase === 'pad-target') {
     echo json_encode(['padding' => 32], JSON_THROW_ON_ERROR), "\n";
     return;
 }
+if ($phase === 'editor-roundtrip') {
+    $result = [
+        'format' => 'wprism-vp-native-editor-roundtrip/v1',
+        'cursor' => get_option('vpf_db_version'),
+        'lazy_loading' => Visual_Portfolio_Settings::get_option('lazy_loading', 'vp_images'),
+        'pages' => [],
+    ];
+    foreach (['vp-author-gallery' => 12, 'vp-alternate-archive' => 1] as $slug => $expectedBlocks) {
+        $page = get_page_by_path($slug, OBJECT, 'page');
+        $check($page instanceof WP_Post && $page->post_status === 'publish', 'native editor page ' . $slug);
+        $body = get_post_field('post_content', $page->ID, 'raw');
+        $blocks = parse_blocks($body);
+        $check(is_string($body) && count($blocks) === $expectedBlocks, 'complete native editor block roster ' . $slug);
+        $request = new WP_REST_Request('POST', '/wp/v2/pages/' . $page->ID);
+        $request->set_param('content', $body);
+        $response = rest_do_request($request);
+        $reopened = get_post_field('post_content', $page->ID, 'raw');
+        $check($response->get_status() === 200 && $reopened === $body, 'native Save and reopen retain exact body ' . $slug);
+        $result['pages'][$slug] = ['blocks' => count($blocks), 'sha256' => hash('sha256', $reopened)];
+    }
+    echo json_encode($result, JSON_THROW_ON_ERROR), "\n";
+    return;
+}
 $check($phase === 'observe', 'known native phase');
 $record = ['format' => 'wprism-vp-native-roundtrip/v1', 'plugin' => VISUAL_PORTFOLIO_VERSION, 'home' => home_url()];
 foreach (VisualPortfolioRoundtripEvidence::POSTS as $i => $slug) {
