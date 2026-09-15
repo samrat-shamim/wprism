@@ -26,5 +26,6 @@ $withDeploy = $claims;
 foreach ($withDeploy as &$claim) if ($claim['name'] === 'visual-portfolio') $claim['operations'][] = 'deploy';
 unset($claim);
 [$exit, $stdout, $stderr] = $run(['bash', '-c', $probe, '_', "$root/sandbox/conformance/asserts.sh", json_encode($withDeploy, JSON_THROW_ON_ERROR)]);
-wprism_check($exit !== 0 && str_contains($stderr, 'leaves deploy unclaimed'), 'a hollow experimental deployment claim remains a loud refusal');
+wprism_check($exit !== 0 && str_contains($stderr, 'at least one host-provider participant without deploy'),
+    'a hollow experimental deployment claim remains a loud refusal');
 wprism_check_summary('Visual Portfolio experimental Apply roundtrip claims');

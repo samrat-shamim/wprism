@@ -104,7 +104,8 @@ final class QiVisualPortfolioEvidence
             && ($action['source'] ?? null) === 'provider:visual-portfolio-settings/reconcile_settings'
             && ($action['kind'] ?? null) === 'provider'
             && ($action['provider_version'] ?? null) === '1.0.0'
-            && is_float($action['duration_seconds'] ?? null) && $action['duration_seconds'] > 0
+            && (is_int($action['duration_seconds'] ?? null) || is_float($action['duration_seconds'] ?? null))
+            && $action['duration_seconds'] > 0
             && ($action['verified'] ?? null) === true,
             'initial receipt lost the verified Visual Portfolio provider action');
         $before = $action['before'] ?? null;

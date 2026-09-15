@@ -609,5 +609,28 @@
       "onboarding-admission": "7d5793ddadb855c26d13ef9ed8e9834e0ba3fd4e97051af63aa219d1e6dcde02"
     },
     "scope": "One Qi Advanced Text template and native page selection with the existing core FSE profile and the same exact active block theme. No inline-template writer requalification, theme-file editing, template media, lifecycle, host, adjacent-version or participant-combination qualification. The historical source-template-only-frontend filename records the already-selected page after its chooser Save, not a template-only CSS failure."
+  },
+  "native_visual_portfolio_combination": {
+    "source_engine_commit": "6e31d9194bd05d31482c0c46720ae69feff13bf2",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2",
+      "visual-portfolio": "3.8.1"
+    },
+    "pair": "codexqivp1",
+    "driver_exit": 0,
+    "teardown": "Owned pair, lease, databases, volumes and both site repositories removed after the sole final PASS.",
+    "artifact_hash": "4f88006d5c36679c59774f26b40db3351120eb503fbcc3f2577c723250f5c39e",
+    "manifest_hash": "495645d34f4d15e6726990fb8b102576c1f96871047dd331cae2c43c00e6273f",
+    "log_sha256": "c5ab3b0af17b2f41624f52218ef9833394740a9eb85c093528f9e34119905591",
+    "checks": [
+      "One shared capture selects 13 posts, 11 terms and three media blobs from both package-owned native fixtures; independent package readbacks and deterministic capture pass.",
+      "Host production deployment refuses the experimental aggregate and direct target deployment refuses Visual Portfolio's host-owned provider phase before mutation. Disposable native lifecycle setup activates both exact artifacts.",
+      "Initial Apply reports 22 creates, two updates, two adoptions, one verified provider action and 26 applied/live entities with no drift. All 40 target-local collision witnesses remain byte-identical.",
+      "Visual Portfolio contributes selected 500x333 and 800x533 derivatives to the Qi image. Ten selected Qi-image files transfer byte-identically while the unselected 333x211 probe remains absent.",
+      "Canonical recapture is byte-identical. Both Visual Portfolio HTTP consumers and downloadable images pass; Qi renders all 204 CSS owner frames under rebound identities.",
+      "Repeat Apply reports all 26 entities unchanged with zero create, update, adoption, action, warning or write, and the complete post-consumer target observation remains stable."
+    ],
+    "scope": "Exact free Qi Blocks 1.5.2 plus Visual Portfolio 3.8.1 on WordPress 7.1 through the shared agent-apply-roundtrip. No production authorization, other version, recovery fault, premium code or other participant combination is claimed."
   }
 }
