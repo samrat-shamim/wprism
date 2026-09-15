@@ -68,7 +68,10 @@ namespace {
                 $general = get_option('vp_general', []);
                 $slug = $general['portfolio_slug'] ?? null;
                 if (is_string($slug)) {
-                    $wpdb->update($wpdb->posts, ['post_name' => $slug], ['ID' => 10]);
+                    $archive = get_option('_vp_add_archive_page', false);
+                    if ($archive) {
+                        $wpdb->update($wpdb->posts, ['post_name' => $slug], ['ID' => (int) $archive]);
+                    }
                     unset($general['portfolio_slug']);
                     update_option('vp_general', $general);
                     update_option('_transient_vp_flush_rewrite_rules', '1');
@@ -195,6 +198,8 @@ namespace {
     $bind->invoke(null, $provider, $provider->capabilities());
     $invokeDirect = new ReflectionMethod(ManifestProviderRuntime::class, 'invokeDirect');
     $settle = static fn(array $args = []): array => $invokeDirect->invoke($provider, 'settle_storage', $args);
+    $observe = new ReflectionMethod(VisualPortfolioMigrations::class, 'observe_fresh_postimage_settle_storage');
+    $project = new ReflectionMethod(VisualPortfolioMigrations::class, 'project_fresh_postimage_settle_storage');
 
     $seed = static function (?string $cursor) use ($db): void {
         $options = [
@@ -208,11 +213,12 @@ namespace {
                 'show_caption' => 'on', 'caption_title' => 'title', 'caption_description' => 'description',
                 'preserved' => 'yes',
             ]), 'autoload' => 'yes'],
+            ['option_id' => 4, 'option_name' => '_vp_add_archive_page', 'option_value' => '21', 'autoload' => 'yes'],
         ];
         if ($cursor !== null) {
-            $options[] = ['option_id' => 4, 'option_name' => 'vpf_db_version', 'option_value' => $cursor, 'autoload' => 'yes'];
+            $options[] = ['option_id' => 5, 'option_name' => 'vpf_db_version', 'option_value' => $cursor, 'autoload' => 'yes'];
         }
-        $db->seedTable($db->options, $options)->setAutoIncrement($db->options, 5, 'option_id');
+        $db->seedTable($db->options, $options)->setAutoIncrement($db->options, 6, 'option_id');
         $db->seedTable($db->posts, [
             ['ID' => 10, 'post_name' => 'old-portfolio', 'post_content' => '', 'post_type' => 'page'],
             ['ID' => 20, 'post_name' => 'saved-layout', 'post_content' => '', 'post_type' => 'vp_lists'],
@@ -235,7 +241,13 @@ namespace {
     wprism_check_same(null, $missing['before']['cursor'], 'the receipt preserves the natural missing cursor');
     wprism_check_same('3.8.1', $missing['after']['cursor'], 'native migration advances the exact physical cursor');
     wprism_check_same(1, $GLOBALS['vp_migration_invocations'], 'the provider runs native migration once and proves its second pass as a no-op');
-    wprism_check_same('legacy-portfolio', $db->rows($db->posts)[0]['post_name'], 'the legacy archive slug migrates through native semantics');
+    wprism_check_same('old-portfolio', $db->rows($db->posts)[0]['post_name'], 'the migration does not infer an archive from its post type');
+    wprism_check_same('legacy-portfolio', $db->rows($db->posts)[2]['post_name'],
+        'the legacy archive slug follows its option onto an ordinary post through native semantics');
+    wprism_check($missing['before']['posts_sha256'] !== $missing['after']['posts_sha256'],
+        'the receipt covers the non-page archive post mutation');
+    wprism_check_same($missing['after'], $project->invoke($provider, $observe->invoke($provider, [])),
+        'the independent observer covers the committed non-page archive post postimage');
     wprism_check_same('', get_option('vp_images')['lazy_loading'], 'the legacy lazy-loading value migrates');
     wprism_check_same([
         'show_caption' => 'on', 'caption_title' => 'title', 'caption_description' => 'description',
@@ -289,8 +301,18 @@ namespace {
             $failure->getMessage(), 'the argument refusal is exact and value-free');
     }
 
-    $observe = new ReflectionMethod(VisualPortfolioMigrations::class, 'observe_fresh_postimage_settle_storage');
-    $project = new ReflectionMethod(VisualPortfolioMigrations::class, 'project_fresh_postimage_settle_storage');
+    $seed(null);
+    update_option('_vp_add_archive_page', '21e0');
+    try {
+        $settle();
+        wprism_check(false, 'a malformed legacy archive option cannot enter native migration code');
+    } catch (RuntimeException $failure) {
+        wprism_check_same('wprism: Visual Portfolio legacy archive option is not a bounded post identity',
+            $failure->getMessage(), 'a malformed archive identity refuses before native writes');
+    }
+    wprism_check_same(0, $GLOBALS['vp_migration_invocations'],
+        'malformed archive state cannot invoke the native migration authority');
+
     $seed('3.8.1');
     $projection = $project->invoke($provider, $observe->invoke($provider, []));
     wprism_check_same('3.8.1', $projection['cursor'], 'the independent observer accepts the exact durable cursor');

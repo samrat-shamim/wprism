@@ -60,8 +60,9 @@ host database checkpoint, so storage-only deploy can infer it from the existing
 provider invokes `Visual_Portfolio_Migrations::init()` inside the SDK transaction,
 proves an immediate no-op pass, and exposes only a bounded physical postimage to
 the engine's independent fresh observer. The observed migration surface is limited
-to 4,096 rows / 4 MiB per options, page/saved-layout post and Visual Portfolio
-postmeta projection. Exceeding any bound refuses before a successful receipt.
+to 4,096 rows / 4 MiB per options, page/saved-layout plus legacy-option archive
+post, and Visual Portfolio postmeta projection. Exceeding any bound refuses before
+a successful receipt.
 
 Saved Layout authoring, nonempty custom queries, extension sources and modern custom CSS refuse
 where declared. Premium settings, including hidden premium fields submitted by the

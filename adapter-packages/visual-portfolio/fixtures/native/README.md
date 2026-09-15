@@ -12,7 +12,11 @@ projects have distinct native dates so archive order does not depend on local ID
 allocation. Before authoring, the source begins without `vpf_db_version` and the
 plugin's public `Visual_Portfolio_Migrations::init()` procedure advances it to
 3.8.1 and reaches a second-run fixed point across the bounded observed option,
-post and postmeta migration surface. The target starts with
+post and postmeta migration surface. On the target, the legacy archive option is
+deliberately pointed at an ordinary post; the official migration has no post-type
+check, so the provider must include that exact row in its postimage. The fixture
+proves the slug change and removes its target-only witness before authored replay.
+The target starts with
 plugin files only, and fixture activation naturally leaves the cursor absent. A
 real public Apply then returns the value-free `storage_prerequisite_unmet`
 envelope without changing the bounded migration surface. The same refusal and

@@ -92,8 +92,9 @@ final class VisualPortfolioMigrations extends ManifestProviderRuntime {
 
     /**
      * This is the exact 3.8.1 migration surface: the named option rows, every
-     * page/saved-layout post, and every Visual Portfolio metadata row. The
-     * native callbacks walk the same rows (classes/class-migration.php:44-306).
+     * page/saved-layout post, the post named by the legacy archive option, and
+     * every Visual Portfolio metadata row. The native callbacks walk the same
+     * rows (classes/class-migration.php:44-306).
      *
      * @return array{cursor:?string,options_sha256:string,posts_sha256:string,postmeta_sha256:string}
      */
@@ -135,6 +136,26 @@ final class VisualPortfolioMigrations extends ManifestProviderRuntime {
                 . 'ORDER BY ID LIMIT 4097',
             'Visual Portfolio migration posts'
         );
+        $archiveId = self::archive_post_id($options['rows']);
+        if ($archiveId !== null) {
+            $archive = self::rows(
+                "SELECT * FROM `{$wpdb->posts}` WHERE ID = {$archiveId} ORDER BY ID LIMIT 2",
+                'Visual Portfolio legacy archive post'
+            );
+            if (count($archive['rows']) > 1) {
+                self::refuse('legacy archive post identity is physically ambiguous');
+            }
+            $byId = [];
+            foreach (array_merge($posts['rows'], $archive['rows']) as $row) {
+                $id = $row['ID'] ?? null;
+                if (!is_string($id) || preg_match('/^[1-9][0-9]*$/D', $id) !== 1) {
+                    self::refuse('migration post identity is malformed');
+                }
+                $byId[$id] = $row;
+            }
+            ksort($byId, SORT_NUMERIC);
+            $posts = self::project_rows(array_values($byId));
+        }
         $postmeta = self::rows(
             "SELECT * FROM `{$wpdb->postmeta}` WHERE BINARY LEFT(meta_key, 3) = 'vp_' "
                 . "OR BINARY LEFT(meta_key, 4) = '_vp_' ORDER BY meta_id LIMIT 4097",
@@ -157,6 +178,13 @@ final class VisualPortfolioMigrations extends ManifestProviderRuntime {
             null,
             'wprism: Visual Portfolio migration projection could not read its bounded physical rows'
         );
+        return self::project_rows($rows);
+    }
+
+    /** @param list<array<string,mixed>> $rows
+     *  @return array{rows:list<array<string,mixed>>,sha256:string}
+     */
+    private static function project_rows(array $rows): array {
         if (count($rows) > self::MAX_ROWS) {
             self::refuse('migration projection exceeds its row boundary');
         }
@@ -165,6 +193,28 @@ final class VisualPortfolioMigrations extends ManifestProviderRuntime {
             self::refuse('migration projection exceeds its byte boundary');
         }
         return ['rows' => $rows, 'sha256' => hash('sha256', $bytes)];
+    }
+
+    /** @param list<array<string,mixed>> $options */
+    private static function archive_post_id(array $options): ?int {
+        $values = [];
+        foreach ($options as $row) {
+            if (($row['option_name'] ?? null) === '_vp_add_archive_page') {
+                $values[] = $row['option_value'] ?? null;
+            }
+        }
+        if (count($values) > 1) {
+            self::refuse('legacy archive option is physically ambiguous');
+        }
+        $value = $values[0] ?? null;
+        if ($value === null || $value === '' || $value === '0') {
+            return null;
+        }
+        if (!is_string($value) || preg_match('/^[1-9][0-9]*$/D', $value) !== 1
+            || (string) (int) $value !== $value) {
+            self::refuse('legacy archive option is not a bounded post identity');
+        }
+        return (int) $value;
     }
 
     private static function runtime(): void {
