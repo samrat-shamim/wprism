@@ -1,6 +1,7 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Adapter/StoragePrerequisites.php';
 require_once __DIR__ . '/../Kernel/Canary.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/CaptureCandidateBuilder.php';
@@ -40,10 +41,11 @@ final class CaptureSnapshotService {
         ?array $binding = null,
         ?\Closure $unmappedTermObserver = null
     ): array {
+        $policy ??= Policy::load($repo);
+        StoragePrerequisites::assert_ready($policy);
         Canary::suppress_cron_spawn();
         Ledger::ensure();
         Identity::assert_embedded_unique();
-        $policy ??= Policy::load($repo);
         CaptureTransaction::assert_engine_support($policy);
         $repository = $compiled ?? RepositoryCompiler::compile_for_diff($repo, Policy::load($repo));
         CanonicalLedgerMapGuard::assert_pre_prune($policy, $repository);
@@ -91,6 +93,8 @@ final class CaptureSnapshotService {
         ?CompiledRepository $compiled = null,
         ?Policy $policy = null
     ): array {
+        $policy ??= Policy::load($repo);
+        StoragePrerequisites::assert_ready($policy);
         Canary::suppress_cron_spawn();
         Ledger::assert_read_only_schema();
         self::assertReadOnlyIdentityPrecondition(
@@ -98,7 +102,6 @@ final class CaptureSnapshotService {
                 Identity::assert_embedded_unique();
             }
         );
-        $policy ??= Policy::load($repo);
         CaptureTransaction::assert_engine_support($policy);
         $repository = $compiled ?? RepositoryCompiler::compile_for_diff($repo, Policy::load($repo));
         CanonicalLedgerMapGuard::assert_pre_prune($policy, $repository);
@@ -152,6 +155,7 @@ final class CaptureSnapshotService {
         bool $forceUnresolvedRefs = false,
         ?DatabaseWorkAuthority $workAuthority = null
     ): array {
+        StoragePrerequisites::assert_ready($policy);
         Canary::suppress_cron_spawn();
         return (new CaptureCandidateBuilder($repo, $policy))->build(
             false,
@@ -183,6 +187,7 @@ final class CaptureSnapshotService {
 
     /** Read-only preflight shared by RefreshExport's snapshot boundary. */
     public static function assertReadOnlyExportEngineSupport(Policy $policy): void {
+        StoragePrerequisites::assert_ready($policy);
         CaptureTransaction::assert_engine_support($policy);
     }
 

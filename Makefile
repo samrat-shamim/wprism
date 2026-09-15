@@ -3263,3 +3263,7 @@ regress-bound-helper:
 
 regress-wprism-init:
 	bash sandbox/tests/live/regress_wprism_init.sh
+
+.PHONY: regress-storage-prerequisites
+regress-storage-prerequisites:
+	php sandbox/tests/offline/grammar/regress_storage_prerequisites.php

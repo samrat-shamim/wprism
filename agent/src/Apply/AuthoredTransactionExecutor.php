@@ -1,6 +1,7 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Adapter/StoragePrerequisites.php';
 require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
 require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 
@@ -148,6 +149,7 @@ final class AuthoredTransactionExecutor {
             if ($scoped && ($inputContext !== null) !== ($request->inputBindingAuthority !== null)) {
                 throw new \RuntimeException('wprism: scoped input transaction requires its sealed binding authority');
             }
+            StoragePrerequisites::assert_ready($this->policy);
             $this->tokens->bind_input_files($inputContext?->values() ?? []);
             $this->attachmentMaterializer->prepare_filesystem($work, $tree, $request->mediaDerivatives);
             $deletionProfile = $executeDeletes && $deleteWork !== []
@@ -189,6 +191,7 @@ final class AuthoredTransactionExecutor {
             $regenContext = DatabaseQueryIsolation::with_engine_work_units(
                 $workAuthority,
                 function () use ($request, $workAuthority, &$warnings, &$attachmentIds): array {
+                    StoragePrerequisites::assert_ready($this->policy);
                     return $this->materialize_work($request, $workAuthority, $warnings, $attachmentIds);
                 }
             );

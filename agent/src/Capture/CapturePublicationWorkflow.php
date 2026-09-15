@@ -1,6 +1,7 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Adapter/StoragePrerequisites.php';
 require_once __DIR__ . '/../Kernel/Canary.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
@@ -115,6 +116,7 @@ final class CapturePublicationWorkflow {
             InitialCaptureBoundary::assertConfigIdentity($repoPath . '/site.wprism.json', (string) $initialConfigIdentity);
         }
         $policy = Policy::load($repo, adapterLibrary: $adapterLibrary);
+        StoragePrerequisites::assert_ready($policy);
         if ($initialBaseline) {
             InitialCaptureBoundary::assertConfigIdentity($repoPath . '/site.wprism.json', (string) $initialConfigIdentity);
         }

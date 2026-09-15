@@ -7,12 +7,13 @@ $runtime = $root;
 require_once __DIR__ . '/../../lib/check.php';
 $case = $argv[1] ?? null;
 if ($case === null) {
-    foreach (['inactive', 'missing', 'locked', 'ready', 'forced'] as $child) {
+    foreach (['inactive', 'missing', 'locked', 'ready', 'forced', 'storage-missing', 'storage-stale', 'storage-ready', 'storage-locked', 'storage-forced', 'storage-plan', 'storage-explain', 'storage-capture'] as $child) {
         passthru(implode(' ', array_map(escapeshellarg(...), [PHP_BINARY, __FILE__, $child])), $status);
         wprism_check_same(0, $status, $child . ' public lifecycle admission case passes');
     }
     wprism_check_summary('Apply lifecycle admission');
 }
+$storageCase = str_starts_with($case, 'storage-');
 $scratch = sys_get_temp_dir() . '/wprism-lifecycle-admission-' . bin2hex(random_bytes(8));
 define('ABSPATH', $root . '/');
 define('WP_CONTENT_DIR', $scratch . '/content');
@@ -80,6 +81,13 @@ $manifest = Canon::decode(Canon::read_file($manifestPath));
 $manifest['tables']['authored_inputs'] = ['class' => 'authored_snapshot', 'pk' => 'id', 'id_kind' => 'auth_input',
     'identity' => ['mode' => 'natural_key', 'column' => 'name'], 'slug_column' => 'name',
     'columns' => ['name' => ['class' => 'authored'], 'data' => ['class' => 'authored']], 'refs' => []];
+if ($storageCase) {
+    $manifest['spec_version'] = 3;
+    $manifest['engine_features'] = ['spec-window/v1', 'storage-prerequisites/v1'];
+    sort($manifest['engine_features'], SORT_STRING);
+    $manifest['options']['fixture_storage_version'] = ['class' => 'runtime'];
+    $manifest['storage_prerequisites'] = [['option' => 'fixture_storage_version', 'equals' => '1.0.0']];
+}
 Canon::write_file($manifestPath, Canon::encode($manifest));
 $rules = ['authored_work_0' => ['class' => 'authored', 'autoload' => 'yes']];
 Canon::write_file($repo . '/site.wprism.json', Canon::encode([
@@ -105,7 +113,7 @@ $compiled->write($artifact);
 mkdir(WP_PLUGIN_DIR . '/lifecycle-fixture', 0700, true);
 file_put_contents(WP_PLUGIN_DIR . '/lifecycle-fixture/plugin.php', "<?php\n/*\nPlugin Name: Lifecycle fixture\nVersion: 1.0.0\n*/\n");
 if ($case === 'missing') unlink(WP_PLUGIN_DIR . '/lifecycle-fixture/plugin.php');
-$liveActive = in_array($case, ['ready', 'locked'], true) ? ['lifecycle-fixture/plugin.php'] : [];
+$liveActive = ($storageCase || in_array($case, ['ready', 'locked'], true)) ? ['lifecycle-fixture/plugin.php'] : [];
 WpStore::reset()->seedOptions([
     'home' => 'https://work.example.test', 'siteurl' => 'https://work.example.test',
     'admin_email' => 'admin@work.example.test', 'active_plugins' => $liveActive, 'stylesheet' => 'fixture', 'template' => 'fixture',
@@ -157,6 +165,14 @@ $observe = static function () use ($db, $tables): array {
     foreach ($tables as $table) $state[$table] = $db->rows($table);
     return $state;
 };
+if ($storageCase && $case !== 'storage-missing') {
+    $rows = $db->rows('options');
+    $rows[] = ['option_id' => 4, 'option_name' => 'fixture_storage_version',
+        'option_value' => in_array($case, ['storage-ready', 'storage-locked'], true) ? '1.0.0' : '0.9.0', 'autoload' => 'no'];
+    $db->seedTable('options', $rows);
+}
+// A warm native cache cannot certify a different physical migration cursor.
+if ($storageCase) WpStore::instance()->seedOptions(['fixture_storage_version' => '1.0.0']);
 $before = $observe();
 $changedUnderLock = false;
 $admittedObservation = false;
@@ -169,7 +185,14 @@ $db->onQuery(static function (string $sql) use ($case, $db, $observe, &$before, 
         $db->seedTable('options', $rows);
         $before = $observe();
     }
-    if (in_array($case, ['ready', 'forced'], true) && preg_match('/\bFROM\s+`?wp_authored_inputs`?\b/i', $sql)) {
+    if ($case === 'storage-locked' && !$changedUnderLock && str_contains($sql, 'GET_LOCK(')) {
+        $changedUnderLock = true;
+        $rows = $db->rows('options');
+        $rows[3]['option_value'] = '0.9.0';
+        $db->seedTable('options', $rows);
+        $before = $observe();
+    }
+    if (in_array($case, ['ready', 'forced', 'storage-ready'], true) && preg_match('/\bFROM\s+`?wp_authored_inputs`?\b/i', $sql)) {
         $admittedObservation = true;
         throw new RuntimeException('intentional admitted target-observation boundary');
     }
@@ -177,14 +200,27 @@ $db->onQuery(static function (string $sql) use ($case, $db, $observe, &$before, 
 });
 $failure = null;
 try {
-    ApplyRequestCoordinator::apply($repo, ['compiled' => $artifact, 'adapter_library' => $library,
-        'force_code_mismatch' => $case === 'forced']);
+    $options = ['compiled' => $artifact, 'adapter_library' => $library,
+        'force_code_mismatch' => in_array($case, ['forced', 'storage-forced'], true)];
+    match ($case) {
+        'storage-plan' => ApplyRequestCoordinator::plan($repo, $options),
+        'storage-explain' => ApplyRequestCoordinator::explain($repo, 'update:options/core', $options),
+        'storage-capture' => WPrism\Capture::run($repo, adapterLibrary: $library),
+        default => ApplyRequestCoordinator::apply($repo, $options),
+    };
 } catch (RuntimeException $error) { $failure = $error; }
-if (in_array($case, ['ready', 'forced'], true)) {
+if (in_array($case, ['ready', 'forced', 'storage-ready'], true)) {
     wprism_check($admittedObservation && $failure?->getMessage() === 'intentional admitted target-observation boundary',
         'admitted control reaches the deliberate ordinary target-observation boundary');
     wprism_check_same($before, $observe(), 'admitted observation control stops before native or ledger mutation');
     wprism_check_summary('Apply lifecycle admission ' . $case);
+}
+if ($storageCase) {
+    wprism_check($failure instanceof WPrism\CommandRefusalException && $failure->reasonCode === 'storage_prerequisite_unmet',
+        'public command refuses an unmet durable storage prerequisite');
+    if ($case === 'storage-locked') wprism_check($changedUnderLock, 'storage cursor changes between admission and lock');
+    wprism_check_same($before, $observe(), 'storage refusal preserves every native and ledger table');
+    wprism_check_summary('Apply storage admission ' . $case);
 }
 wprism_check($failure !== null && str_contains($failure->getMessage(), 'apply refused — code_mismatch:'),
     'public Apply names the lifecycle dependency before authored work');

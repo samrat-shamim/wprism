@@ -2734,6 +2734,37 @@ The current residual inventory and ownership are derived from capsule manifests 
 `sandbox/tests/offline/adapter/regress_actions_providers.php` and each provider retains its product
 regression.
 
+### `storage-prerequisites/v1` — native storage admission
+
+This feature claims the non-surface manifest key `storage_prerequisites` at
+spec version 3. It is a nonempty list of at most 16 objects containing only
+`option` and `equals`, sorted lexically by unique option name. `option` is a
+literal matching `^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,190}$`; the same manifest must
+classify that exact option wholly `runtime`, without subkeys. The effective
+policy must retain that classification. `equals` is a nonempty UTF-8 string of
+at most 256 bytes with no control characters. Conflicting expectations for one
+option refuse during policy loading. Patterns, callbacks, writes and version
+comparison expressions are not part of this contract.
+
+For example, `"storage_prerequisites": [{"option": "plugin_db_version",
+"equals": "3.8.1"}]` makes that durable string a prerequisite, not a portable
+record. Capture, Plan, explain, and nonterminal Apply admission read through
+`ExactOptionReader`, with a 1024-byte stored-value bound, independently of
+native option caches and filters. Absence and any unequal decoded value refuse
+with `storage_prerequisite_unmet`; neither observed nor expected values appear
+in the public diagnostic. Database errors and malformed/oversized physical
+rows refuse rather than masquerading as absence. No force flag bypasses this
+gate. Apply repeats it under its lease and before authored materialization;
+Capture repeats it within its consistent snapshot. Read-only terminal receipt
+validation may refuse if live prerequisites changed, but authorizes no work.
+
+The lifecycle options-only handoff remains available to establish code and
+migration prerequisites. This feature alone neither invokes a provider nor
+selects automatic settlement: operators must complete the supported native
+migration procedure before retrying. A current cursor proves only the declared
+native prerequisite, not the history of how it was reached. Existing manifests
+without this section incur no additional target reads or identity changes.
+
 ### v3.23 `schema-settlement/v1` — strict observation gets a recoverable prerequisite
 
 **Rider: the Rank Math schema-settlement and durable provider-ordering work package.**
