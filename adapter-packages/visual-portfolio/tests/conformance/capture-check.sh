@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+VP_CAPSULE=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 capture_wprism_json_success VP_VERIFY1 'Visual Portfolio complete canonical source readback' wp_conf1 eval-file /siterepo/.tmp-vp-capture/verify.php --use-include --user=admin
 capture_wprism_json_success VP_OBSERVED1 'Visual Portfolio complete native source observation' wp_conf1 eval-file /siterepo/.tmp-vp-capture/setup.php observe --use-include --user=admin
 printf '%s\n' "$VP_VERIFY1" "$VP_OBSERVED1"
