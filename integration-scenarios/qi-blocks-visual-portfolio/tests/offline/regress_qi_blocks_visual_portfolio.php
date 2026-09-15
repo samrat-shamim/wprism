@@ -67,10 +67,12 @@ wprism_check(strpos($scripts['postdeploy'], 'qi-blocks/tests/conformance/postdep
 wprism_check(str_contains($scripts['postapply'], 'visual-portfolio/tests/conformance/postapply.sh')
     && str_contains($scripts['postapply'], 'evidence.php" --native'),
     'post-Apply evidence runs Visual Portfolio native Save/reopen and the combined oracle');
-wprism_check(str_contains($scripts['check'], 'visual-portfolio/tests/conformance/check.sh')
+wprism_check(substr_count($scripts['check'], 'visual-portfolio/tests/conformance/check.sh') === 2
+    && str_contains($scripts['check'], 'vp-before-repeat.json')
+    && str_contains($scripts['check'], 'vp-stable.json')
     && str_contains($scripts['check'], 'combined zero-write repeated Apply')
     && str_contains($scripts['check'], 'evidence.php" --fixed-point'),
-    'final evidence consumes both frontends and the shared zero-write fixed point');
+    'final evidence consumes both frontends before and after the shared zero-write fixed point');
 $live = (string) file_get_contents($scenarioRoot . '/tests/live/regress_qi_blocks_visual_portfolio.sh');
 wprism_check(str_contains($live, 'dirname "${BASH_SOURCE[0]}"')
     && !str_contains($live, 'dirname "\${BASH_SOURCE[0]}"')
@@ -141,6 +143,7 @@ foreach ([
     'tmp-qi-image-500x333.png',
     'tmp-qi-image-800x533.png',
     '$targetUploads === $sourceUploads',
+    '$visualPortfolioBefore === $visualPortfolioStable',
     'QiNativeApplyEvidence::css',
 ] as $boundary) {
     wprism_check(str_contains($evidence, $boundary), "combined oracle retains boundary: $boundary");

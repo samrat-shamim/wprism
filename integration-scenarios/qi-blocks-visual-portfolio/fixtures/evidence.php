@@ -319,11 +319,15 @@ final class QiVisualPortfolioEvidence
         string $targetHtml,
         array $source,
         array $target,
-        array $stable
+        array $stable,
+        array $visualPortfolioBefore,
+        array $visualPortfolioStable
     ): void {
         self::initialReceipt($apply);
         self::repeatReceipt($repeat);
         self::check($target === $stable, 'repeat Apply or HTTP consumption changed complete target state');
+        self::check($visualPortfolioBefore === $visualPortfolioStable,
+            'repeat Apply changed complete Visual Portfolio native state');
         QiNativeApplyEvidence::css($sourceHtml, $targetHtml, $source, $target);
     }
 
@@ -343,7 +347,7 @@ final class QiVisualPortfolioEvidence
             echo json_encode(['format' => 'wprism-qi-vp-native-combination/v1', 'result' => 'pass'], JSON_THROW_ON_ERROR), "\n";
             return;
         }
-        if ($mode === '--fixed-point' && count($arguments) === 9) {
+        if ($mode === '--fixed-point' && count($arguments) === 11) {
             self::fixedPoint(
                 self::read($arguments[2]),
                 self::read($arguments[3]),
@@ -351,7 +355,9 @@ final class QiVisualPortfolioEvidence
                 (string) file_get_contents($arguments[5]),
                 self::read($arguments[6]),
                 self::read($arguments[7]),
-                self::read($arguments[8])
+                self::read($arguments[8]),
+                self::read($arguments[9]),
+                self::read($arguments[10])
             );
             echo json_encode(['format' => 'wprism-qi-vp-fixed-point/v1', 'result' => 'pass'], JSON_THROW_ON_ERROR), "\n";
             return;
