@@ -378,19 +378,20 @@ assert_agent_roundtrip_refusal() { # <independent claims JSON> <host exit> <host
   assert_experimental_host_refusal "$2" "$3"
 }
 
-# An adapter with a host-owned provider phase cannot honestly claim standalone
-# deploy: the direct target command refuses before mutation because it lacks the
-# host checkpoint/session ordering. This profile still exercises the public
-# capture/compile/plan/apply/recapture path after the disposable harness performs
-# native lifecycle setup, while pinning both deployment refusals separately.
+# A pin set with a host-owned provider phase cannot honestly claim aggregate
+# standalone deploy: the direct target command refuses before mutation because
+# it lacks the host checkpoint/session ordering. Other participants may retain
+# their separately exercised deploy claim; the scenario still exercises their
+# shared capture/compile/plan/apply/recapture path after the disposable harness
+# performs native lifecycle setup and pins both aggregate deployment refusals.
 assert_agent_apply_roundtrip_refusal() { # <independent claims JSON> <host exit> <host output>
   jq -e 'type == "array" and length > 0 and any(.[]; .status == "experimental") and
+    any(.[]; .status == "experimental" and (.operations | index("deploy") == null)) and
     all(.[]; (.status == "certified" or .status == "experimental") and
       (if .status == "experimental" then
-        ((["apply","capture","compile","plan","recapture"] - .operations) | length == 0) and
-        (.operations | index("deploy") == null)
+        ((["apply","capture","compile","plan","recapture"] - .operations) | length == 0)
       else true end))' <<<"$1" >/dev/null \
-    || fail 'agent-apply-roundtrip requires experimental capture/compile/plan/apply/recapture claims and leaves deploy unclaimed'
+    || fail 'agent-apply-roundtrip requires experimental capture/compile/plan/apply/recapture claims and at least one host-provider participant without deploy'
   assert_experimental_host_refusal "$2" "$3"
 }
 

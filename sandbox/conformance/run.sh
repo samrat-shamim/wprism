@@ -46,10 +46,12 @@
 # Entries default to `mode: roundtrip`. `mode: agent-roundtrip` qualifies
 # experimental adapters through the documented lower-level agent verbs while
 # proving the host promotion gate still refuses. `mode: agent-apply-roundtrip`
-# is the honest sibling for an experimental adapter with host-owned provider
-# phases: both host and direct target deployment refuse, the disposable harness
+# is the honest sibling for a pin set with a host-owned provider phase: both
+# aggregate host and direct target deployment refuse, the disposable harness
 # establishes native lifecycle state, and the public Apply/consumer/recapture
-# path remains exercised without claiming deploy. Neither mode is certification.
+# path remains exercised. A separately deployable participant keeps its own
+# bounded claim; the aggregate scenario does not acquire deploy authority.
+# Neither mode is certification.
 # `mode: capture-plan` is the bounded
 # evidence path for an experimental adapter that deliberately does not claim
 # apply: it still boots an exact-artifact pair, seeds through plugin APIs,
@@ -68,7 +70,9 @@
 # site repo" onward is unchanged from before this migration — only env
 # provisioning (this file's first ~60 lines) moved.
 #
-# Usage: bash sandbox/conformance/run.sh <manifest-name>
+# Usage:
+#   bash sandbox/conformance/run.sh <manifest-name>
+#   bash sandbox/conformance/run.sh --scenario=<integration-scenario-name>
 # Set CONF_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) to bind the sweep to an
 # exact agent/manifests commit (issue #3377's gate — see below, before reset).
 # Set CONF_RECORD_VECTOR=<file> to leave a replayable `wprism-conformance-vector/v1`
@@ -88,8 +92,18 @@
 # dynamic host budget applies to sweep pairs like any other.
 set -euo pipefail
 cd "$(dirname "$0")/.."   # -> sandbox/
-MANIFEST="${1:-}"
-[ -n "$MANIFEST" ] || { echo "usage: run.sh <manifest-name>" >&2; exit 1; }
+SUBJECT="${1:-}"
+SCENARIO=""
+case "$SUBJECT" in
+  --scenario=*)
+    SCENARIO="${SUBJECT#--scenario=}"
+    [[ "$SCENARIO" =~ ^[a-z][a-z0-9]*(-[a-z0-9]+)*$ ]] \
+      || { echo "FAIL: integration scenario name is not canonical: '$SCENARIO'" >&2; exit 1; }
+    MANIFEST="$SCENARIO"
+    ;;
+  *) MANIFEST="$SUBJECT" ;;
+esac
+[ -n "$MANIFEST" ] || { echo "usage: run.sh <manifest-name> | --scenario=<integration-scenario-name>" >&2; exit 1; }
 
 CONF_PAIR="${CONF_PAIR:-conf}"
 [[ "$CONF_PAIR" =~ ^[a-z][a-z0-9]*$ ]] \
@@ -123,6 +137,23 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 # breaking the still-global adapters. A duplicate is ambiguous ownership, so
 # it refuses instead of silently choosing one copy.
 PACKAGE_CONFORMANCE="../adapter-packages/$MANIFEST/tests/conformance"
+CONFORMANCE_OWNER="${PACKAGE_CONFORMANCE%/tests/conformance}"
+SCENARIO_RECORD=""
+if [ -n "$SCENARIO" ]; then
+  [ -z "${CONFORMANCE_ENTRY_FILE:-}" ] \
+    || fail 'a named integration scenario owns its conformance entry; CONFORMANCE_ENTRY_FILE cannot replace it'
+  REPOSITORY_ROOT=$(cd .. && pwd -P)
+  SCENARIO_ROOT="$REPOSITORY_ROOT/integration-scenarios/$SCENARIO"
+  [ -d "$SCENARIO_ROOT" ] && [ ! -L "$SCENARIO_ROOT" ] \
+    || fail "integration scenario '$SCENARIO' is not an ordinary owned directory"
+  SCENARIO_RECORD="$SCENARIO_ROOT/scenario.json"
+  CONFORMANCE_ENTRY_FILE="$SCENARIO_ROOT/fixtures/conformance-entry.json"
+  [ -f "$SCENARIO_RECORD" ] && [ ! -L "$SCENARIO_RECORD" ] \
+    || fail "integration scenario '$SCENARIO' has no ordinary participant record"
+  [ -f "$CONFORMANCE_ENTRY_FILE" ] && [ ! -L "$CONFORMANCE_ENTRY_FILE" ] \
+    || fail "integration scenario '$SCENARIO' has no ordinary conformance entry"
+  CONFORMANCE_OWNER="$SCENARIO_ROOT"
+fi
 conformance_hook() { # conformance_hook <package-basename> <legacy-path>
   if [ "${CONFORMANCE_HOOKS:-null}" != null ]; then
     jq -r --arg phase "${1%.sh}" '.[$phase] // empty' <<<"$CONFORMANCE_HOOKS"
@@ -169,13 +200,18 @@ elif [ -f "$PLATFORM_ENTRY" ]; then
 else
   fail "unknown manifest '$MANIFEST': no package or platform conformance entry"
 fi
-CONFORMANCE_HOOKS=$(php ../tools/conformance-hooks.php "$ENTRY" "${PACKAGE_CONFORMANCE%/tests/conformance}") \
+CONFORMANCE_HOOKS=$(php ../tools/conformance-hooks.php "$ENTRY" "$CONFORMANCE_OWNER") \
   || fail "manifest '$MANIFEST' has invalid declared conformance hooks"
+if [ -n "$SCENARIO" ] && [ "$CONFORMANCE_HOOKS" = null ]; then
+  fail "integration scenario '$SCENARIO' must explicitly own all five conformance hook phases"
+fi
 # Package-owned conformance resolves only that capsule's artifact fragment.
 # Core/FSE consume no adapter plugin artifacts, so their child pair and check
 # hooks inherit explicit platform-only authority. Named integration scenarios
 # set their declared participant context independently of this platform lane.
-if [ -f "../adapter-packages/$MANIFEST/evidence/artifacts.lock.json" ]; then
+if [ -n "$SCENARIO" ]; then
+  :
+elif [ -f "../adapter-packages/$MANIFEST/evidence/artifacts.lock.json" ]; then
   export WPRISM_ARTIFACT_PACKAGE="$MANIFEST"
 elif [ "$MANIFEST" = core ] || [ "$MANIFEST" = fse ]; then
   export WPRISM_ARTIFACT_PLATFORM_ONLY=1
@@ -242,6 +278,26 @@ if [ "$WORDPRESS_OFFLINE" = 1 ]; then
 fi
 # shellcheck source=../bin/fetch-artifact.sh
 . bin/fetch-artifact.sh
+if [ -n "$SCENARIO" ]; then
+  [ -z "${WPRISM_ARTIFACT_PACKAGE:-}" ] && [ "${WPRISM_ARTIFACT_PLATFORM_ONLY:-0}" = 0 ] \
+    || fail "integration scenario '$SCENARIO' cannot inherit package-only or platform-only artifact authority"
+  SCENARIO_PARTICIPANTS=$(artifact_library_scenario_participants "$SCENARIO_RECORD") \
+    || fail "integration scenario '$SCENARIO' has malformed participant authority"
+  ENTRY_PARTICIPANTS=$(jq -er '
+    if (.pin | type) == "array" and .pin[0] == "core" and
+      (.pin | length) >= 3 and (.pin == (.pin | unique))
+    then .pin[1:] | join(",")
+    else error("scenario pins must be core followed by at least two unique participants")
+    end
+  ' <<<"$ENTRY") || fail "integration scenario '$SCENARIO' has malformed conformance pins"
+  [ "$ENTRY_PARTICIPANTS" = "$SCENARIO_PARTICIPANTS" ] \
+    || fail "integration scenario '$SCENARIO' conformance pins disagree with its participant record"
+  if [ -n "${WPRISM_ARTIFACT_PARTICIPANTS:-}" ] \
+    && [ "$WPRISM_ARTIFACT_PARTICIPANTS" != "$SCENARIO_PARTICIPANTS" ]; then
+    fail "integration scenario '$SCENARIO' artifact authority disagrees with its participant record"
+  fi
+  export WPRISM_ARTIFACT_PARTICIPANTS="$SCENARIO_PARTICIPANTS"
+fi
 validate_artifact_library \
   || fail "artifact library is malformed; conformance refused before pair reset"
 # Package checks run as child shells. Pin the repository root explicitly so
@@ -451,13 +507,13 @@ install_env() { # install_env <conf1|conf2> <author|target> — pair.sh's `up`
 fixture_reconcile_target_lifecycle() { # <newline active slugs> <stylesheet>
   local canonical_active="$1" canonical_stylesheet="$2" current slug
   current=$(wp_conf2 plugin list --status=active --field=name | LC_ALL=C sort -u)
-  while IFS= read -r slug; do
+  while IFS= read -r slug || [ -n "$slug" ]; do
     [ -n "$slug" ] || continue
-    grep -Fxq "$slug" <<<"$canonical_active" || wp_conf2 plugin deactivate "$slug"
+    grep -Fxq "$slug" <<<"$canonical_active" || wp_conf2 plugin deactivate "$slug" </dev/null
   done <<<"$current"
-  while IFS= read -r slug; do
+  while IFS= read -r slug || [ -n "$slug" ]; do
     [ -n "$slug" ] || continue
-    wp_conf2 plugin is-active "$slug" >/dev/null 2>&1 || wp_conf2 plugin activate "$slug"
+    grep -Fxq "$slug" <<<"$current" || wp_conf2 plugin activate "$slug" </dev/null
   done <<<"$canonical_active"
   current=$(wp_conf2 option get stylesheet)
   [ "$current" = "$canonical_stylesheet" ] || wp_conf2 theme activate "$canonical_stylesheet"
