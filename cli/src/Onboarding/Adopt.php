@@ -161,7 +161,12 @@ IGNORE
                 $eligibility->assertMatches($transport);
                 $freshEligibility = $eligibility->isInitialRecoveryAuthority()
                     ? BootstrapEligibilityReport::initialRecoveryAuthority($transport, $sourceRoot)
-                    : BootstrapEligibilityReport::inspect($transport, 'transaction', 'local', $sourceRoot);
+                    : BootstrapEligibilityReport::inspect(
+                        $transport,
+                        'transaction',
+                        $transport instanceof EnvironmentDriver ? $transport->driverId() : 'adoption',
+                        $sourceRoot
+                    );
                 if ($freshEligibility === null || !$freshEligibility->ready()) {
                     throw new \RuntimeException('target eligibility changed before staging');
                 }
@@ -207,7 +212,9 @@ IGNORE
         if ($localArchive === false) {
             return self::failure('local artifact', 'could not allocate a temporary archive', $version);
         }
-        $remoteArchive = '/tmp/wprism-adopt-' . $token . '.tar';
+        $remoteArchive = $transport instanceof PersistentAdoptionArchiveTransport
+            ? $transport->adoptionArchivePath($token)
+            : '/tmp/wprism-adopt-' . $token . '.tar';
         $remoteArchiveOwned = false;
         $remoteArchiveIdentity = null;
         $localStage = null;
@@ -267,7 +274,7 @@ IGNORE
                 return self::fromTransport('archive upload', $upload, $version);
             }
             $remoteArchiveOwned = true;
-            if ($transport instanceof LocalTransport) {
+            if ($transport instanceof IdentityBoundAdoptionTransport) {
                 $remoteArchiveIdentity = $transport->uploadedFileIdentity($upload);
             }
 
@@ -282,7 +289,8 @@ IGNORE
                 $remoteArchiveIdentity,
                 $loaderProbe,
                 $legacyLoaderQuiesced,
-                $eligibility?->isInitialRecoveryAuthority() ?? false
+                $eligibility?->isInitialRecoveryAuthority() ?? false,
+                $eligibility?->initialRepositoryIdentity()
             ));
             if ($install['exit'] !== 0) {
                 return self::fromTransport('remote install', $install, $version);
@@ -430,9 +438,9 @@ IGNORE
             // source archive. This cleanup is idempotent; the remote install
             // trap normally removed it already.
             if ($remoteArchiveOwned) {
-                if ($transport instanceof LocalTransport && is_string($remoteArchiveIdentity)) {
+                if ($transport instanceof IdentityBoundAdoptionTransport && is_string($remoteArchiveIdentity)) {
                     $transport->cleanupUploadedFile($remoteArchive, $remoteArchiveIdentity);
-                } elseif (!$transport instanceof LocalTransport) {
+                } elseif (!$transport instanceof IdentityBoundAdoptionTransport) {
                     $transport->captureRaw('rm -f ' . escapeshellarg($remoteArchive));
                 }
             }
@@ -497,7 +505,8 @@ IGNORE
         ?string $archiveIdentity,
         array $loaderProbe,
         bool $legacyLoaderQuiesced,
-        bool $initialRecoveryAuthority = false
+        bool $initialRecoveryAuthority = false,
+        ?string $initialRepositoryIdentity = null
     ): string {
         $agent = rtrim($muDir, '/') . '/wprism';
         $loader = rtrim($muDir, '/') . '/wprism-loader.php';
@@ -534,6 +543,10 @@ IGNORE
         if ($archiveIdentity !== null && preg_match('/^[0-9]+:[0-9]+:32768$/D', $archiveIdentity) !== 1) {
             throw new \RuntimeException('local adoption archive identity is malformed');
         }
+        if ($initialRepositoryIdentity !== null
+            && preg_match('/^[0-9]+:[0-9]+:16384$/D', $initialRepositoryIdentity) !== 1) {
+            throw new \RuntimeException('initial adoption repository identity is malformed');
+        }
         $archiveCopyPhp = '$identity = static fn(array $s): string => (string) $s["dev"] . ":" . (string) $s["ino"] . ":" . (string) ($s["mode"] & 0170000); '
             . '$path = $argv[1]; $expected = $argv[2]; $target = $argv[3]; $before = @lstat($path); '
             . 'if (!is_array($before) || $identity($before) !== $expected) { exit(1); } '
@@ -546,6 +559,7 @@ IGNORE
         return 'set -eu' . "\n"
             . 'archive=' . $q($archive) . "\n"
             . 'archive_identity=' . $q($archiveIdentity ?? '') . "\n"
+            . 'initial_repo_identity=' . $q($initialRepositoryIdentity ?? '') . "\n"
             . 'mu=' . $q(rtrim($muDir, '/')) . "\n"
             . 'stage=' . $q($stage) . "\n"
             . 'agent=' . $q($agent) . "\n"
@@ -627,7 +641,10 @@ IGNORE
             . "[ ! -e \"\$control\" ] || [ -d \"\$control\" ] || { echo \"wprism adopt: expected directory destination: \$control\" >&2; exit 1; }\n"
             . "[ ! -e \"\$runtime\" ] || [ -d \"\$runtime\" ] || { echo \"wprism adopt: expected directory destination: \$runtime\" >&2; exit 1; }\n"
             . ($initialRecoveryAuthority
-                ? "for path in \"\$agent\" \"\$loader\" \"\$durable_control\" \"\$repo\"; do [ ! -e \"\$path\" ] && [ ! -L \"\$path\" ] || { echo 'wprism adopt: initial control authority changed before staging' >&2; exit 1; }; done\n"
+                ? "for path in \"\$agent\" \"\$loader\" \"\$durable_control\"; do [ ! -e \"\$path\" ] && [ ! -L \"\$path\" ] || { echo 'wprism adopt: initial control authority changed before staging' >&2; exit 1; }; done\n"
+                    . ($initialRepositoryIdentity === null
+                        ? "[ ! -e \"\$repo\" ] && [ ! -L \"\$repo\" ] || { echo 'wprism adopt: initial control authority changed before staging' >&2; exit 1; }\n"
+                        : "[ -d \"\$repo\" ] && [ ! -L \"\$repo\" ] && [ \"\$(identity \"\$repo\")\" = \"\$initial_repo_identity\" ] && [ -f \"\$archive\" ] && [ ! -L \"\$archive\" ] && [ -z \"\$(find \"\$repo\" -mindepth 1 -maxdepth 1 ! -path \"\$archive\" -print -quit)\" ] || { echo 'wprism adopt: initial Docker repository authority changed before staging' >&2; exit 1; }\n")
                 : '')
             . 'if [ ! -e ' . $q($muDir) . ' ]; then mkdir ' . $q($muDir) . '; mu_created=1; mu_identity=$(identity ' . $q($muDir) . "); fi\n"
             . "if ! mkdir \"\$lock\"; then echo 'wprism adopt: another adoption is active or requires operator recovery (.wprism-adopt-lock exists)' >&2; exit 1; fi; lock_acquired=1; record_identity \"\$lock\" \"\$lock/lock.id\"; if [ \"\$mu_created\" -eq 1 ]; then record_identity " . $q($muDir) . " \"\$lock/mu.id\"; fi\n"
@@ -655,7 +672,10 @@ IGNORE
             . "generation_lock_acquire 0\n"
             . AgentGenerationFence::migrationAssertionShell($loaderProbe, $legacyLoaderQuiesced)
             . ($initialRecoveryAuthority
-                ? "[ \"\$repo_created\" -eq 1 ] && assert_identity \"\$repo\" \"\$lock/repo.id\" || { echo 'wprism adopt: initial repository authority changed before publication' >&2; exit 1; }; for path in \"\$agent\" \"\$loader\" \"\$durable_control\" \"\$wprism_state\"; do [ ! -e \"\$path\" ] && [ ! -L \"\$path\" ] || { echo 'wprism adopt: initial control authority changed before publication' >&2; exit 1; }; done\n"
+                ? ($initialRepositoryIdentity === null
+                    ? "[ \"\$repo_created\" -eq 1 ] && assert_identity \"\$repo\" \"\$lock/repo.id\" || { echo 'wprism adopt: initial repository authority changed before publication' >&2; exit 1; }; "
+                    : "[ \"\$repo_created\" -eq 0 ] && [ \"\$(identity \"\$repo\")\" = \"\$initial_repo_identity\" ] && [ -z \"\$(find \"\$repo\" -mindepth 1 -maxdepth 1 ! -path \"\$archive\" -print -quit)\" ] || { echo 'wprism adopt: initial Docker repository authority changed before publication' >&2; exit 1; }; ")
+                    . "for path in \"\$agent\" \"\$loader\" \"\$durable_control\" \"\$wprism_state\"; do [ ! -e \"\$path\" ] && [ ! -L \"\$path\" ] || { echo 'wprism adopt: initial control authority changed before publication' >&2; exit 1; }; done\n"
                 : '')
             . "(umask 077; mkdir \"\$wprism_new\"); wprism_new_created=1; record_identity \"\$wprism_new\" \"\$txn/wprism_new_construction.id\" 'WPrism authority construction root'; if [ -e \"\$wprism_state\" ]; then special=\$(find \"\$wprism_state\" ! -type d ! -type f -print -quit 2>/dev/null) || { echo 'wprism adopt: prior authority became unreadable' >&2; exit 1; }; [ -z \"\$special\" ] || { echo 'wprism adopt: prior authority contains a link or special node' >&2; exit 1; }; unreadable=\$(find \"\$wprism_state\" -type f ! -exec test -r '{}' \; -print -quit 2>/dev/null) || { echo 'wprism adopt: prior authority became unreadable' >&2; exit 1; }; [ -z \"\$unreadable\" ] || { echo 'wprism adopt: prior authority became unreadable' >&2; exit 1; }; cp -Rp \"\$wprism_state/.\" \"\$wprism_new/\"; fi; chmod 700 \"\$wprism_new\"\n"
             . "mkdir -p \"\$control_new\"; chmod 700 \"\$control_new\"; rm -rf \"\$runtime_new\"; cp -R \"\$stage/recovery\" \"\$runtime_new\"\n"

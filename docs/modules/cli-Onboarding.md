@@ -2,9 +2,9 @@
 
 **Purpose.** Adopting, initializing, diagnosing and triaging a site — including canonical connection and Git-handoff receipts at the first-run boundary.
 
-**Directory** `cli/src/Onboarding/` &middot; **layer** `engine` &middot; **files** 10 &middot; **status** populated
+**Directory** `cli/src/Onboarding/` &middot; **layer** `engine` &middot; **files** 12 &middot; **status** populated
 
-**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Doctor`, `Adopt`, `Unadopt`, `BootstrapEligibility`, `ClassificationBatch`, `ConnectionReceipt`, `Init`, `OnboardingHandoffReceipt`, `Pending`, `Triage`.
+**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Doctor`, `Adopt`, `Unadopt`, `BootstrapEligibility`, `ClassificationBatch`, `ConnectionReceipt`, `DockerTooling`, `Init`, `OnboardingHandoffReceipt`, `Pending`, `Triage`.
 
 **May depend on:** `Onboarding`, `Transport`, `agent:Kernel`.
 

@@ -80,6 +80,33 @@ WPRISM_CLI="$PWD/cli/wprism"
   --wp-path=/var/www/html --repo-path=/home/deploy/site-repo
 ```
 
+For a standard local Compose installation with a running `wordpress` service
+and no WP-CLI service, select the managed controller tooling explicitly:
+
+```sh
+WPRISM_CLI="$PWD/cli/wprism"
+"$WPRISM_CLI" connect local --workspace=../my-site \
+  --transport=docker --compose-file=./compose.yml \
+  --wordpress-service=wordpress --tooling=managed
+```
+
+The helper image is built from WPrism's digest-pinned recipe with fixed Git and
+Git LFS packages. Its private Compose overlay inherits the application's
+environment, networks, and WordPress volume without copying their resolved
+values into the registry. It adds only a WPrism-owned repository volume and
+never edits `compose.yml`. The web service must already be running; helper
+commands use `run --no-deps`, so WPrism neither starts nor stops the app. An
+existing WP-CLI/Git-capable service can be selected instead with `--service`,
+`--wp-path`, and `--repo-path` alongside `--wordpress-service`.
+
+The managed path currently supports a service based directly on the official
+WordPress image with writable persistent `/var/www/html`. It revalidates the
+running container, Compose project, local Docker context, and effective
+`wp-content/mu-plugins` storage. Custom-built images and mounts that shadow the
+MU control path refuse; unrelated plugin, theme, and upload mounts remain valid.
+This is initial bootstrap only, not a claim that Docker release or verified
+rollback is configured.
+
 `connect` performs exactly three native inspection checks: transport
 reachability, `wp core is-installed`, and single-site topology. Only after all
 three pass does it create the dedicated Git root, the same minimal seed
@@ -142,8 +169,23 @@ on an existing WordPress target. How the agent gets there is transport-specific:
    prove and initially install that same control plane before `wprism init`. It
    refuses when a WPrism control plane is already present; installed-target
    updates use the existing environment update path.
-3. **Docker:** the agent must already be installed or mounted; `wprism init` uses
-   that authenticated transport directly. Init never silently delivers it.
+3. **Local Docker Compose:** `wprism connect` can authorize a managed tooling
+   service, or an existing WP-CLI/Git-capable service, after proving that a
+   running WordPress service and the tooling share the same durable WordPress
+   storage and that the repository is durable too. `wprism onboard` then uses
+   the same transactional adoption path. It never edits the application Compose
+   file or starts/stops the application services.
+
+If the first baseline proposal reports that the database mutation boundary
+lacks direct global `PROCESS`, a standard local Docker site can opt in with
+`wprism init <env> --configure-database --database-service=<compose-service>`
+(or pass the same flags to its first `wprism onboard`). WPrism discloses that
+`PROCESS` is server-wide, proves the selected running official database service
+is the server WordPress actually uses, and grants only that privilege to the
+exact WordPress account. Ordinary `--yes` does not enable setup. MariaDB setup
+requires immutable `server_uid` identity (11.1.6, 11.2.5, 11.4.3, 11.5.2, or
+11.6.1+); older admitted MariaDB releases can still use ordinary read-only
+onboarding, but this privilege-provisioning opt-in refuses them explicitly.
 
 Init is not a WordPress installer. It starts from a working site and a reachable
 agent, proposes the exact managed boundary without mutation, requires explicit
@@ -153,8 +195,8 @@ payloads, or non-current certification evidence keep the proposal red.
 
 ## Before you start
 
-The machine that runs `wprism` needs PHP 8+ with Sodium, plus `ssh`, `scp`, and
-`tar` if any environment uses the SSH transport. `wprism` itself is dependency-
+The machine that runs `wprism` needs PHP 8+ with Sodium and `tar` for adoption,
+plus `ssh` and `scp` if any environment uses the SSH transport. `wprism` itself is dependency-
 free: no composer, no vendored packages, and no WordPress on the orchestrator
 host.
 
@@ -168,14 +210,14 @@ read-only proposal proves `git lfs version`, and confirmation installs the
 filter in the repository-local Git config before any media baseline is
 published. Every developer machine that clones the repository needs Git LFS as
 well; `media/**` is deliberately never handed to ordinary Git object storage.
-The configured `repo_path` itself
-must already be an ordinary directory reached without symbolic-link ancestors;
-SSH or authorized local adoption creates it, while Docker control-plane setup
-or the site's bind mount must create it before init. Init binds that exact directory before
+The configured `repo_path` must be absent with an ordinary writable parent, or
+be an explicitly authorized empty Docker mount root. Authorized SSH, local, and
+Docker adoption creates the absent repository path; managed Docker tooling owns
+and mounts its durable parent volume. Init binds that exact directory before
 reading or writing repository children and refuses if its identity changes.
 The SSH account must be able to
 write WordPress's verified control-plane directory and the environment's
-configured `repo_path`. Initial SSH/local adoption discovers the standard
+configured `repo_path`. Initial SSH/machine-local adoption discovers the standard
 `wp-content/mu-plugins` layout through an isolated WordPress bootstrap; custom
 content/MU roots and `SUNRISE` are unsupported. An absent repository is admitted
 only after proving there is no prior WPrism control or recovery authority, not
@@ -190,11 +232,13 @@ Use the individual steps below when a site repository and registry already
 exist, or when you need to stop between gates. New source-checkout users should
 prefer `connect` and `onboard` above.
 
-### Adopt an existing site over SSH or an authorized local transport
+### Adopt an existing site over SSH, local, or authorized local Docker
 
-SSH always exposes the explicit transfer mechanism. A local environment may
-expose it only through a loader-proven, untracked machine-local opt-in; Docker
-does not infer bootstrap authority from a bind mount or shell access.
+SSH always exposes the explicit transfer mechanism. Local and Docker environments
+expose initial delivery only through an exact untracked machine-local opt-in.
+Docker additionally proves a local unix/npipe daemon, one running web-service
+container, exact shared persistent WordPress storage, and persistent repository
+storage; neither shell access nor a bind mount alone grants bootstrap authority.
 
 #### 1. Describe the environment
 
@@ -330,10 +374,12 @@ proposal.
 
 `wprism init` also **classifies the code half**, and Git never carries third-party
 code: each active plugin and theme either LOCKS — against its published wp.org
-release when the installed bytes hash-match it, or against an archive you
-imported on this host with `wprism code-import <archive.zip>` (a premium plugin,
-a vendor theme) — and is declared in `code/wprism-code.lock.json` and kept out of
-Git, or is declared the site's own code with `--first-party=<root>/<slug>` and
+component release when the installed bytes hash-match it, against the exact
+theme tree nested in the target WordPress version's verified core release, or
+against an archive you imported on this host with `wprism code-import
+<archive.zip>` (a premium plugin, a vendor theme) — and is declared in
+`code/wprism-code.lock.json` and kept out of Git, or is declared the site's own
+code with `--first-party=<root>/<slug>` and
 carried in Git by that declaration. A component that is neither blocks the
 proposal with both remedies named; there is no "vendor it anyway".
 Classification runs on the orchestrator host, never on the target, and the
@@ -470,7 +516,7 @@ Keep the source repo as the canonical artifact. Do not copy the WordPress
 database to another host to "prove" portability — that proves the database
 copied, which was never in question.
 
-## Path B — a Docker site or a local site without bootstrap authority
+## Path B — a site whose transport has no bootstrap authority
 
 Install or mount the WPrism agent with its embedded adapter library through that
 environment's own control-plane setup — this path has no `wprism adopt` step, so nothing else
@@ -533,8 +579,9 @@ below, after deciding init is not for you:
 {
   "envs": {
     "dev": {"transport": "local", "wp_path": "/var/www/html", "repo_path": "/home/me/site"},
-    "e1":  {"transport": "docker", "compose_file": "sandbox/docker-compose.yml",
-            "service": "cli-e1", "repo_path": "/siterepo"}
+    "e1":  {"transport": "docker", "compose_file": "compose.yml",
+            "service": "cli", "wordpress_service": "wordpress",
+            "wp_path": "/var/www/html", "repo_path": "/siterepo"}
   }
 }
 ```

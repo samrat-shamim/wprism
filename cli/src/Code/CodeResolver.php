@@ -359,9 +359,9 @@ final class CodeResolver {
      *
      * The order is the whole contract: nothing reaches `code/wp-content` until
      * the unpacked tree has been hashed and found equal to the lock's
-     * `tree_sha256`. A wp.org version can be re-packaged under an unchanged
-     * archive digest, which is exactly why the lock carries both digests and
-     * why this second check is not redundant.
+     * `tree_sha256`. A wp.org component or core archive can be re-packaged
+     * under an unchanged release name, which is exactly why the lock carries
+     * both archive and tree digests and why this second check is not redundant.
      *
      * @param array<string,mixed> $origin
      */

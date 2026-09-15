@@ -51,7 +51,7 @@ final class AdoptCommand {
         }
 
         $eligibility = $bootstrapAuthority;
-        if ($transport instanceof LocalTransport && $eligibility === null) {
+        if (($transport instanceof LocalTransport || $transport instanceof DockerTransport) && $eligibility === null) {
             echo "adopt phase: read-only target eligibility\n";
             $eligibility = BootstrapEligibilityReport::inspect(
                 $transport,

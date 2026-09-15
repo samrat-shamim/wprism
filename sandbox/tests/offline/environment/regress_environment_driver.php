@@ -234,6 +234,231 @@ assert_true(!$dockerExec->capabilityReport('adopt')->ready(), 'container driver 
 assert_true($ssh->capabilityReport('adopt')->ready(), 'SSH adoption path did not declare its actual upload/bootstrap support');
 pass('driver-specific bootstrap support is explicit and truthful');
 
+$dockerCompose = json_encode([
+    'services' => [
+        'cli' => ['volumes' => [
+            ['type' => 'volume', 'source' => 'wordpress-data', 'target' => '/var/www/html', 'read_only' => false],
+            ['type' => 'volume', 'source' => 'repository-data', 'target' => '/siterepo', 'read_only' => false],
+        ]],
+        'wordpress' => ['volumes' => [
+            ['type' => 'volume', 'source' => 'wordpress-data', 'target' => '/var/www/html', 'read_only' => false],
+        ]],
+    ],
+], JSON_THROW_ON_ERROR);
+$dockerControl = static function (string $command) use ($dockerCompose): array {
+    return match (true) {
+        str_contains($command, "'context' 'show'") => ['exit' => 0, 'stdout' => "default\n", 'stderr' => ''],
+        str_contains($command, "'context' 'inspect'") => ['exit' => 0, 'stdout' => '"unix:///var/run/docker.sock"', 'stderr' => ''],
+        str_contains($command, "'config' '--format' 'json'") => ['exit' => 0, 'stdout' => $dockerCompose, 'stderr' => ''],
+        str_contains($command, "'ps' '--status=running' '--services'") => ['exit' => 0, 'stdout' => "wordpress\n", 'stderr' => ''],
+        str_contains($command, "'ps' '-q' 'wordpress'") => ['exit' => 0, 'stdout' => str_repeat('a', 64), 'stderr' => ''],
+        str_contains($command, "'config' '--hash' 'wordpress'") => ['exit' => 0, 'stdout' => 'wordpress ' . str_repeat('c', 64), 'stderr' => ''],
+        str_contains($command, 'com.docker.compose.config-hash') => ['exit' => 0, 'stdout' => str_repeat('c', 64), 'stderr' => ''],
+        str_contains($command, "'inspect' '--format' '{{json .Mounts}}'") => [
+            'exit' => 0,
+            'stdout' => '[{"Type":"volume","Name":"wordpress-data","Source":"/var/lib/docker/volumes/wordpress-data/_data","Destination":"/var/www/html","RW":true}]',
+            'stderr' => '',
+        ],
+        default => ['exit' => 91, 'stdout' => '', 'stderr' => 'unexpected Docker control-plane command'],
+    };
+};
+$priorDockerHost = getenv('DOCKER_HOST');
+putenv('DOCKER_HOST');
+$authorizedDocker = new DockerTransport('authorized-docker', [
+    'transport' => 'docker',
+    'compose_file' => '/tmp/wprism-driver-compose.yml',
+    'service' => 'cli',
+    'wordpress_service' => 'wordpress',
+    'wp_path' => '/var/www/html',
+    'repo_path' => '/siterepo',
+    'bootstrap' => ['format' => DockerTransport::BOOTSTRAP_FORMAT],
+    '_machine_local' => true,
+], null, $dockerControl);
+$authorizedDocker->assertLocalBootstrapControlPlane();
+assert_true($authorizedDocker->capabilityReport('onboard')->ready(), 'authorized local Docker did not expose onboarding');
+$dockerWpCommand = new ReflectionMethod(DockerTransport::class, 'wpCommand');
+assert_true(
+    str_contains((string) $dockerWpCommand->invoke($authorizedDocker, ['core', 'is-installed']), "'--no-deps' 'cli' 'wp' '--path=/var/www/html'"),
+    'authorized Docker bootstrap may start an app dependency or lose its explicit WordPress root'
+);
+pass('authorized Docker onboarding is local, persistent, running-web-bound, and dependency-start-free');
+
+$staleWebControl = static function (string $command) use ($dockerControl): array {
+    if (str_contains($command, 'com.docker.compose.config-hash')) {
+        return ['exit' => 0, 'stdout' => str_repeat('d', 64), 'stderr' => ''];
+    }
+    return $dockerControl($command);
+};
+$staleWebDocker = new DockerTransport('stale-web-docker', [
+    'transport' => 'docker', 'compose_file' => '/tmp/wprism-driver-compose.yml',
+    'service' => 'cli', 'wordpress_service' => 'wordpress', 'wp_path' => '/var/www/html',
+    'repo_path' => '/siterepo', 'bootstrap' => ['format' => DockerTransport::BOOTSTRAP_FORMAT],
+    '_machine_local' => true,
+], null, $staleWebControl);
+try {
+    $staleWebDocker->assertLocalBootstrapControlPlane();
+    fail('Docker bootstrap accepted a stale running WordPress configuration');
+} catch (RuntimeException $error) {
+    assert_true(str_contains($error->getMessage(), 'does not match the current Compose configuration'), 'stale web refusal lost its configuration reason');
+}
+pass('Docker bootstrap binds current Compose database/environment configuration to the running web container');
+
+$dockerControlFor = static function (string $compose, array $actual): callable {
+    return static function (string $command) use ($compose, $actual): array {
+        return match (true) {
+            str_contains($command, "'context' 'show'") => ['exit' => 0, 'stdout' => "default\n", 'stderr' => ''],
+            str_contains($command, "'context' 'inspect'") => ['exit' => 0, 'stdout' => '"unix:///var/run/docker.sock"', 'stderr' => ''],
+            str_contains($command, "'config' '--format' 'json'") => ['exit' => 0, 'stdout' => $compose, 'stderr' => ''],
+            str_contains($command, "'ps' '--status=running' '--services'") => ['exit' => 0, 'stdout' => "wordpress\n", 'stderr' => ''],
+            str_contains($command, "'ps' '-q' 'wordpress'") => ['exit' => 0, 'stdout' => str_repeat('a', 64), 'stderr' => ''],
+            str_contains($command, "'config' '--hash' 'wordpress'") => ['exit' => 0, 'stdout' => 'wordpress ' . str_repeat('c', 64), 'stderr' => ''],
+            str_contains($command, 'com.docker.compose.config-hash') => ['exit' => 0, 'stdout' => str_repeat('c', 64), 'stderr' => ''],
+            str_contains($command, "'inspect' '--format' '{{json .Mounts}}'") => [
+                'exit' => 0, 'stdout' => json_encode($actual, JSON_THROW_ON_ERROR), 'stderr' => '',
+            ],
+            default => ['exit' => 91, 'stdout' => '', 'stderr' => 'unexpected Docker control-plane command'],
+        };
+    };
+};
+$baseActual = [[
+    'Type' => 'volume', 'Name' => 'wordpress-data',
+    'Source' => '/var/lib/docker/volumes/wordpress-data/_data',
+    'Destination' => '/var/www/html', 'RW' => true,
+]];
+$shadowCases = [
+    'CLI nested override' => [
+        'compose' => json_encode([
+            'services' => [
+                'cli' => ['volumes' => [
+                    ['type' => 'volume', 'source' => 'wordpress-data', 'target' => '/var/www/html', 'read_only' => false],
+                    ['type' => 'volume', 'source' => 'shadow-content', 'target' => '/var/www/html/wp-content', 'read_only' => false],
+                    ['type' => 'volume', 'source' => 'repository-data', 'target' => '/siterepo', 'read_only' => false],
+                ]],
+                'wordpress' => ['volumes' => [
+                    ['type' => 'volume', 'source' => 'wordpress-data', 'target' => '/var/www/html', 'read_only' => false],
+                ]],
+            ],
+        ], JSON_THROW_ON_ERROR),
+        'actual' => $baseActual,
+    ],
+    'WordPress read-only MU override' => [
+        'compose' => json_encode([
+            'services' => [
+                'cli' => ['volumes' => [
+                    ['type' => 'volume', 'source' => 'wordpress-data', 'target' => '/var/www/html', 'read_only' => false],
+                    ['type' => 'volume', 'source' => 'repository-data', 'target' => '/siterepo', 'read_only' => false],
+                ]],
+                'wordpress' => ['volumes' => [
+                    ['type' => 'volume', 'source' => 'wordpress-data', 'target' => '/var/www/html', 'read_only' => false],
+                    ['type' => 'volume', 'source' => 'shadow-mu', 'target' => '/var/www/html/wp-content/mu-plugins', 'read_only' => true],
+                ]],
+            ],
+        ], JSON_THROW_ON_ERROR),
+        'actual' => $baseActual,
+    ],
+    'running duplicate root' => [
+        'compose' => $dockerCompose,
+        'actual' => array_merge($baseActual, [[
+            'Type' => 'bind', 'Source' => '/different/webroot',
+            'Destination' => '/var/www/html', 'RW' => true,
+        ]]),
+    ],
+    'malformed read-only declaration' => [
+        'compose' => json_encode([
+            'services' => [
+                'cli' => ['volumes' => [
+                    ['type' => 'volume', 'source' => 'wordpress-data', 'target' => '/var/www/html', 'read_only' => null],
+                    ['type' => 'volume', 'source' => 'repository-data', 'target' => '/siterepo', 'read_only' => false],
+                ]],
+                'wordpress' => ['volumes' => [
+                    ['type' => 'volume', 'source' => 'wordpress-data', 'target' => '/var/www/html', 'read_only' => false],
+                ]],
+            ],
+        ], JSON_THROW_ON_ERROR),
+        'actual' => $baseActual,
+    ],
+];
+foreach ($shadowCases as $label => $case) {
+    $shadowed = new DockerTransport('shadowed-docker', [
+        'transport' => 'docker', 'compose_file' => '/tmp/wprism-driver-compose.yml',
+        'service' => 'cli', 'wordpress_service' => 'wordpress', 'wp_path' => '/var/www/html',
+        'repo_path' => '/siterepo', 'bootstrap' => ['format' => DockerTransport::BOOTSTRAP_FORMAT],
+        '_machine_local' => true,
+    ], null, $dockerControlFor($case['compose'], $case['actual']));
+    try {
+        $shadowed->assertLocalBootstrapControlPlane();
+        fail("authorized Docker bootstrap accepted $label storage");
+    } catch (RuntimeException $error) {
+        assert_true(
+            str_contains($error->getMessage(), 'descendant mount')
+                || str_contains($error->getMessage(), 'does not expose')
+                || str_contains($error->getMessage(), 'do not share'),
+            "$label refusal lost its storage-boundary reason"
+        );
+    }
+}
+pass('Docker bootstrap refuses nested, read-only-shadowed, and duplicate effective WordPress mounts');
+
+$execStorageControl = static function (string $command) use ($dockerCompose, $baseActual): array {
+    return match (true) {
+        str_contains($command, "'context' 'show'") => ['exit' => 0, 'stdout' => "default\n", 'stderr' => ''],
+        str_contains($command, "'context' 'inspect'") => ['exit' => 0, 'stdout' => '"unix:///var/run/docker.sock"', 'stderr' => ''],
+        str_contains($command, "'config' '--format' 'json'") => ['exit' => 0, 'stdout' => $dockerCompose, 'stderr' => ''],
+        str_contains($command, "'ps' '--status=running' '--services'") => ['exit' => 0, 'stdout' => "wordpress\ncli\n", 'stderr' => ''],
+        str_contains($command, "'ps' '-q' 'wordpress'") => ['exit' => 0, 'stdout' => str_repeat('a', 64), 'stderr' => ''],
+        str_contains($command, "'config' '--hash' 'wordpress'") => ['exit' => 0, 'stdout' => 'wordpress ' . str_repeat('c', 64), 'stderr' => ''],
+        str_contains($command, 'com.docker.compose.config-hash') => ['exit' => 0, 'stdout' => str_repeat('c', 64), 'stderr' => ''],
+        str_contains($command, "'ps' '-q' 'cli'") => ['exit' => 0, 'stdout' => str_repeat('b', 64), 'stderr' => ''],
+        str_contains($command, str_repeat('b', 64)) => [
+            'exit' => 0,
+            'stdout' => json_encode(array_merge($baseActual, [[
+                'Type' => 'volume', 'Name' => 'stale-repository-data',
+                'Source' => '/var/lib/docker/volumes/stale-repository-data/_data',
+                'Destination' => '/siterepo', 'RW' => true,
+            ]]), JSON_THROW_ON_ERROR),
+            'stderr' => '',
+        ],
+        str_contains($command, str_repeat('a', 64)) => [
+            'exit' => 0, 'stdout' => json_encode($baseActual, JSON_THROW_ON_ERROR), 'stderr' => '',
+        ],
+        default => ['exit' => 91, 'stdout' => '', 'stderr' => 'unexpected Docker control-plane command'],
+    };
+};
+$staleExecDocker = new DockerTransport('stale-exec-docker', [
+    'transport' => 'docker', 'compose_file' => '/tmp/wprism-driver-compose.yml',
+    'service' => 'cli', 'wordpress_service' => 'wordpress', 'wp_path' => '/var/www/html',
+    'repo_path' => '/siterepo', 'mode' => 'exec',
+    'bootstrap' => ['format' => DockerTransport::BOOTSTRAP_FORMAT], '_machine_local' => true,
+], static fn(): bool => true, $execStorageControl);
+try {
+    $staleExecDocker->assertLocalBootstrapControlPlane();
+    fail('Docker exec bootstrap accepted stale running CLI storage');
+} catch (RuntimeException $error) {
+    assert_true(str_contains($error->getMessage(), 'running Docker CLI container storage'), 'exec storage refusal lost its running-container reason');
+}
+pass('Docker exec bootstrap inspects the resident CLI container instead of trusting current Compose storage');
+
+$remoteControl = static function (string $command) use ($dockerControl): array {
+    if (str_contains($command, "'context' 'inspect'")) {
+        return ['exit' => 0, 'stdout' => '"ssh://remote.example.test"', 'stderr' => ''];
+    }
+    return $dockerControl($command);
+};
+$remoteDocker = new DockerTransport('remote-docker', [
+    'transport' => 'docker', 'compose_file' => '/tmp/wprism-driver-compose.yml',
+    'service' => 'cli', 'wordpress_service' => 'wordpress', 'wp_path' => '/var/www/html',
+    'repo_path' => '/siterepo', 'bootstrap' => ['format' => DockerTransport::BOOTSTRAP_FORMAT],
+    '_machine_local' => true,
+], null, $remoteControl);
+try {
+    $remoteDocker->assertLocalBootstrapControlPlane();
+    fail('authorized Docker bootstrap accepted a remote daemon context');
+} catch (RuntimeException $error) {
+    assert_true(str_contains($error->getMessage(), 'remote Docker contexts'), 'remote-daemon refusal lost its authority reason');
+}
+pass('remote Docker shell access never becomes local bootstrap authority');
+is_string($priorDockerHost) ? putenv('DOCKER_HOST=' . $priorDockerHost) : putenv('DOCKER_HOST');
+
 $rawOnly = [
     DriverCapability::ATTACH => true,
     DriverCapability::BOUNDED_CONTROL => true,

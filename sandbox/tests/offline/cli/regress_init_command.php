@@ -4,7 +4,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../../cli/src/Transport/Transport.php';
 require_once __DIR__ . '/../../../../cli/src/Command/InitCommand.php';
 
-use WPrism\Orchestrator\DriverCapabilityReport;
 use WPrism\Orchestrator\EnvironmentDriver;
 use WPrism\Orchestrator\InitCommand;
 use WPrism\Orchestrator\Transport;
@@ -163,6 +162,24 @@ $readNever = static fn(): mixed => null;
 $exit = InitCommand::run($argumentDriver, ['--unsupported'], $renderRefusal, $statusNever, $readNever);
 check_init_command($exit === 1, 'unsupported init arguments refuse at the command boundary');
 check_init_command($argumentDriver->captureCalls === 0, 'argument refusal occurs before proposal target contact');
+foreach ([
+    ['--configure-database'],
+    ['--database-service=db'],
+    ['--configure-database', '--database-service='],
+] as $invalidDatabaseArgs) {
+    $invalidDatabaseDriver = new InitCommandTransport([]);
+    $invalidDatabaseExit = InitCommand::run(
+        $invalidDatabaseDriver,
+        $invalidDatabaseArgs,
+        $renderRefusal,
+        $statusNever,
+        $readNever
+    );
+    check_init_command($invalidDatabaseExit === 1,
+        'init rejects an incomplete or empty database setup selection');
+    check_init_command($invalidDatabaseDriver->captureCalls === 0,
+        'invalid database setup flags refuse before the proposal or any mutation');
+}
 
 $blockedProposal = $proposal;
 $blockedProposal['ready'] = false;

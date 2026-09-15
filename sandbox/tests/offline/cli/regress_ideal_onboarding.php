@@ -1382,12 +1382,51 @@ wprism_check_same(Adopt::repositorySeedBytes(), (string) file_get_contents($loca
 
 [$initArgs, $gitUrl, $handoffOnly] = OnboardCommand::options(['--yes', '--git-url=https://example.test/repo.git']);
 wprism_check_same(['--yes'], $initArgs, 'onboard forwards init flags unchanged');
+wprism_check(!in_array('--configure-database', $initArgs, true),
+    'ordinary --yes does not opt in to database privilege setup');
 wprism_check_same('https://example.test/repo.git', $gitUrl, 'onboard extracts one handoff URL');
 wprism_check_same(false, $handoffOnly, 'ordinary onboarding does not select the resume-only path');
 [$resumeArgs, $resumeUrl, $resumeOnly] = OnboardCommand::options(['--handoff-only', '--git-url=https://example.test/resume.git']);
 wprism_check_same([], $resumeArgs, 'handoff-only forwards no init arguments');
 wprism_check_same('https://example.test/resume.git', $resumeUrl, 'handoff-only retains the requested remote');
 wprism_check_same(true, $resumeOnly, 'handoff-only selects the resumable publication path');
+
+foreach ([
+    ['--configure-database'],
+    ['--database-service=db'],
+    ['--configure-database', '--database-service='],
+] as $invalidDatabaseSetup) {
+    wprism_check_throws(
+        static fn() => OnboardCommand::options($invalidDatabaseSetup),
+        RuntimeException::class,
+        'an incomplete or empty database setup selection refuses at option parsing'
+    );
+}
+$invalidDatabaseSteps = [];
+$invalidDatabaseCwd = getcwd();
+chdir($workspace);
+ob_start();
+$invalidDatabaseExit = OnboardCommand::run(
+    new IdealOnboardingTransport(),
+    ['--configure-database', '--database-service=db'],
+    dirname(__DIR__, 4),
+    [
+        'adopt' => static function () use (&$invalidDatabaseSteps): int { $invalidDatabaseSteps[] = 'adopt';
+        return 0; },
+        'assess' => static function () use (&$invalidDatabaseSteps): int { $invalidDatabaseSteps[] = 'assess';
+        return 0; },
+        'init' => static function () use (&$invalidDatabaseSteps): int { $invalidDatabaseSteps[] = 'init';
+        return 0; },
+    ]
+);
+ob_end_clean();
+if (is_string($invalidDatabaseCwd)) {
+    chdir($invalidDatabaseCwd);
+}
+wprism_check_same(1, $invalidDatabaseExit,
+    'database setup refuses a non-Docker onboarding request before adoption');
+wprism_check_same([], $invalidDatabaseSteps,
+    'database setup transport validation performs no adopt, assess, or init mutation');
 
 $resumeSteps = [];
 $resumeCwd = getcwd();
@@ -1440,7 +1479,50 @@ if (is_string($dockerCwd)) {
 wprism_check_same(0, $dockerConnectExit, 'connect accepts readable relative Docker control-plane files');
 wprism_check_same(realpath($composeFile), $dockerConfig['compose_file'] ?? null, 'connect anchors a relative Compose file before the workspace changes cwd');
 wprism_check_same(realpath($envFile), $dockerConfig['compose_env_file'] ?? null, 'connect anchors a relative Compose environment before persistence');
-wprism_check(str_contains($dockerConnectOutput, 'assess') && !str_contains($dockerConnectOutput, ' onboard '), 'Docker connect does not recommend an adoption path it cannot execute');
+wprism_check(str_contains($dockerConnectOutput, 'assess') && !str_contains($dockerConnectOutput, ' onboard '), 'Docker attachment does not recommend onboarding without bootstrap authority');
+wprism_check(
+    str_contains($dockerConnectOutput, 'WPrism issued no explicit mutation, but topology inspection bootstrapped WordPress and site startup code may have run.'),
+    'legacy Docker attachment retains its inspection-only mutation disclosure'
+);
+
+$managedDockerRequest = ConnectCommand::parse([
+    'managed-site', '--workspace=managed-docker-workspace', '--transport=docker',
+    '--compose-file=pair.yml', '--compose-env-file=compose.env',
+    '--wordpress-service=wordpress', '--profile=development', '--tooling=managed',
+], $tmp);
+wprism_check_same('managed', $managedDockerRequest['config']['tooling'] ?? null, 'managed Docker tooling is an explicit connect opt-in');
+wprism_check_same(
+    ['format' => DockerTransport::BOOTSTRAP_FORMAT],
+    $managedDockerRequest['config']['bootstrap'] ?? null,
+    'managed Docker connect writes the exact local bootstrap authority'
+);
+wprism_check(
+    !isset($managedDockerRequest['config']['service'], $managedDockerRequest['config']['repo_path']),
+    'managed Docker service and repository identities come only from inspected tooling preparation'
+);
+$managedDisclosure = new ReflectionMethod(ConnectCommand::class, 'renderMutationDisclosure');
+ob_start();
+$managedDisclosure->invoke(null, $managedDockerRequest['config']);
+$managedDisclosureOutput = (string) ob_get_clean();
+wprism_check(
+    str_contains($managedDisclosureOutput, 'created or reused a WPrism-owned tooling image, private overlay, and durable repository volume')
+        && str_contains($managedDisclosureOutput, 'ran disposable helper containers without editing or starting the Compose application')
+        && !str_contains($managedDisclosureOutput, 'WPrism issued no explicit mutation'),
+    'managed Docker connect discloses its owned resource mutations without claiming application mutation'
+);
+try {
+    ConnectCommand::parse([
+        'managed-site', '--workspace=managed-docker-refusal', '--transport=docker',
+        '--compose-file=pair.yml', '--wordpress-service=wordpress', '--tooling=managed',
+        '--service=caller-owned',
+    ], $tmp);
+    throw new RuntimeException('managed Docker connect accepted a caller-selected helper service');
+} catch (RuntimeException $error) {
+    wprism_check(
+        str_contains($error->getMessage(), '--tooling=managed owns --service'),
+        'managed Docker connect refuses caller-selected helper topology'
+    );
+}
 
 $dockerHostRepo = $tmp . '/docker-host-repository';
 mkdir($dockerHostRepo, 0700);
@@ -1522,6 +1604,57 @@ foreach ($configFailures as $label => $controlResult) {
     wprism_check_same(30000, $controlCalls[0]['timeout'] ?? null, "$label Docker config inspection has a finite deadline");
     wprism_check(!file_exists($fakeDockerLog), "$label Docker config refusal occurs before otherwise-successful target probes");
 }
+
+$nestedBindRoot = $tmp . '/docker-parent-bind';
+mkdir($nestedBindRoot . '/site', 0700, true);
+file_put_contents($nestedBindRoot . '/site/sentinel', "target-owned\n");
+$nestedMountConfig = json_encode([
+    'services' => ['cli2' => ['volumes' => [[
+        'type' => 'bind', 'source' => $nestedBindRoot,
+        'target' => '/mounted', 'read_only' => false,
+    ]]]],
+], JSON_THROW_ON_ERROR);
+$nestedControlCalls = [];
+$nestedCapture = static function (
+    string $command,
+    int $timeout,
+    int $stdoutLimit,
+    int $stderrLimit
+) use (&$nestedControlCalls, $nestedMountConfig): array {
+    $nestedControlCalls[] = compact('command', 'timeout', 'stdoutLimit', 'stderrLimit');
+    return ['exit' => 0, 'stdout' => $nestedMountConfig, 'stderr' => ''];
+};
+@unlink($fakeDockerLog);
+ob_start();
+$nestedOverlapExit = ConnectCommand::run([
+    'nested-overlap', '--workspace=' . $nestedBindRoot . '/site/controller', '--transport=docker',
+    '--compose-file=' . $composeFile, '--service=cli2', '--repo-path=/mounted/site',
+], dirname(__DIR__, 4), static fn(string $name, array $config): EnvironmentDriver =>
+    new DockerTransport($name, $config, null, $nestedCapture), $gitRunner);
+ob_end_clean();
+wprism_check_same(1, $nestedOverlapExit, 'connect refuses a workspace beneath a repository reached through a parent Docker bind');
+wprism_check_same(1, count($nestedControlCalls), 'parent-bind overlap resolves through one bounded Compose inspection');
+wprism_check(!is_file($fakeDockerLog), 'parent-bind overlap refuses before any target probe');
+wprism_check(is_file($nestedBindRoot . '/site/sentinel'), 'parent-bind overlap preserves target repository bytes');
+
+$nestedControlCalls = [];
+$nestedDisjointWorkspace = $tmp . '/nested-bind-disjoint-workspace';
+@unlink($fakeDockerLog);
+ob_start();
+$nestedDisjointExit = ConnectCommand::run([
+    'nested-disjoint', '--workspace=' . $nestedDisjointWorkspace, '--transport=docker',
+    '--compose-file=' . $composeFile, '--service=cli2', '--repo-path=/mounted/site',
+], dirname(__DIR__, 4), static fn(string $name, array $config): EnvironmentDriver =>
+    new DockerTransport($name, $config, null, $nestedCapture), $gitRunner);
+ob_end_clean();
+wprism_check_same(0, $nestedDisjointExit, 'connect accepts a disjoint workspace when repo_path is beneath a writable Docker bind');
+wprism_check(is_file($nestedDisjointWorkspace . '/.wprism-envs.json'), 'disjoint parent-bind connect publishes its machine-local registry');
+wprism_check(is_file($fakeDockerLog), 'disjoint parent-bind connect reaches the ordinary inspected target probes');
+$legacyDockerLog = file_get_contents($fakeDockerLog);
+wprism_check(
+    is_string($legacyDockerLog) && !str_contains($legacyDockerLog, '--progress quiet'),
+    'legacy Docker attachment command lines remain byte-compatible without managed progress flags'
+);
 
 $mountConfig = static fn(array $volumes): string => json_encode([
     'services' => ['cli2' => ['volumes' => $volumes]],

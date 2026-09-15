@@ -15,12 +15,12 @@ use WPrism\CodeSourceLock;
  *
  * Three outcomes, and the default is the blocking one:
  *
- * - `locked` — Git does not carry the component. Either its published wp.org
- *   release unpacks to exactly the installed bytes (`wp-org-release`), or an
- *   archive the operator imported on this host does (`imported-archive`,
- *   ImportedArchives). Both are verified by tree digest, never by name or
- *   version: a wp.org version can be re-packaged and a ZIP digest is not a
- *   tree digest, which is why the lock carries both.
+ * - `locked` — Git does not carry the component. Either its separately
+ *   published wp.org release, the theme nested in the verified WordPress core
+ *   release, or an archive the operator imported on this host unpacks to
+ *   exactly the installed bytes. Every origin is verified by tree digest,
+ *   never by name or version: a wp.org version can be re-packaged and a ZIP
+ *   digest is not a tree digest, which is why the lock carries both.
  * - `first-party` — Git carries the component because the operator declared
  *   it the site's own code (`--first-party=<root>/<slug>`). Nothing is
  *   verified against anything; the declaration IS the decision, and it is
@@ -32,9 +32,10 @@ use WPrism\CodeSourceLock;
  *   declaring first-party.
  *
  * Order of lookup: a declared first-party identity short-circuits; otherwise
- * the wp.org release is tried first (public provenance beats a private copy
- * of the same bytes) and the imported store second. `--offline` changes only
- * the wp.org leg, which then answers from the host cache or not at all.
+ * the separately published wp.org release is tried first, then an exact theme
+ * nested in the target's WordPress core release, and the imported store last
+ * (public provenance beats a private copy of the same bytes). `--offline`
+ * changes only the wp.org legs, which answer from the host cache or not at all.
  */
 final class CodeClassifier {
     public const LOCKED = 'locked';
@@ -109,9 +110,13 @@ final class CodeClassifier {
     /**
      * @param list<array{root:string,component:string,version:string,tree_sha256:string}> $components
      * @param list<string> $firstParty sorted `{root}/{component}` identities
+     * @param ?string $wordpressVersion exact target core release used only for bundled-theme comparison
      * @return list<array<string,mixed>> the classification the agent verifies, sorted by root then component
      */
-    public function classify(array $components, array $firstParty = []): array {
+    public function classify(array $components, array $firstParty = [], ?string $wordpressVersion = null): array {
+        if ($wordpressVersion !== null && !WpOrgReleases::safeVersion($wordpressVersion)) {
+            throw new \RuntimeException('WordPress core version cannot name a verified release archive');
+        }
         $declared = array_fill_keys($firstParty, true);
         $plan = [];
         foreach ($components as $candidate) {
@@ -140,6 +145,22 @@ final class CodeClassifier {
                 $row['origin'] = $release['origin'];
                 $plan[] = $row;
                 continue;
+            }
+            if ($wordpressVersion !== null && $root === 'themes') {
+                $coreRelease = $this->releases->verifiedCoreBundledComponent(
+                    $root,
+                    $slug,
+                    $wordpressVersion,
+                    $tree
+                );
+                if (isset($coreRelease['origin'])) {
+                    $row['classification'] = self::LOCKED;
+                    $row['reason'] = (string) $coreRelease['reason'];
+                    $row['origin'] = $coreRelease['origin'];
+                    $plan[] = $row;
+                    continue;
+                }
+                $release['reason'] .= '; ' . $coreRelease['reason'];
             }
             $imported = $this->imported->originForTree($tree, $root, $slug);
             if ($imported !== null) {

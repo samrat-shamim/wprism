@@ -5,6 +5,7 @@ namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Onboarding/Adopt.php';
 require_once __DIR__ . '/../Onboarding/ConnectionReceipt.php';
+require_once __DIR__ . '/../Onboarding/DockerTooling.php';
 require_once __DIR__ . '/../Transport/Transport.php';
 require_once __DIR__ . '/../Transport/LocalTransport.php';
 require_once __DIR__ . '/../Transport/DockerTransport.php';
@@ -32,14 +33,54 @@ final class ConnectCommand {
         ?callable $clock = null
     ): int {
         $json = in_array('--format=json', $args, true);
+        $toolingReceipt = null;
         try {
             [$json, $arguments] = self::machineArguments($args);
             $request = self::parse($arguments, getcwd() ?: '.');
+            if (($request['config']['transport'] ?? null) === 'docker'
+                && ($request['config']['tooling'] ?? null) === 'managed') {
+                $toolingReceipt = DockerTooling::prepare(
+                    $request['environment'],
+                    (string) $request['config']['compose_file'],
+                    is_string($request['config']['compose_env_file'] ?? null)
+                        ? $request['config']['compose_env_file']
+                        : null,
+                    is_string($request['config']['profile'] ?? null) ? $request['config']['profile'] : null,
+                    (string) $request['config']['wordpress_service']
+                );
+                foreach (['compose_overlay_file', 'service', 'wordpress_service', 'wp_path', 'repo_path'] as $key) {
+                    if (!is_string($toolingReceipt[$key] ?? null) || $toolingReceipt[$key] === '') {
+                        throw new \RuntimeException("managed Docker tooling returned no $key");
+                    }
+                    $request['config'][$key] = $toolingReceipt[$key];
+                }
+                $request['config']['docker_context'] = self::toolingString($toolingReceipt, 'docker_context');
+                $request['config']['docker_endpoint'] = self::toolingString($toolingReceipt, 'docker_endpoint');
+                $request['config']['compose_project'] = self::toolingString($toolingReceipt, 'compose_project');
+                $request['config']['tooling_provenance'] = [
+                    'format' => DockerTransport::TOOLING_PROVENANCE_FORMAT,
+                    'image_id' => self::toolingString($toolingReceipt, 'image_id'),
+                    'repository_volume' => self::toolingString($toolingReceipt, 'repository_volume'),
+                    'tooling_identity' => self::toolingString($toolingReceipt, 'tooling_identity'),
+                    'toolchain_identity' => self::toolingString($toolingReceipt, 'toolchain_identity'),
+                    'overlay_sha256' => self::toolingString($toolingReceipt, 'overlay_sha256'),
+                ];
+            }
             $factory = $transportFactory ?? static fn(string $name, array $config): EnvironmentDriver =>
                 Transport::make($name, $config);
             $driver = $factory($request['environment'], $request['config']);
             if (!$driver instanceof BoundedControlDriver) {
                 throw new \RuntimeException('selected driver does not implement bounded target control');
+            }
+            if ($driver instanceof DockerTransport && isset($request['config']['bootstrap'])) {
+                $provenance = $driver->localBootstrapProvenance();
+                $request['config']['docker_context'] = $provenance['docker_context'];
+                $request['config']['docker_endpoint'] = $provenance['docker_endpoint'];
+                $driver = $factory($request['environment'], $request['config']);
+                if (!$driver instanceof DockerTransport) {
+                    throw new \RuntimeException('Docker transport factory did not preserve the pinned control plane');
+                }
+                $driver->assertLocalBootstrapControlPlane();
             }
             if ($driver instanceof Transport && ($hostRepo = $driver->hostRepoBoundaryPath()) !== null) {
                 self::assertDisjointHostBoundaries($request['workspace'], $hostRepo);
@@ -51,7 +92,22 @@ final class ConnectCommand {
                 $request['config'],
                 $processRunner
             );
+            if (is_array($toolingReceipt)) {
+                DockerTooling::release($toolingReceipt);
+            }
         } catch (\Throwable $error) {
+            if (is_array($toolingReceipt)) {
+                try {
+                    DockerTooling::rollback($toolingReceipt);
+                } catch (\Throwable $rollbackError) {
+                    $error = new \RuntimeException(
+                        $error->getMessage() . '; managed Docker tooling rollback also failed: '
+                        . $rollbackError->getMessage(),
+                        0,
+                        $error
+                    );
+                }
+            }
             if ($json) {
                 return CommandOutput::renderRefusalJson(
                     'connect',
@@ -78,13 +134,20 @@ final class ConnectCommand {
 
         $cli = realpath($sourceRoot . '/cli/wprism') ?: $sourceRoot . '/cli/wprism';
         echo "Connected after inspection: WordPress is reachable and single-site.\n";
-        echo "WPrism issued no explicit mutation, but topology inspection bootstrapped WordPress and site startup code may have run.\n";
+        self::renderMutationDisclosure($request['config']);
         echo "Workspace: {$request['workspace']}\n";
         echo "Next:\n";
         echo '  cd ' . escapeshellarg($request['workspace']) . "\n";
         if (($request['config']['transport'] ?? null) === 'docker') {
-            echo "  # Docker cannot deliver the agent. Mount/install it through the container control plane first.\n";
-            echo '  ' . escapeshellarg($cli) . ' assess ' . escapeshellarg($request['environment']) . "\n";
+            if (isset($request['config']['bootstrap'])) {
+                echo "  # The inspected local Docker control plane can deliver WPrism without changing the Compose application.\n";
+                echo '  ' . escapeshellarg($cli) . ' assess ' . escapeshellarg($request['environment']) . "\n";
+                echo '  ' . escapeshellarg($cli) . ' onboard ' . escapeshellarg($request['environment']) . "\n";
+                echo "Add --git-url=<empty-remote-url> to onboard to preflight and automate the initialized repository handoff.\n";
+            } else {
+                echo "  # This attachment has no Docker bootstrap authority; assess the preinstalled agent.\n";
+                echo '  ' . escapeshellarg($cli) . ' assess ' . escapeshellarg($request['environment']) . "\n";
+            }
         } elseif (($request['config']['transport'] ?? null) === 'local') {
             echo "  # If the target already carries WPrism, assess it; otherwise run the bootstrap-capable onboarding path.\n";
             echo '  ' . escapeshellarg($cli) . ' assess ' . escapeshellarg($request['environment']) . "\n";
@@ -95,6 +158,25 @@ final class ConnectCommand {
             echo "Add --git-url=<empty-remote-url> to preflight and automate the initialized repository handoff.\n";
         }
         return 0;
+    }
+
+    /** @param array<string,mixed> $config */
+    private static function renderMutationDisclosure(array $config): void {
+        if (($config['transport'] ?? null) === 'docker' && ($config['tooling'] ?? null) === 'managed') {
+            echo "Managed Docker setup created or reused a WPrism-owned tooling image, private overlay, and durable repository volume.\n";
+            echo "It ran disposable helper containers without editing or starting the Compose application; WordPress and site startup code may have run during inspection.\n";
+            return;
+        }
+        echo "WPrism issued no explicit mutation, but topology inspection bootstrapped WordPress and site startup code may have run.\n";
+    }
+
+    /** @param array<string,mixed> $receipt */
+    private static function toolingString(array $receipt, string $key): string {
+        $value = $receipt[$key] ?? null;
+        if (!is_string($value) || $value === '') {
+            throw new \RuntimeException("managed Docker tooling returned no $key");
+        }
+        return $value;
     }
 
     /** @param list<mixed> $args @return array{0:bool,1:list<string>} */
@@ -144,13 +226,14 @@ final class ConnectCommand {
 
         $allowed = [
             'workspace', 'transport', 'host', 'wp_path', 'repo_path', 'ssh_config',
-            'compose_file', 'compose_env_file', 'service', 'profile', 'mode',
+            'compose_file', 'compose_overlay_file', 'compose_env_file', 'service', 'wordpress_service',
+            'profile', 'mode', 'tooling',
         ];
         $unknown = array_diff(array_keys($values), $allowed);
         if ($unknown !== []) {
             throw new \RuntimeException('unsupported flag --' . str_replace('_', '-', (string) reset($unknown)));
         }
-        foreach (['workspace', 'transport', 'repo_path'] as $required) {
+        foreach (['workspace', 'transport'] as $required) {
             if (!is_string($values[$required] ?? null) || trim((string) $values[$required]) === '') {
                 throw new \RuntimeException('missing required --' . str_replace('_', '-', $required) . '=<value>');
             }
@@ -159,11 +242,37 @@ final class ConnectCommand {
         if (!in_array($transport, ['ssh', 'local', 'docker'], true)) {
             throw new \RuntimeException('--transport must be ssh, local, or docker');
         }
-        $requiredByTransport = match ($transport) {
-            'ssh' => ['host', 'wp_path'],
-            'docker' => ['compose_file', 'service'],
-            default => ['wp_path'],
+        $tooling = $values['tooling'] ?? null;
+        if ($tooling !== null && ($transport !== 'docker' || $tooling !== 'managed')) {
+            throw new \RuntimeException('--tooling accepts only managed with --transport=docker');
+        }
+        if ($transport === 'docker' && $tooling === 'managed') {
+            foreach (['service', 'wp_path', 'repo_path', 'compose_overlay_file', 'mode'] as $managedKey) {
+                if (isset($values[$managedKey])) {
+                    throw new \RuntimeException(
+                        '--tooling=managed owns --' . str_replace('_', '-', $managedKey) . '; remove that flag'
+                    );
+                }
+            }
+        }
+        $requiredByTransport = match (true) {
+            $transport === 'ssh' => ['host', 'wp_path'],
+            $transport === 'docker' && $tooling === 'managed' => ['compose_file', 'wordpress_service'],
+            $transport === 'docker' => ['compose_file', 'service', 'repo_path'],
+            default => ['wp_path', 'repo_path'],
         };
+        if ($transport === 'ssh') {
+            $requiredByTransport[] = 'repo_path';
+        }
+        if ($transport === 'docker' && $tooling !== 'managed') {
+            $hasWpPath = isset($values['wp_path']);
+            $hasWordpressService = isset($values['wordpress_service']);
+            if ($hasWpPath !== $hasWordpressService) {
+                throw new \RuntimeException(
+                    'Docker bootstrap requires --wp-path and --wordpress-service together; omit both for attachment only'
+                );
+            }
+        }
         foreach ($requiredByTransport as $required) {
             if (!is_string($values[$required] ?? null) || trim((string) $values[$required]) === '') {
                 throw new \RuntimeException("--transport=$transport requires --" . str_replace('_', '-', $required));
@@ -177,7 +286,7 @@ final class ConnectCommand {
                 $config[$key] = $values[$key];
             }
         }
-        foreach (['ssh_config', 'compose_file', 'compose_env_file'] as $pathKey) {
+        foreach (['ssh_config', 'compose_file', 'compose_overlay_file', 'compose_env_file'] as $pathKey) {
             if (is_string($config[$pathKey] ?? null)) {
                 $config[$pathKey] = self::existingFile($cwd, (string) $config[$pathKey], '--' . str_replace('_', '-', $pathKey));
             }
@@ -187,6 +296,9 @@ final class ConnectCommand {
             // Selecting a local target is the explicit machine-local opt-in
             // LocalTransport requires before adoption can bootstrap it.
             $config['bootstrap'] = ['format' => LocalTransport::BOOTSTRAP_FORMAT];
+        } elseif ($transport === 'docker'
+            && ($tooling === 'managed' || isset($values['wordpress_service']))) {
+            $config['bootstrap'] = ['format' => DockerTransport::BOOTSTRAP_FORMAT];
         }
 
         return ['environment' => $environment, 'workspace' => $workspace, 'config' => $config];

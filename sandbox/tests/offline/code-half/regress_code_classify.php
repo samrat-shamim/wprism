@@ -42,7 +42,12 @@ const FORMAT_2 = ['format' => 2, 'layout' => 'wp-content', 'lock' => 'code/wpris
 /** A transport that answers exactly `wp wprism code-inventory` from a fixed body. */
 final class ClassifyFixtureTransport extends Transport {
     /** @param array<string,mixed>|null $inventory null answers with a failure */
-    public function __construct(private ?array $inventory, private int $exit = 0) {
+    public function __construct(
+        private ?array $inventory,
+        private int $exit = 0,
+        private string $wordpressVersion = "7.1.0\n",
+        private string $versionStderr = ''
+    ) {
         parent::__construct('classify-fixture', ['repo_path' => '/srv/site']);
     }
 
@@ -55,6 +60,9 @@ final class ClassifyFixtureTransport extends Transport {
 
     public function captureWp(array $wpArgs): array {
         $this->requests[] = array_values(array_map('strval', $wpArgs));
+        if ($wpArgs === ['core', 'version']) {
+            return ['exit' => 0, 'stdout' => $this->wordpressVersion, 'stderr' => $this->versionStderr];
+        }
         if ($this->inventory === null) {
             return ['exit' => $this->exit, 'stdout' => '', 'stderr' => 'the fixture target refuses'];
         }
@@ -263,6 +271,17 @@ wprism_check_same(
     (classify_repo($agreeing, $repo, true, false, $cache) !== null ? $agreeing->requests[0] : []),
     'the cross-check is exactly the read-only agent subcommand, scoped to the target repo'
 );
+wprism_check_same(['core', 'version'], $agreeing->requests[1] ?? null, 'code classification obtains the target core release identity after inventory agreement');
+
+$malformedVersion = new ClassifyFixtureTransport(inventory_body($localInventory), 0, "7.1.0\nextra\n");
+[$exit, $message] = classify_repo($malformedVersion, $repo, true, false, $cache);
+wprism_check_same(1, $exit, 'a malformed target WordPress version refuses before classification');
+wprism_check(str_contains($message, 'malformed WordPress core version'), 'the malformed version refusal names the untrusted target fact');
+wprism_check(!is_file($repo . '/code/wprism-code.lock.json'), 'malformed target version publishes no code lock');
+
+$composeNoise = new ClassifyFixtureTransport(inventory_body($localInventory), 0, "7.1.0\n", "compose lifecycle noise\n");
+[$exit] = classify_repo($composeNoise, $repo, true, false, $cache, ['plugins/wprism-agency']);
+wprism_check_same(0, $exit, 'an exact core version remains usable when Docker reports host-side lifecycle diagnostics');
 
 // ---------------------------------------------------------------------------
 // --dry-run writes nothing.

@@ -5,6 +5,7 @@ namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Onboarding/Adopt.php';
 require_once __DIR__ . '/../Onboarding/OnboardingHandoffReceipt.php';
+require_once __DIR__ . '/../Onboarding/DockerDatabaseSetup.php';
 require_once __DIR__ . '/../Authority/OperationAuthorization.php';
 require_once __DIR__ . '/../Authority/TargetOperationStore.php';
 require_once __DIR__ . '/../Contract/ContractProposal.php';
@@ -47,6 +48,12 @@ final class OnboardCommand {
         $json = in_array('--format=json', $extra, true);
         try {
             [$initArgs, $gitUrl, $handoffOnly, $json, $statusOnly] = self::options($extra);
+            $databaseService = null;
+            foreach ($initArgs as $arg) {
+                if (is_string($arg) && str_starts_with($arg, DockerDatabaseSetup::SERVICE_FLAG)) {
+                    $databaseService = substr($arg, strlen(DockerDatabaseSetup::SERVICE_FLAG));
+                }
+            }
             $workspace = AssessCommand::siteRepo(getcwd() ?: '.');
             if (!$driver instanceof BoundedControlDriver) {
                 throw new \RuntimeException('selected driver does not implement bounded target control');
@@ -56,6 +63,10 @@ final class OnboardCommand {
             }
             if (($json || $statusOnly) && $gitUrl === null) {
                 throw new \RuntimeException('machine-readable onboarding requires --git-url=<url>');
+            }
+            if (in_array(DockerDatabaseSetup::CONFIGURE_FLAG, $initArgs, true)
+                && !$driver instanceof DockerTransport) {
+                throw new \RuntimeException('--configure-database is supported only for a machine-local Docker environment');
             }
         } catch (\Throwable $error) {
             return self::failure($error, $json, 'onboarding_invalid', 'the onboarding request is invalid');
@@ -154,6 +165,9 @@ final class OnboardCommand {
         if (!$json) echo "Onboarding 2/3: assess the installed site without changing managed state.\n";
         $exit = self::step($json, static fn(): int => $assess($driver, [], $sourceRoot));
         if ($exit !== 0 && $exit !== AssessCommand::COMPLETE_WITH_GAPS_EXIT) {
+            if (!$json && $driver->driverId() === 'docker') {
+                self::renderDockerBaselineResume($sourceRoot, $driver, $gitUrl, $databaseService);
+            }
             return $json
                 ? self::failure(new \RuntimeException('assess exited nonzero'), true, 'onboarding_assess_failed', 'the onboarding assessment did not complete')
                 : $exit;
@@ -169,6 +183,9 @@ final class OnboardCommand {
         if (!$json) echo "Onboarding 3/3: review and initialize the managed baseline.\n";
         $exit = self::step($json, static fn(): int => $init($driver, $initArgs));
         if ($exit !== 0) {
+            if (!$json && $driver->driverId() === 'docker') {
+                self::renderDockerBaselineResume($sourceRoot, $driver, $gitUrl, $databaseService);
+            }
             return $json
                 ? self::failure(new \RuntimeException('init exited nonzero'), true, 'onboarding_init_failed', 'the reviewed managed baseline was not initialized')
                 : $exit;
@@ -215,6 +232,27 @@ final class OnboardCommand {
             echo "The URL must be reachable with Git credentials from both this controller and the WordPress target.\n";
         }
         return 0;
+    }
+
+    private static function renderDockerBaselineResume(
+        string $sourceRoot,
+        EnvironmentDriver $driver,
+        ?string $gitUrl,
+        ?string $databaseService = null
+    ): void {
+        $cli = realpath($sourceRoot . '/cli/wprism') ?: $sourceRoot . '/cli/wprism';
+        echo "WPrism is installed. Docker bootstrap is initial-only; do not repeat onboard or adopt.\n";
+        echo "Repair the named blocker, then resume the existing target:\n";
+        echo '  ' . escapeshellarg($cli) . ' assess ' . escapeshellarg($driver->name()) . "\n";
+        echo '  ' . escapeshellarg($cli) . ' init ' . escapeshellarg($driver->name());
+        if ($databaseService !== null) {
+            echo ' --configure-database ' . escapeshellarg(DockerDatabaseSetup::SERVICE_FLAG . $databaseService);
+        }
+        echo "\n";
+        if ($gitUrl !== null) {
+            echo '  ' . escapeshellarg($cli) . ' onboard ' . escapeshellarg($driver->name())
+                . " --handoff-only --git-url=<same-remote-url>\n";
+        }
     }
 
     /** @return array{0:list<string>,1:?string,2:bool,3:bool,4:bool} */
@@ -269,6 +307,33 @@ final class OnboardCommand {
         }
         if ($statusOnly && !$json) {
             throw new \RuntimeException('onboard status requires --format=json');
+        }
+        $configureDatabase = count(array_filter(
+            $init,
+            static fn(mixed $arg): bool => $arg === DockerDatabaseSetup::CONFIGURE_FLAG
+        ));
+        $databaseServices = count(array_filter(
+            $init,
+            static fn(mixed $arg): bool => is_string($arg)
+                && str_starts_with($arg, DockerDatabaseSetup::SERVICE_FLAG)
+        ));
+        if ($configureDatabase !== 0 || $databaseServices !== 0) {
+            if ($configureDatabase !== 1 || $databaseServices !== 1) {
+                throw new \RuntimeException(
+                    '--configure-database and --database-service=<name> must each be supplied exactly once'
+                );
+            }
+            if ($json && !in_array('--yes', $init, true)) {
+                throw new \RuntimeException(
+                    'machine-readable database setup requires explicit --configure-database, '
+                        . '--database-service=<name>, and --yes confirmation'
+                );
+            }
+            foreach ($init as $arg) {
+                if (is_string($arg) && str_starts_with($arg, DockerDatabaseSetup::SERVICE_FLAG)) {
+                    DockerDatabaseSetup::assertServiceName(substr($arg, strlen(DockerDatabaseSetup::SERVICE_FLAG)));
+                }
+            }
         }
         return [$init, $gitUrl, $handoffOnly, $json, $statusOnly];
     }

@@ -2,25 +2,28 @@
 
 `wprism adopt <env>` installs WPrism onto an already-running WordPress site reached
 through the orchestrator's SSH transport or an explicitly authorized
-machine-local transport. It is the bootstrap step before the
+machine-local local/Docker transport. It is the bootstrap step before the
 first `wprism pending`, `wprism classify`, or `wprism capture`; it does not claim that
 the site's pre-existing plugin state is already classified. Machine-local
 delivery is initial-only and refuses an already-installed WPrism control plane;
 SSH retains the established install-or-update workflow.
 
 For a first source-checkout install, prefer the guided wrapper: `wprism connect`
-performs native read-only probes and creates the local seed/registry, then
+performs native read-only application probes and creates the local seed/registry;
+explicit managed Docker setup also provisions its private helper image, overlay,
+and repository volume. Then
 `wprism onboard` composes this adoption transaction, the read-only assessment,
 and the reviewed init confirmation. The lower-level `adopt` command documented
-here remains the update path and the place to inspect its exact transaction.
+here remains the SSH update path and the place to inspect its exact transaction.
 
 ## Prerequisites
 
 The machine running `wprism` needs PHP 8+ with Sodium and `tar`; SSH adoption
 also needs `ssh` and `scp`.
-The target needs PHP 8+ with Sodium and `fsync()`, a working `wp` command,
-`tar`, and a WordPress install. It does **not**
-need Git. The SSH account must be able to write:
+The target tooling service needs PHP 8+ with Sodium and `fsync()`, a working `wp` command,
+`tar`, and a WordPress install. Adoption itself does not need Git; the later
+initialization step does. Managed Docker tooling supplies the required Git and
+Git LFS versions. The SSH account must be able to write:
 
 - WordPress's verified control-plane directory; initial adoption discovers
   the standard `wp-content/mu-plugins` layout through an isolated WordPress
@@ -33,7 +36,10 @@ authority are all absent, with ordinary accessible ancestors. It repeats that
 proof before staging and rechecks the publication boundary under the agent
 generation writer lock. A lost repository beside an existing WPrism control
 plane remains a recovery refusal; do not create an empty replacement to bypass
-it. Initial SSH and local discovery require the standard content/MU layout and
+it. A Docker volume root necessarily exists: the Docker path admits it only as
+an ordinary empty writable root, binds its identity through publication, and
+leaves the root in place on rollback. Any WPrism or recovery byte still refuses.
+Initial SSH and machine-local discovery require the standard content/MU layout and
 refuse an explicit `WPMU_PLUGIN_DIR`, relocated `WP_CONTENT_DIR`, or `SUNRISE`.
 The existing-repository SSH update path retains its normal recovery preflight.
 Initial probes suppress WordPress cron within their own process, so they do not
@@ -74,11 +80,56 @@ Local delivery is a privileged opt-in and must live in untracked
 }
 ```
 
-That exact closed object authorizes only the mechanism. Checked-in repository
+That exact closed object authorizes only the local mechanism. Docker `connect`
+writes its separate `wprism-local-docker-control-plane/v1` authorization only
+after inspecting the active local daemon, running application service, and
+the exact Compose storage topology. Checked-in repository
 configuration cannot self-label it machine-local. `wprism driver-capabilities`
 remains target-free; `wprism adopt` separately evaluates a read-only eligibility
 report and refuses before archive allocation or target writes unless every
-target check passes. Docker has no adoption capability at this version.
+target check passes. A remote Docker context, stopped or replicated application
+service, read-only/tmpfs storage, mismatched WordPress volumes, or ephemeral
+repository path refuses before distribution upload.
+
+Managed tooling supports one running service based directly on the official
+WordPress image with a writable persistent `/var/www/html`. Effective storage
+covering `wp-content/mu-plugins` must agree between the current Compose model and
+the running web container; nested plugin/theme/upload mounts are allowed when
+they do not shadow that control path. Custom-built images and ambiguous,
+read-only, or nested control/repository mounts refuse. The generated overlay,
+immutable helper image ID, Compose project, Docker context/endpoint, and owned
+repository volume are recorded in the private environment registry and
+revalidated later.
+
+This authorization covers initial bootstrap and baseline initialization only.
+It does not add a Docker recovery provider or claim release/verified-rollback
+support; those capabilities continue to refuse unless separately configured and
+supported. If assessment or initialization refuses after installation, repair
+that gate and resume with `wprism assess <env>`, `wprism init <env>`, and then
+`wprism onboard <env> --handoff-only --git-url=<same-url>` when Git publication
+was requested. Do not repeat `adopt` or full `onboard` against the installed site.
+
+For a standard local Compose site whose baseline is blocked because its exact
+WordPress database account lacks direct global `PROCESS`, the explicit setup
+path is `wprism init <env> --configure-database
+--database-service=<compose-service>`; a fresh journey may pass the same flags
+to `wprism onboard`. Both flags are required, and ordinary `--yes` never turns
+the setup on. Before the grant WPrism names the Compose project/service, schema,
+and exact account and discloses that `PROCESS` is server-wide. It accepts only a
+selected running official MySQL/MariaDB service on the already-pinned local
+Docker context, proves WordPress reaches that container's immutable server
+identity and hostname, revalidates the container/config/image immediately
+before mutation, then issues only `GRANT PROCESS ON *.*` and re-proves the
+capture boundary through the actual WordPress account. Root credentials are
+read only inside that selected container and cross only a temporary mode-0600
+client defaults file removed by a trap; they never enter host argv, the
+registry, Git, or command output. MariaDB provisioning needs `server_uid`
+(11.1.6, 11.2.5, 11.4.3, 11.5.2, or 11.6.1+); older releases inside the broader
+read-only platform range are not mutated by this path. Missing `TRIGGER`, unsafe
+tables, or any other boundary failure remains an ordinary actionable refusal.
+Because grants are not transactional, a later failure states that `PROCESS`
+remains (or may remain) granted and tells the operator to repair the blocker and
+resume `init`; it never claims automatic rollback.
 
 For signed rollback receipts, put the controller key in the machine-local
 `.wprism-envs.json` overlay and keep it mode `0600`:
