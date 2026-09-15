@@ -1,6 +1,7 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/StoragePrerequisites.php';
 require_once __DIR__ . '/MediaDerivativeObservation.php';
 require_once __DIR__ . '/MediaDerivativeWorkset.php';
 require_once __DIR__ . '/../Kernel/BlockMediaDerivativeGrammar.php';
@@ -288,6 +289,7 @@ final class ApplyRequestCoordinator {
     }
 
     private static function assert_lifecycle_ready(Policy $policy, CompiledRepository $compiled, array $opts): void {
+        StoragePrerequisites::assert_ready($policy->manifests);
         $tree = $compiled->tree();
         $desired = isset($tree['options/core'])
             ? Deploy::extract_desired((array) ($tree['options/core']['data'] ?? []))
@@ -306,6 +308,7 @@ final class ApplyRequestCoordinator {
         // suppressing cron, or ensuring a ledger. A bad revision is a pure
         // offline result and is identical for fresh and mapped targets.
         $compiled = self::compiled($repo, $policy, $opts);
+        StoragePrerequisites::assert_ready($policy->manifests);
         Canary::suppress_cron_spawn();
         $a = new self($repo, $policy, $compiled);
         $scopeRequest = $opts['scope_request'] ?? null;
@@ -566,6 +569,7 @@ final class ApplyRequestCoordinator {
         PlanExplanation::parse($selector);
         $policy = self::policy($repo, $opts);
         $compiled = self::compiled($repo, $policy, $opts);
+        StoragePrerequisites::assert_ready($policy->manifests);
         Canary::suppress_cron_spawn();
         $apply = new self($repo, $policy, $compiled);
         try {

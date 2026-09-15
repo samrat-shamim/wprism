@@ -1,5 +1,5 @@
 {
-    "class_count": 526,
+    "class_count": 528,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -29965,6 +29965,14 @@
                             "has_default": false,
                             "name": "purpose",
                             "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "self::MAX_OPTION_VALUE_BYTES",
+                            "has_default": true,
+                            "name": "maxValueBytes",
+                            "type": "int",
                             "variadic": false
                         }
                     ],
@@ -81565,6 +81573,113 @@
                             "has_default": false,
                             "name": "visit",
                             "type": "callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\StoragePrerequisiteGrammar": {
+            "abstract": false,
+            "constants": {
+                "FEATURE": {
+                    "value_repr": "storage-prerequisites/v1"
+                },
+                "SECTION": {
+                    "value_repr": "storage_prerequisites"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "project": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "section_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\StoragePrerequisites": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_ready": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "lock": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
                             "variadic": false
                         }
                     ],

@@ -1,6 +1,7 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/StoragePrerequisites.php';
 require_once __DIR__ . '/../Kernel/DatabaseExceptions.php';
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
@@ -223,7 +224,10 @@ final class CaptureTransaction {
                 $transactionOpen = true;
                 $result = DatabaseQueryIsolation::with_engine_work_units(
                     $workAuthority,
-                    static fn(): mixed => $fn($workAuthority)
+                    static function () use ($policy, $optionsOnly, $fn, $workAuthority): mixed {
+                        if (!$optionsOnly) StoragePrerequisites::assert_ready($policy->manifests);
+                        return $fn($workAuthority);
+                    }
                 );
                 if (isset($phase['state_dir'], $phase['intent'])
                     && is_string($phase['state_dir']) && is_array($phase['intent'])) {

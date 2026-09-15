@@ -299,6 +299,24 @@ teach the scalar provisioning command to replace a structured object. If a
 genuinely operator-required structured value has no safe provisioning path,
 that is a product-boundary gap to design and test before claiming support.
 
+### Deferred native migrations
+
+Trace migrations beyond activation: an admin or frontend request may run an
+upgrade that WP-CLI activation never reaches. A runtime migration cursor is
+not authored intent, but it can be a prerequisite for safely interpreting and
+replaying authored state. Declare `storage-prerequisites/v1` and a
+`storage_prerequisites` list of exact runtime option/string pairs when the
+native storage contract requires them. The engine reads durable rows, refuses
+unmet prerequisites before authored work, and never writes the cursor.
+
+This admission feature does not execute migrations or certify storage history.
+Automatic migration completion belongs in a separately audited, checkpointed
+lifecycle settlement provider. Qualify missing/stale cursor refusal, the
+supported native migration procedure, current authored settings, and consumers
+after replay. Recapture before the first HTTP/editor request cannot prove that
+later native migrations preserve the replayed state. Do not preseed a current
+cursor to make a fixture pass or classify the affected authored value as runtime.
+
 ### Finding the two versions the range names
 
 The refusal above is permanent, so the cost it creates recurs forever: somebody

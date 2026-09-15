@@ -362,6 +362,7 @@ wprism_check_same(
         'declaration_evidence' => 3,
         'engine_features' => 3,
         'incompatible_plugins' => 3,
+        'storage_prerequisites' => 3,
     ],
     AdapterContractGrammar::section_min_spec(),
     'section_min_spec() gains no floor from this rider: a feature with no `keys` contributes none, so no manifest '
