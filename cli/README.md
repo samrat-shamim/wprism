@@ -431,6 +431,13 @@ semantics remain the rehearsal implementation's.
   use `wprism adopt` first, while Docker targets must already expose the agent
   through their control plane.
 
+  Baseline confirmation completes before that final status proof. If the proof
+  reports readiness blockers, the baseline is committed: do not rerun init.
+  Resolve every reported blocker; for each `env_missing` row, supply its
+  binding with `wprism env-set <env> --name=<name> --stdin`. Then verify
+  `wprism status <env>` and use `wprism onboard <env> --handoff-only
+  --git-url=<same-url>` when Git publication is pending.
+
   A local Docker baseline blocked because the WordPress database account lacks
   direct global `PROCESS` can be resumed explicitly with `wprism init <env>
   --configure-database --database-service=<compose-service>`; the same flags

@@ -182,6 +182,21 @@ final class OnboardCommand {
         }
         if (!$json) echo "Onboarding 3/3: review and initialize the managed baseline.\n";
         $exit = self::step($json, static fn(): int => $init($driver, $initArgs));
+        if ($exit === InitCommand::BASELINE_COMMITTED_READINESS_PENDING_EXIT) {
+            $remediation = self::postInitReadinessRemediation($driver, $gitUrl);
+            if (!$json) {
+                self::renderPostInitReadinessResume($sourceRoot, $driver, $gitUrl);
+            }
+            return $json
+                ? self::failure(
+                    new \RuntimeException('post-init managed-scope status exited nonzero'),
+                    true,
+                    'onboarding_post_init_readiness_pending',
+                    'the managed baseline was initialized, but its post-init readiness proof is not clean',
+                    $remediation
+                )
+                : $exit;
+        }
         if ($exit !== 0) {
             if (!$json && $driver->driverId() === 'docker') {
                 self::renderDockerBaselineResume($sourceRoot, $driver, $gitUrl, $databaseService);
@@ -253,6 +268,28 @@ final class OnboardCommand {
             echo '  ' . escapeshellarg($cli) . ' onboard ' . escapeshellarg($driver->name())
                 . " --handoff-only --git-url=<same-remote-url>\n";
         }
+    }
+
+    private static function renderPostInitReadinessResume(
+        string $sourceRoot,
+        EnvironmentDriver $driver,
+        ?string $gitUrl
+    ): void {
+        $cli = realpath($sourceRoot . '/cli/wprism') ?: $sourceRoot . '/cli/wprism';
+        echo "WPrism installation and baseline initialization completed. Do not rerun init, adopt, or full onboard.\n";
+        echo "Resolve every readiness blocker reported by status. For each env_missing row, set its value with:\n";
+        echo '  ' . escapeshellarg($cli) . ' env-set ' . escapeshellarg($driver->name())
+            . " --name=<name> --stdin\n";
+        echo '  ' . escapeshellarg($cli) . ' status ' . escapeshellarg($driver->name()) . "\n";
+        echo '  ' . escapeshellarg($cli) . ' onboard ' . escapeshellarg($driver->name())
+            . ' --handoff-only --git-url=' . ($gitUrl === null ? '<empty-remote-url>' : '<same-remote-url>') . "\n";
+    }
+
+    private static function postInitReadinessRemediation(EnvironmentDriver $driver, ?string $gitUrl): string {
+        return 'do not rerun init or adopt; resolve every reported readiness blocker; for env_missing, set each required value with wprism env-set '
+            . escapeshellarg($driver->name()) . ' --name=<name> --stdin; verify with wprism status '
+            . escapeshellarg($driver->name()) . ', then run wprism onboard ' . escapeshellarg($driver->name())
+            . ' --handoff-only --git-url=' . ($gitUrl === null ? '<empty-remote-url>' : '<same-remote-url>');
     }
 
     /** @return array{0:list<string>,1:?string,2:bool,3:bool,4:bool} */
@@ -920,13 +957,20 @@ final class OnboardCommand {
         }
     }
 
-    private static function failure(\Throwable $error, bool $json, string $reasonCode, string $message): int {
+    private static function failure(
+        \Throwable $error,
+        bool $json,
+        string $reasonCode,
+        string $message,
+        ?string $remediation = null
+    ): int {
         if ($json) {
             fwrite(STDERR, 'wprism: onboard: ' . $error->getMessage() . "\n");
             return AssessCommand::renderRefusal(new CommandRefusalException(
                 $reasonCode,
                 $message,
-                'inspect private operator diagnostics, repair the named boundary, then reconcile with onboard <env> status --git-url=<same-url> --format=json',
+                $remediation
+                    ?? 'inspect private operator diagnostics, repair the named boundary, then reconcile with onboard <env> status --git-url=<same-url> --format=json',
                 [],
                 $error->getMessage(),
                 $error

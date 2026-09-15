@@ -104,10 +104,15 @@ revalidated later.
 This authorization covers initial bootstrap and baseline initialization only.
 It does not add a Docker recovery provider or claim release/verified-rollback
 support; those capabilities continue to refuse unless separately configured and
-supported. If assessment or initialization refuses after installation, repair
-that gate and resume with `wprism assess <env>`, `wprism init <env>`, and then
+supported. If assessment or initialization refuses before baseline confirmation,
+repair that gate and resume with `wprism assess <env>`, `wprism init <env>`, and then
 `wprism onboard <env> --handoff-only --git-url=<same-url>` when Git publication
 was requested. Do not repeat `adopt` or full `onboard` against the installed site.
+If init instead reports that the baseline was committed but post-init readiness
+is pending, do not rerun init: resolve every reported readiness blocker; for
+each `env_missing` row, supply its binding with `wprism env-set <env>
+--name=<name> --stdin`. Then verify `wprism status <env>` and continue only with
+`wprism onboard <env> --handoff-only --git-url=<same-url>`.
 
 For a standard local Compose site whose baseline is blocked because its exact
 WordPress database account lacks direct global `PROCESS`, the explicit setup
@@ -128,8 +133,9 @@ registry, Git, or command output. MariaDB provisioning needs `server_uid`
 read-only platform range are not mutated by this path. Missing `TRIGGER`, unsafe
 tables, or any other boundary failure remains an ordinary actionable refusal.
 Because grants are not transactional, a later failure states that `PROCESS`
-remains (or may remain) granted and tells the operator to repair the blocker and
-resume `init`; it never claims automatic rollback.
+remains (or may remain) granted and never claims automatic rollback. A blocker
+before baseline confirmation resumes through `init`; a post-init readiness
+blocker resumes only through `env-set`, `status`, and `onboard --handoff-only`.
 
 For signed rollback receipts, put the controller key in the machine-local
 `.wprism-envs.json` overlay and keep it mode `0600`:

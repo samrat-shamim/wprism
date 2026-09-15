@@ -44687,7 +44687,11 @@
         },
         "WPrism\\Orchestrator\\InitCommand": {
             "abstract": false,
-            "constants": [],
+            "constants": {
+                "BASELINE_COMMITTED_READINESS_PENDING_EXIT": {
+                    "value_repr": 4
+                }
+            },
             "final": true,
             "interfaces": [],
             "kind": "class",

@@ -24,6 +24,7 @@ use WPrism\Orchestrator\DriverCapabilityReport;
 use WPrism\Orchestrator\DockerTransport;
 use WPrism\Orchestrator\EnvironmentDriver;
 use WPrism\Orchestrator\HostProcess;
+use WPrism\Orchestrator\InitCommand;
 use WPrism\Orchestrator\LocalTransport;
 use WPrism\Orchestrator\OnboardCommand;
 use WPrism\Orchestrator\OnboardingHandoffReceipt;
@@ -1460,6 +1461,143 @@ $envFile = $tmp . '/compose.env';
 file_put_contents($envFile, "WPRISM_PAIR=fixture\n");
 $composeFile = $tmp . '/pair.yml';
 file_put_contents($composeFile, "services: {}\n");
+$postInitDocker = new DockerTransport('local', [
+    'transport' => 'docker',
+    'compose_file' => $composeFile,
+    'service' => 'cli2',
+    'repo_path' => '/wprism-repository/site',
+]);
+$postInitSteps = [];
+$postInitCwd = getcwd();
+chdir($workspace);
+ob_start();
+$postInitExit = OnboardCommand::run(
+    $postInitDocker,
+    ['--yes', '--configure-database', '--database-service=db'],
+    dirname(__DIR__, 4),
+    [
+        'adopt' => static function () use (&$postInitSteps): int { $postInitSteps[] = 'adopt';
+        return 0; },
+        'assess' => static function () use (&$postInitSteps): int { $postInitSteps[] = 'assess';
+        return 0; },
+        'init' => static function () use (&$postInitSteps): int {
+            $postInitSteps[] = 'init-confirmed';
+            return InitCommand::BASELINE_COMMITTED_READINESS_PENDING_EXIT;
+        },
+    ]
+);
+$postInitOutput = (string) ob_get_clean();
+if (is_string($postInitCwd)) {
+    chdir($postInitCwd);
+}
+wprism_check_same(
+    InitCommand::BASELINE_COMMITTED_READINESS_PENDING_EXIT,
+    $postInitExit,
+    'onboard preserves a nonzero safety result when only post-init readiness is pending'
+);
+wprism_check_same(
+    ['adopt', 'assess', 'init-confirmed'],
+    $postInitSteps,
+    'post-init readiness is distinguished only after the baseline-confirming init step'
+);
+wprism_check(
+    str_contains($postInitOutput, "env-set 'local' --name=<name> --stdin")
+        && str_contains($postInitOutput, "status 'local'")
+        && str_contains($postInitOutput, "onboard 'local' --handoff-only --git-url=<empty-remote-url>"),
+    'committed-baseline recovery prints the exact env binding, status, and handoff-only public continuation'
+);
+wprism_check(
+    str_contains($postInitOutput, 'Do not rerun init, adopt, or full onboard.')
+        && !str_contains($postInitOutput, " init 'local'"),
+    'committed-baseline recovery never sends the operator back through initialization'
+);
+
+$postInitMachineSteps = [];
+$postInitMachineCwd = getcwd();
+chdir($workspace);
+ob_start();
+$postInitMachineExit = OnboardCommand::run(
+    $postInitDocker,
+    [
+        '--format=json', '--yes', '--configure-database', '--database-service=db',
+        '--git-url=ssh://git.example.test/pending-readiness.git',
+    ],
+    dirname(__DIR__, 4),
+    [
+        'handoff_preflight' => static function () use (&$postInitMachineSteps): void {
+            $postInitMachineSteps[] = 'handoff-preflight';
+        },
+        'adopt' => static function () use (&$postInitMachineSteps): int { $postInitMachineSteps[] = 'adopt';
+        return 0; },
+        'assess' => static function () use (&$postInitMachineSteps): int { $postInitMachineSteps[] = 'assess';
+        return 0; },
+        'init' => static function () use (&$postInitMachineSteps): int {
+            $postInitMachineSteps[] = 'init-confirmed';
+            return InitCommand::BASELINE_COMMITTED_READINESS_PENDING_EXIT;
+        },
+    ]
+);
+$postInitMachineOutput = (string) ob_get_clean();
+if (is_string($postInitMachineCwd)) {
+    chdir($postInitMachineCwd);
+}
+$postInitMachineRefusal = json_decode($postInitMachineOutput, true, 512, JSON_THROW_ON_ERROR);
+wprism_check_same(1, $postInitMachineExit, 'machine onboarding preserves its structured refusal exit after committed init');
+wprism_check_same(
+    'onboarding_post_init_readiness_pending',
+    $postInitMachineRefusal['reason_code'] ?? null,
+    'machine onboarding distinguishes committed baseline from initialization failure'
+);
+wprism_check(
+    str_contains((string) ($postInitMachineRefusal['remediation'] ?? ''), 'resolve every reported readiness blocker')
+        && str_contains((string) ($postInitMachineRefusal['remediation'] ?? ''), "env-set 'local' --name=<name> --stdin")
+        && str_contains((string) ($postInitMachineRefusal['remediation'] ?? ''), "status 'local'")
+        && str_contains((string) ($postInitMachineRefusal['remediation'] ?? ''), "onboard 'local' --handoff-only --git-url=<same-remote-url>")
+        && str_contains((string) ($postInitMachineRefusal['remediation'] ?? ''), 'do not rerun init or adopt')
+        && !str_contains((string) ($postInitMachineRefusal['remediation'] ?? ''), 'then rerun init'),
+    'machine committed-baseline remediation binds every blocker and the no-init handoff-only continuation'
+);
+wprism_check_same(
+    ['handoff-preflight', 'adopt', 'assess', 'init-confirmed'],
+    $postInitMachineSteps,
+    'machine committed-baseline refusal stops before Git publication without reclassifying init as absent'
+);
+
+$postInitResumeSteps = ['env-set', 'status-clean'];
+$postInitResumeCwd = getcwd();
+chdir($workspace);
+ob_start();
+$postInitResumeExit = OnboardCommand::run(
+    $postInitDocker,
+    ['--handoff-only', '--git-url=ssh://git.example.test/after-env-set.git'],
+    dirname(__DIR__, 4),
+    [
+        'adopt' => static function () use (&$postInitResumeSteps): int { $postInitResumeSteps[] = 'adopt';
+        return 0; },
+        'assess' => static function () use (&$postInitResumeSteps): int { $postInitResumeSteps[] = 'assess';
+        return 0; },
+        'init' => static function () use (&$postInitResumeSteps): int { $postInitResumeSteps[] = 'init';
+        return 0; },
+        'controller_preflight' => static function () use (&$postInitResumeSteps): array {
+            $postInitResumeSteps[] = 'controller-preflight';
+            return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
+        },
+        'handoff' => static function () use (&$postInitResumeSteps): string {
+            $postInitResumeSteps[] = 'handoff';
+            return 'main';
+        },
+    ]
+);
+ob_end_clean();
+if (is_string($postInitResumeCwd)) {
+    chdir($postInitResumeCwd);
+}
+wprism_check_same(0, $postInitResumeExit, 'documented env-set and status sequence can continue through public handoff-only');
+wprism_check_same(
+    ['env-set', 'status-clean', 'controller-preflight', 'handoff'],
+    $postInitResumeSteps,
+    'handoff-only continuation does not repeat adoption, assessment, initialization, or database setup'
+);
 $dockerConfig = [];
 $dockerCwd = getcwd();
 chdir($tmp);

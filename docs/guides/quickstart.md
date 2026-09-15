@@ -153,6 +153,12 @@ successful init and prints a resumable command. For the Docker example it is:
 That continuation performs only the repository handoff; it does not repeat
 adopt, assess, or init.
 
+If final status reports readiness blockers after saying the baseline was
+committed, do not rerun init. Resolve every reported blocker. For each
+`env_missing` row, set the value with `wprism env-set local --name=<name>
+--stdin`; then verify `wprism status local` and continue with `wprism onboard
+local --handoff-only --git-url=<same-url>`.
+
 The checkout makes the initialized revision reviewable locally; it does not
 redirect the live environment. `wprism capture local` in the Docker path (or
 `wprism capture production` in the SSH path) still writes only to that

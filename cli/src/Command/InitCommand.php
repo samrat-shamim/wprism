@@ -11,6 +11,9 @@ require_once __DIR__ . '/../Code/CodeClassifier.php';
 
 /** Host command handler for the digest-bound initialization workflow. */
 final class InitCommand {
+    /** Init committed its baseline, but its final managed-scope status proof is not yet clean. */
+    public const BASELINE_COMMITTED_READINESS_PENDING_EXIT = 4;
+
     /**
      * Run init's host orchestration while leaving proposal/confirmation
      * validation and target protocol ownership in Init.
@@ -329,8 +332,18 @@ final class InitCommand {
         echo "Verifying selected managed scope:\n";
         $status = $statusRunner($transport);
         if ($status !== 0) {
-            fwrite(STDERR, "wprism: initialization captured a baseline, but the selected managed scope is not clean\n");
-            return $status;
+            fwrite(
+                STDERR,
+                "wprism: initialization committed its baseline, but post-init managed-scope readiness is not clean; do not rerun init\n"
+            );
+            if ($databaseGrantChanged) {
+                self::renderCommittedBaselineDatabaseGrantNotice($databaseGrantAccount);
+            }
+            // Standalone init has always exposed the status command's exact
+            // exit. Onboard suppresses init's generic next steps and needs a
+            // state marker so it cannot mislabel this committed baseline as
+            // init_failed or prescribe an unsafe second initialization.
+            return $renderNextSteps ? $status : self::BASELINE_COMMITTED_READINESS_PENDING_EXIT;
         }
         if ($renderNextSteps) {
             foreach (Init::nextSteps(
@@ -354,6 +367,19 @@ final class InitCommand {
                 . 'database grants are not transactionally reversible. '
                 . 'Resolve the reported init blocker and rerun init. Revoke PROCESS only after verifying no WPrism '
                 . "transactional operation still requires the complete foreign-key census.\n"
+        );
+    }
+
+    private static function renderCommittedBaselineDatabaseGrantNotice(mixed $account): void {
+        $identity = is_array($account)
+            ? (string) ($account['user'] ?? '?') . '@' . (string) ($account['host'] ?? '?')
+            : 'the WordPress account';
+        fwrite(
+            STDERR,
+            "wprism: direct PROCESS remains granted to $identity; database grants are not transactionally reversible. "
+                . 'The baseline is committed: resolve the reported post-init readiness blocker without rerunning init. '
+                . 'Revoke PROCESS only after verifying no WPrism transactional operation still requires the complete '
+                . "foreign-key census.\n"
         );
     }
 

@@ -410,5 +410,10 @@ wprism_check(str_contains($initSource, '$e instanceof DockerDatabaseSetupExcepti
     'an uncertain post-GRANT failure reaches the durable-grant operator notice');
 wprism_check(substr_count($initSource, 'self::renderDurableDatabaseGrantNotice($databaseGrantAccount);') >= 5,
     'classification, blocked proposal, cancellation, and confirmation failures all preserve the confirmed grant notice');
+wprism_check(
+    str_contains($initSource, 'self::renderCommittedBaselineDatabaseGrantNotice($databaseGrantAccount);')
+        && str_contains($initSource, 'The baseline is committed: resolve the reported post-init readiness blocker without rerunning init.'),
+    'a post-confirm status failure preserves the durable PROCESS notice without prescribing an invalid init retry'
+);
 
 echo "PASS: Docker database setup\n";

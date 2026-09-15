@@ -286,8 +286,35 @@ $statusFailureExit = InitCommand::run(
     $readNever
 );
 $statusFailureOutput = (string) ob_get_clean();
-check_init_command($statusFailureExit === 7, 'post-confirmation status failures propagate their exact exit');
+check_init_command(
+    $statusFailureExit === 7,
+    'standalone post-confirmation status failures preserve their exact exit'
+);
+check_init_command(
+    $statusFailureDriver->captureCalls === 2,
+    'post-confirmation status failure is classified only after exact-digest baseline confirmation completed'
+);
 check_init_command(!str_contains($statusFailureOutput, 'Managed state scope is clean.'), 'status failure stops before init next steps');
+
+$embeddedStatusFailureDriver = new InitCommandTransport([init_command_response($proposal), init_command_response($result)]);
+ob_start();
+$embeddedStatusFailureExit = InitCommand::run(
+    $embeddedStatusFailureDriver,
+    ['--yes'],
+    $renderRefusal,
+    static fn(EnvironmentDriver $driver): int => 7,
+    $readNever,
+    false
+);
+ob_end_clean();
+check_init_command(
+    $embeddedStatusFailureExit === InitCommand::BASELINE_COMMITTED_READINESS_PENDING_EXIT,
+    'embedded init distinguishes committed-baseline readiness from pre-confirmation failure'
+);
+check_init_command(
+    $embeddedStatusFailureDriver->captureCalls === 2,
+    'embedded committed-baseline result follows exact-digest confirmation'
+);
 
 // ------------------------------------------------- T6 §3.4: --allow-unmanaged-plugins
 
