@@ -244,7 +244,7 @@
   "post_meta": {
     "wpforms_form_locations": {
       "class": "derived",
-      "note": "Locator rebuilds this denormalized index from embedding posts/widgets and current native routing. The experimental global provider uses bounded SDK read/write contracts and requires an exact physical fixed point. This is not production, deployment or complete authored-state Apply readiness."
+      "note": "Locator rebuilds this denormalized index from embedding posts/widgets and current native routing. The certified global provider uses bounded SDK read/write contracts, native consumers and an exact physical fixed point; it is limited to the reviewed single-site Lite placement frontier."
     }
   },
   "tables": {
@@ -345,7 +345,7 @@
     }
   ],
   "notes": [
-    "Experimental authoring capsule for the exact observed official Lite 2.0.1.1 artifact. No certification, deployment, complete authored-state Apply, deletion, lifecycle or production-readiness claim.",
+    "Certified bounded capsule for the exact observed official Lite 2.0.1.1 artifact. The claim covers the reviewed Lite authored settings, JSON bodies, references, tags, widgets and derived placement cache; deletion, Pro/addon/runtime/payment/submission/mail, multisite and unreviewed native combinations remain unsupported.",
     "Location repair has no triggers: native placements, widgets and routing can change while every form body stays identical. Policy selects this global provider for nonempty authored work; an empty Apply selects no actions. SDK native readers can warm request caches, so that external effect is explicit rather than claimed restorable by the database checkpoint.",
     "Native add/update/duplicate writes prove optional integer/string self IDs and local field allocators; only declared post coordinates are references. Field IDs, numeric limits and smart-tag field operands remain local form structure.",
     "The four exact notification scalar paths admit authored routing/display configuration, not submissions or arbitrary body PII. All keys, other values and secrets retain engine clearance checks.",

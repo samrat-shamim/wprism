@@ -115,8 +115,8 @@ wprism_check_same(256, count($call('reconciliation_plan', array_slice($many, 0, 
 wprism_check_throws(static fn() => $call('reconciliation_plan', $many, []), RuntimeException::class,
     'all mutation intent is bounded before any DML can begin', 'pre-write mutation frontier');
 $disposition = json_decode((string) file_get_contents(dirname(__DIR__, 2) . '/package/disposition.json'), true, 512, JSON_THROW_ON_ERROR);
-wprism_check($disposition['status'] === 'experimental' && !in_array('apply', $disposition['capabilities']['operations'], true),
-    'the bounded experimental provider does not advertise complete authored-state Apply readiness');
+wprism_check($disposition['status'] === 'certified' && in_array('apply', $disposition['capabilities']['operations'], true),
+    'the bounded provider advertises its certified authored-state Apply boundary');
 // The SDK checks core function provenance before its single-site refusal,
 // including home-only batches. A capsule precheck would execute it too soon.
 $source = (string) file_get_contents(dirname(__DIR__, 2) . '/package/runtime/providers/wpforms-form-locations.php');

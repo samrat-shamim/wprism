@@ -1,6 +1,5 @@
 {
   "entry": {
-    "mode": "capture-plan",
     "pin": ["core", "wpforms-lite"],
     "plugins": [{"slug": "wpforms-lite", "version": "2.0.1.1"}],
     "post_types": ["post", "page", "attachment", "wpforms", "wpforms-template"],
