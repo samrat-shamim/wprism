@@ -72,6 +72,14 @@ $policy = Policy::from_snapshot([
     'manifests' => [$manifest],
     'site' => ['manifests' => ['woocommerce'], 'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []], 'spec_version' => WPRISM_SPEC_VERSION],
 ], \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce'));
+// A fresh target has no pa_* registration before typed attribute adoption.
+// AuthoredTransactionExecutor asks this resolver before opening its transaction.
+// Locked WC_Post_Types::register_taxonomies() declares false at 11.0.0/11.0.1
+// lines 269-271 and in 11.1.0; an absent fact refused combined baseline Apply.
+woo_ok(get_taxonomy('pa_combosize') === false
+    && $policy->declared_taxonomy_hierarchical('pa_combosize') === false
+    && $policy->declared_taxonomy_hierarchical('unreviewed_taxonomy') === null,
+    'new Woo attribute taxonomies resolve their reviewed flat hierarchy before target registration');
 woo_ok($policy->option_rule_details('pickup_location_pickup_locations') === [
     'rule' => ['class' => 'authored', 'plain_data' => true, 'allow_pii' => true, 'autoload' => 'preserve'],
     'source' => 'woocommerce',
@@ -1943,8 +1951,8 @@ $conformanceFamilyWitnesses = [
     'deletion' => [$wooCheckHarness, [
         'WooCommerce supported product deletion capture',
         'supported product deletion did not emit its exact canonical tombstone',
-        'WooCommerce supported product_variation deletion capture',
-        'supported product_variation deletion did not emit its exact canonical tombstone',
+        'WooCommerce unsupported product_variation deletion capture',
+        'unsupported product_variation refusal changed canonical bytes',
         'source did not restore byte-identically after malformed/undeclared-COD/deletion probes',
     ]],
     'failure-recovery' => [$wooCheckHarness, [
@@ -1968,7 +1976,7 @@ $conformanceFamilyWitnesses = [
         'WooCommerce populated COD boundary capture',
         'cod_addon_secret',
         'undeclared sibling key(s)',
-        'malformed attributes and undeclared COD refuse atomically; supported product and named product_variation deletions capture exactly and restore byte-identically',
+        'malformed attributes, undeclared COD, and unsupported variation deletion refuse atomically; supported product deletion captures exactly and restores byte-identically',
     ]],
     'scope-platform' => [$wooCheckHarness, [
         'WooCommerce scope fixture unexpectedly activated optional extensions',
@@ -2051,6 +2059,53 @@ foreach ([
 ] as $termSeedWitness) {
     woo_ok(str_contains($wooSeedHarness, $termSeedWitness),
         "category/brand/visual source fixture pins $termSeedWitness");
+}
+// Host deploy has a human terminal result, unlike the agent JSON verb.
+// Execute both actual conformance call blocks: a fake host refuses extra flags
+// and supplies bad exit/output combinations so neither transport death nor an
+// agent-shaped JSON answer can masquerade as completed host deployment.
+foreach (['REACTIVATE', 'REINSTALL_DEPLOY'] as $deployVariable) {
+    $deployMatch = [];
+    woo_ok(preg_match('/^' . $deployVariable . '(?:_RC)?=.*?(?=^wp_conf2 plugin is-active woocommerce)/ms',
+        $wooCheckHarness, $deployMatch) === 1, "$deployVariable exposes its real host deployment acceptance block");
+    $deployScript = <<<'BASH'
+#!/usr/bin/env bash
+set -euo pipefail
+fail() { printf '%s\n' "$*" >&2; exit 1; }
+. "$1"
+fixture_rc="$2" fixture_out="$3"
+host_wprism() {
+    [ "$*" = 'conf2 deploy' ] || return 97
+    printf '%s\n' "$fixture_out"
+    return "$fixture_rc"
+}
+BASH;
+    $deployFile = tempnam(sys_get_temp_dir(), 'wprism-woo-host-deploy-');
+    file_put_contents($deployFile, $deployScript . "\n" . $deployMatch[0]);
+    $deployResults = [];
+    try {
+        foreach ([
+            ['complete', 0, "deploy phase: compile\ndeploy complete: lifecycle-settle", true],
+            ['empty transport', 0, '', false],
+            ['agent JSON', 0, '{"lifecycle_phase":"all","warnings":[]}', false],
+            ['nonzero terminal', 9, 'deploy complete: lifecycle-settle', false],
+            ['runtime diagnostic', 0, "PHP Warning: fixture in /fixture.php on line 1\ndeploy complete: lifecycle-settle", false],
+        ] as [$case, $status, $output, $expected]) {
+            $pipes = [];
+            $process = proc_open(['/bin/bash', $deployFile, $root . '/sandbox/conformance/asserts.sh',
+                (string) $status, $output], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+            if (!is_resource($process)) throw new RuntimeException('could not execute host deployment acceptance block');
+            $deployStdout = stream_get_contents($pipes[1]); $deployStderr = stream_get_contents($pipes[2]);
+            fclose($pipes[1]); fclose($pipes[2]);
+            $deployResults[] = [proc_close($process) === 0, $expected, $case, $deployStdout, $deployStderr];
+        }
+    } finally {
+        unlink($deployFile);
+    }
+    foreach ($deployResults as [$accepted, $expected, $case, $deployStdout, $deployStderr]) {
+        if ($accepted !== $expected) fwrite(STDERR, $deployStdout . $deployStderr);
+        woo_ok($accepted === $expected, "$deployVariable host deployment admission handles $case");
+    }
 }
 $themeScopeMatch = [];
 woo_ok(

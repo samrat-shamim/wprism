@@ -1725,38 +1725,36 @@ wp_conf1 wprism capture --repo=/siterepo >/dev/null
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
   || fail 'WooCommerce restored product did not replace its temporary tombstone byte-identically'
 
-# A variation has independent deletion authority and identity. Exercise its
-# real named conformance row rather than treating variable-parent evidence as
-# an implicit child proof.
+# The shipped variation selector is deliberately unsupported until parent
+# regeneration has a reversible boundary (regress_woocommerce_deletion_authority).
+# Capture must refuse this intent without publishing any canonical bytes.
 VARIATION_DELETE_ROW=$(wp_conf1 eval '
   global $wpdb; $id=wc_get_product_id_by_sku("CONF-VAR-S-RED");
   echo base64_encode(wp_json_encode($wpdb->get_row($wpdb->prepare(
     "SELECT * FROM {$wpdb->posts} WHERE ID=%d",$id
   ),ARRAY_A),JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
 ')
-require_observed_nonempty 'WooCommerce supported product_variation-delete backup' "$VARIATION_DELETE_ROW"
+require_observed_nonempty 'WooCommerce unsupported product_variation-delete backup' "$VARIATION_DELETE_ROW"
 VARIATION_DELETE_FILE=$(grep -rlF -- 'CONF-VAR-S-RED' "$CONF_REPO1/state/posts/product_variation" | head -n 1)
-[ -n "$VARIATION_DELETE_FILE" ] || fail 'WooCommerce supported product_variation-delete source file is absent'
+[ -n "$VARIATION_DELETE_FILE" ] || fail 'WooCommerce unsupported product_variation-delete source file is absent'
 VARIATION_DELETE_UUID=$(basename "$VARIATION_DELETE_FILE" | cut -d- -f1-5)
 [[ "$VARIATION_DELETE_UUID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
-  || fail 'WooCommerce supported product_variation-delete UUID is malformed'
+  || fail 'WooCommerce unsupported product_variation-delete UUID is malformed'
 wp_conf1 eval '
   global $wpdb; $id=wc_get_product_id_by_sku("CONF-VAR-S-RED");
   if (1 !== $wpdb->delete($wpdb->posts,["ID"=>$id],["%d"])) throw new RuntimeException($wpdb->last_error);
   clean_post_cache($id);
 ' >/dev/null
+cp -a "$CONF_REPO1/state" "$CONF_REPO1/.tmp-woocommerce-variation-before"
 VARIATION_DELETE_RC=0
 VARIATION_DELETE_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || VARIATION_DELETE_RC=$?
-require_wprism_answered 'WooCommerce supported product_variation deletion capture' human "$VARIATION_DELETE_OUT"
-[ "$VARIATION_DELETE_RC" -eq 0 ] \
-  || fail "WooCommerce supported product_variation deletion did not capture: $VARIATION_DELETE_OUT"
-jq -e --arg uuid "$VARIATION_DELETE_UUID" --arg source_path "posts/product_variation/$(basename "$VARIATION_DELETE_FILE")" '
-  .format == "wprism-deletion/v1" and .kind == "post" and .type == "product_variation" and
-  .uuid == $uuid and .source_path == $source_path
-' "$CONF_REPO1/state/deletions/$VARIATION_DELETE_UUID.json" >/dev/null \
-  || fail 'WooCommerce supported product_variation deletion did not emit its exact canonical tombstone'
-[ ! -e "$VARIATION_DELETE_FILE" ] \
-  || fail 'WooCommerce supported product_variation deletion retained its canonical entity beside the tombstone'
+require_wprism_answered 'WooCommerce unsupported product_variation deletion capture' human "$VARIATION_DELETE_OUT"
+[ "$VARIATION_DELETE_RC" -ne 0 ] \
+  && grep -Fq 'deletion intent for post:product_variation is unsupported' <<<"$VARIATION_DELETE_OUT" \
+  || fail "WooCommerce undeclared product_variation deletion did not refuse: $VARIATION_DELETE_OUT"
+diff -r "$CONF_REPO1/.tmp-woocommerce-variation-before" "$CONF_REPO1/state" \
+  || fail 'WooCommerce unsupported product_variation refusal changed canonical bytes'
+rm -rf "$CONF_REPO1/.tmp-woocommerce-variation-before"
 wp_conf1 eval "
   global \$wpdb; \$row=json_decode(base64_decode('$VARIATION_DELETE_ROW'),true,512,JSON_THROW_ON_ERROR);
   if (false === \$wpdb->insert(\$wpdb->posts,\$row)) throw new RuntimeException(\$wpdb->last_error);
@@ -1764,12 +1762,12 @@ wp_conf1 eval "
 " >/dev/null
 wp_conf1 wprism capture --repo=/siterepo >/dev/null
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
-  || fail 'WooCommerce restored product_variation did not replace its temporary tombstone byte-identically'
+  || fail 'WooCommerce restored product_variation did not recapture byte-identically'
 wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-woocommerce-restored >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-woocommerce-restored" \
   || fail 'WooCommerce source did not restore byte-identically after malformed/undeclared-COD/deletion probes'
 rm -rf "$CONF_REPO1/.tmp-woocommerce-restored"
-pass 'malformed attributes and undeclared COD refuse atomically; supported product and named product_variation deletions capture exactly and restore byte-identically'
+pass 'malformed attributes, undeclared COD, and unsupported variation deletion refuse atomically; supported product deletion captures exactly and restores byte-identically'
 
 # Both branches edit one managed native price. Unforced application must be
 # byte-still on the target; explicit repository authority must converge without
@@ -2003,8 +2001,11 @@ pass 'deterministic WooCommerce provider race refuses the loser at process_fence
 # then the digest-bound cached artifact must recover the retained state.
 wp_conf2 plugin deactivate woocommerce >/dev/null
 wp_conf2 plugin is-active woocommerce >/dev/null 2>&1 && fail 'WooCommerce deactivation premise did not land'
-REACTIVATE=$(host_wprism conf2 deploy --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered 'WooCommerce deploy after deactivation' json "$REACTIVATE"
+REACTIVATE_RC=0
+REACTIVATE=$(host_wprism conf2 deploy 2>&1) || REACTIVATE_RC=$?
+assert_no_php_runtime_diagnostics 'WooCommerce deploy after deactivation' "$REACTIVATE"
+[ "$REACTIVATE_RC" -eq 0 ] && grep -q '^deploy complete:' <<<"$REACTIVATE" \
+  || fail "WooCommerce deploy after deactivation failed or lacked its terminal host result: $REACTIVATE"
 wp_conf2 plugin is-active woocommerce >/dev/null || fail 'WPrism deploy did not reactivate exact WooCommerce code'
 normalize_woocommerce_harness_placeholder_mode wp_conf2
 LIFECYCLE_BEFORE=$(woocommerce_storage_hash)
@@ -2013,11 +2014,32 @@ wp_conf2 plugin uninstall woocommerce >/dev/null
 wp_conf2 plugin is-installed woocommerce >/dev/null 2>&1 && fail 'WooCommerce uninstall left plugin code installed'
 [ "$(woocommerce_storage_hash)" = "$LIFECYCLE_BEFORE" ] \
   || fail 'WooCommerce default uninstall changed retained catalog/configuration storage'
+# The host's JSON lifecycle preflight redacts unclassified causes. The
+# shared wrapper binds fresh private evidence; the capsule checks exact intent
+# before that wrapper publishes the command's public streams.
+# check.sh is a child shell: indexed arrays and unexported helpers from
+# run.sh do not cross that boundary. Recreate the exact exported Compose argv.
+read -r -a PAIR_COMPOSE <<<"${COMPOSE:?}"
+. tests/lib/conformance_private_command.sh
+. tests/lib/private_command_capture.sh
+woocommerce_missing_code_validate() {
+  local stem="$1" root="${WPRISM_ARTIFACT_LIBRARY_ROOT:?}"
+  php "$root/sandbox/tests/lib/conformance_private_command.php" validate lifecycle-status "$CONF_PAIR" cli2 "$stem" || return 1
+  [ "${stem##*/}" = baseline ] || php "$root/adapter-packages/woocommerce/fixtures/missing-code-evidence.php" "${stem%/*}" "$CONF_PAIR"
+}
+MISSING_SNAPSHOT=(conformance_private_command_native cli2 lifecycle-status snapshot)
+MISSING_COLLECT=(conformance_private_command_native cli2 lifecycle-status collect)
+MISSING_VALIDATE=(woocommerce_missing_code_validate)
 MISSING_RC=0
-MISSING_OUT=$(host_wprism conf2 deploy 2>&1) || MISSING_RC=$?
+MISSING_OUT=$(wprism_private_command_capture "$WPRISM_ARTIFACT_LIBRARY_ROOT/sandbox/tmp/woocommerce-missing-code.$CONF_PAIR" \
+  MISSING_SNAPSHOT MISSING_COLLECT MISSING_VALIDATE -- host_wprism conf2 deploy 2>&1) || MISSING_RC=$?
 require_wprism_answered 'WooCommerce deploy with code absent' human "$MISSING_OUT"
-[ "$MISSING_RC" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_OUT" \
-  || fail "missing WooCommerce code did not refuse at compatibility: $MISSING_OUT"
+[ "$MISSING_RC" -eq 1 ] && grep -q '^private command diagnostics (unverified): ' <<<"$MISSING_OUT" \
+  && grep -q '"reason_code":"lifecycle_status_failed"' <<<"$MISSING_OUT" \
+  && grep -q '"details_redacted":true' <<<"$MISSING_OUT" \
+  || fail "missing WooCommerce code lacked its exact fresh private refusal: $MISSING_OUT"
+[ "$(woocommerce_storage_hash)" = "$LIFECYCLE_BEFORE" ] \
+  || fail 'WooCommerce missing-code refusal changed retained native storage'
 WOO_SHA=da189b6616c610d15a2106f93151dab81b78f83e075bcefce221ac0d00b4fa21
 WOO_ARTIFACT="/artifacts-cache/plugin-woocommerce-11.0.1-${WOO_SHA}.zip"
 [ "$(wp_conf2 eval "echo hash_file('sha256','$WOO_ARTIFACT');")" = "$WOO_SHA" ] \
@@ -2025,8 +2047,11 @@ WOO_ARTIFACT="/artifacts-cache/plugin-woocommerce-11.0.1-${WOO_SHA}.zip"
 wp_conf2 plugin install "$WOO_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get woocommerce --field=version)" = 11.0.1 ] \
   || fail 'WooCommerce exact reinstall reported the wrong version'
-REINSTALL_DEPLOY=$(host_wprism conf2 deploy --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered 'WooCommerce deploy after exact reinstall' json "$REINSTALL_DEPLOY"
+REINSTALL_DEPLOY_RC=0
+REINSTALL_DEPLOY=$(host_wprism conf2 deploy 2>&1) || REINSTALL_DEPLOY_RC=$?
+assert_no_php_runtime_diagnostics 'WooCommerce deploy after exact reinstall' "$REINSTALL_DEPLOY"
+[ "$REINSTALL_DEPLOY_RC" -eq 0 ] && grep -q '^deploy complete:' <<<"$REINSTALL_DEPLOY" \
+  || fail "WooCommerce deploy after exact reinstall failed or lacked its terminal host result: $REINSTALL_DEPLOY"
 wp_conf2 plugin is-active woocommerce >/dev/null || fail 'WooCommerce exact reinstall was not active after deploy'
 normalize_woocommerce_harness_placeholder_mode wp_conf2
 RECOVERED=$(observe_woocommerce_adoption)

@@ -1,6 +1,8 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/StoragePrerequisites.php';
+require_once __DIR__ . '/../Kernel/StoragePrerequisiteGrammar.php';
 require_once __DIR__ . '/../Kernel/DatabaseQueryIsolation.php';
 require_once __DIR__ . '/../Kernel/DatabaseWorkAuthority.php';
 
@@ -148,8 +150,12 @@ final class AuthoredTransactionExecutor {
             if ($scoped && ($inputContext !== null) !== ($request->inputBindingAuthority !== null)) {
                 throw new \RuntimeException('wprism: scoped input transaction requires its sealed binding authority');
             }
+            StoragePrerequisites::assert_ready($this->policy->manifests);
             $this->tokens->bind_input_files($inputContext?->values() ?? []);
-            $this->attachmentMaterializer->prepare_filesystem($work, $tree, $request->mediaDerivatives);
+            $requiresStorageLock = StoragePrerequisiteGrammar::project($this->policy->manifests) !== [];
+            if (!$requiresStorageLock) {
+                $this->attachmentMaterializer->prepare_filesystem($work, $tree, $request->mediaDerivatives);
+            }
             $deletionProfile = $executeDeletes && $deleteWork !== []
                 ? ($this->deletionDatabaseProfile)($deleteWork)
                 : ['read_tables' => [], 'table_presence_reads' => []];
@@ -158,6 +164,15 @@ final class AuthoredTransactionExecutor {
                 $this->authored_transaction_profile($deletionProfile)
             );
             $transactionStarted = true;
+            if ($requiresStorageLock) {
+                // A cursor may change after admission. Hold its row/gap lock
+                // before prepare() creates the attachment recovery journal;
+                // rollback cannot promise to undo a failed filesystem cleanup.
+                DatabaseQueryIsolation::with_engine_work_units($workAuthority, function () use ($work, $tree, $request): void {
+                    StoragePrerequisites::lock($this->policy->manifests);
+                    $this->attachmentMaterializer->prepare_filesystem($work, $tree, $request->mediaDerivatives);
+                });
+            }
             $this->fieldMaterializer->begin_authored_transaction();
             DeleteGuardEvaluator::assert_transaction_isolation(
                 'authored transaction storage-engine boundary'

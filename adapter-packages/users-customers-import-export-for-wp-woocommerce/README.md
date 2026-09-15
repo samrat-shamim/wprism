@@ -101,12 +101,29 @@ Complete template qualification remains pending. Generated CSVs/logs, users and
 customers are operational data. The native importer warns when `user_pass` is
 omitted from mappings; the mapped-password control does not qualify that case.
 Remote-adapter extensions and broader import-job behavior remain unqualified.
-Successful signed template-deletion promotion, native post-write recovery,
-remaining lifecycle boundaries and plugin combinations remain open. The production-readiness record remains
-unready: clean-target and identity/references are covered, derived-state repair is structurally
-inapplicable to the declared surface, and nine families retain gaps. The
+Successful signed template-deletion promotion, remaining crash/recovery and
+lifecycle boundaries and plugin combinations remain open. The production-readiness record remains
+unready: clean-target, dirty-target and identity/references are covered; derived-state
+repair is structurally inapplicable to the declared surface, and eight families retain gaps. The
 [readiness scope audit](evidence/readiness-scope.md) maps these decisions to the
 manifest and native/offline evidence.
+
+The [transaction recovery lane](tests/live/regress_recovery.sh) injects failure
+at the authored and ledger commit boundaries through the shared engine switches.
+It proves native rollback, committed values with stale ledger state, ordinary
+retry and stable repeat across all eighteen database tables. Five native template
+reopens, four CSV consumers and exact recapture pass after recovery. Run it with
+a unique `CONF_PAIR`, even `CONF1_PORT`, successor `CONF2_PORT` and the exact clean
+`WPRISM_EXPECTED_SOURCE_SHA`. The [process-death variant](tests/live/regress_recovery_crash.sh)
+uses the same fixture with real SIGKILL and retained process evidence. At both
+crash points an early ordinary retry must return `promotion_lease_held` with
+fresh private evidence and preserve complete state. A bounded sixty-second
+test lease leaves time for observations; successful retry waits for natural
+expiry. The lane checks the durable `apply-session-begin` and
+`apply-ledger` phases against the complete database image. Both variants require
+native consumers after retry. Other crash boundaries, tamper refusal and signed
+deletion remain separate qualification work; these lanes do not close the whole
+recovery family.
 
 Run the capsule offline gate with
 `php tools/adapter-package-tests.php --adapter=users-customers-import-export-for-wp-woocommerce`.

@@ -1458,6 +1458,10 @@ regress-relationship-materializer:
 # materializers had to take as explicit method parameters. Deliberately a
 # wiring/shape proof only -- full behavioral coverage already exists in
 # every live conformance manifest sweep, unchanged by this extraction.
+.PHONY: regress-native-recount-selection
+regress-native-recount-selection:
+	php sandbox/tests/offline/apply/regress_native_recount_selection.php
+
 regress-attachment-materializer:
 	php sandbox/tests/offline/apply/regress_attachment_materializer.php
 
@@ -1802,6 +1806,10 @@ regress-private-tree-evidence:
 .PHONY: regress-private-file-bytes
 regress-private-file-bytes:
 	php sandbox/tests/offline/guards/regress_private_file_bytes.php
+
+.PHONY: regress-container-process-evidence
+regress-container-process-evidence:
+	php sandbox/tests/offline/guards/regress_container_process_evidence.php
 
 .PHONY: regress-sql-dump-evidence
 regress-sql-dump-evidence:
@@ -3262,3 +3270,7 @@ regress-bound-helper:
 
 regress-wprism-init:
 	bash sandbox/tests/live/regress_wprism_init.sh
+
+.PHONY: regress-storage-prerequisites
+regress-storage-prerequisites:
+	php sandbox/tests/offline/grammar/regress_storage_prerequisites.php

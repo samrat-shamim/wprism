@@ -1,0 +1,58 @@
+{
+  "format": "wprism-adapter-production-readiness-record/v1",
+  "adapter": "loginizer",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/loginizer/package/manifest.json",
+      "adapter-packages/loginizer/evidence/artifacts.lock.json",
+      "adapter-packages/loginizer/tests/certify/version-matrix.sh"
+    ],
+    "clean-target": [
+      "adapter-packages/loginizer/tests/conformance/entry.json",
+      "adapter-packages/loginizer/tests/conformance/seed.sh",
+      "adapter-packages/loginizer/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/loginizer/tests/conformance/postdeploy.sh",
+      "adapter-packages/loginizer/tests/conformance/check.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/loginizer/tests/conformance/seed.sh",
+      "adapter-packages/loginizer/tests/conformance/check.sh",
+      "adapter-packages/loginizer/tests/certify/version-matrix.sh"
+    ],
+    "deletion": [
+      "adapter-packages/loginizer/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"
+    ],
+    "failure-recovery": [
+      "adapter-packages/loginizer/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_fatal_mutations.php",
+      "sandbox/tests/offline/apply/regress_options_materializer.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/loginizer/tests/conformance/check.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"
+    ],
+    "lifecycle": [
+      "adapter-packages/loginizer/tests/conformance/check.sh",
+      "adapter-packages/loginizer/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/loginizer/tests/conformance/seed.sh",
+      "adapter-packages/loginizer/tests/conformance/postdeploy.sh",
+      "adapter-packages/loginizer/tests/conformance/check.sh"
+    ],
+    "scope-platform": [
+      "adapter-packages/loginizer/tests/conformance/check.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {
+    "identity-references": "The adapter declares no ref, no id_kind and no local identity reference of any kind: every authored member is a scalar setting, an operator email address, a word-enum checkbox, a role-slug list or an IP-range map whose record keys are list positions (manifest notes, measured against brute-force.php:75-134). The one URL-bearing leaf, loginizer_login_mail.body, is carried by the engine's home-URL token codec as an environment binding — {{home}} on capture, the target's own home URL on apply — which is the data-boundary evidence's exercise, not an entity identity.",
+    "derived-state": "The capsule owns no derived state to repair: it declares no actions and no providers, and the plugin's failed-attempt store is outside the authored surface by reviewed classification — tables.loginizer_logs is declared runtime, never captured and never applied. check.sh proves that boundary end to end (the table exists with zero rows after every apply and the byte-identical recaptures, and is re-created empty by exact reinstall activation), which is the boundary that replaces derived-state repair for this adapter."
+  }
+}

@@ -44,6 +44,11 @@ wprism_check_same(
     'the capsule owns the certified artifact and its refusal control'
 );
 wprism_check_same('refusal-fixture', $artifacts['plugins']['disable-comments']['2.8.0']['role'], 'the adjacent release is a refusal fixture');
+wprism_check_same(
+    'c2285f8e429420cc74311ea4ce2735843d1793e8a1f7ab28de2bba41f27febe1',
+    $artifacts['plugins']['disable-comments']['2.8.0']['sha256'],
+    'the refusal fixture carries the measured SHA-256'
+);
 wprism_check_same('certified-boundary', $artifacts['plugins']['disable-comments']['2.9.0']['role'], 'the admitted release is the certified boundary');
 wprism_check_same(
     'https://downloads.wordpress.org/plugin/disable-comments.2.8.0.zip',

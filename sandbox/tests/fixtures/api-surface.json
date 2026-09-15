@@ -1,5 +1,5 @@
 {
-    "class_count": 527,
+    "class_count": 529,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -24129,6 +24129,7 @@
                         "disable-comments",
                         "download-manager",
                         "elementor",
+                        "loginizer",
                         "map-block-gutenberg",
                         "ninja-forms",
                         "paid-memberships-pro",
@@ -30037,6 +30038,14 @@
                             "name": "purpose",
                             "type": "string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "self::MAX_OPTION_VALUE_BYTES",
+                            "has_default": true,
+                            "name": "maxValueBytes",
+                            "type": "int",
+                            "variadic": false
                         }
                     ],
                     "return_type": "?array",
@@ -33146,6 +33155,14 @@
                             "name": "deletions",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "retryingIncompleteApply",
+                            "type": "bool",
+                            "variadic": false
                         }
                     ],
                     "return_type": "bool",
@@ -33192,7 +33209,7 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
-                            "name": "suppressExternalEffects",
+                            "name": "retryingIncompleteApply",
                             "type": "bool",
                             "variadic": false
                         }
@@ -67524,14 +67541,6 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
-                            "name": "suppressScopedExternalEffects",
-                            "type": "bool",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
                             "name": "scopedSession",
                             "type": "?WPrism\\ScopedApplySession",
                             "variadic": false
@@ -67607,12 +67616,6 @@
                     "visibility": "public"
                 },
                 "skipScopedCore": {
-                    "readonly": true,
-                    "static": false,
-                    "type": "bool",
-                    "visibility": "public"
-                },
-                "suppressScopedExternalEffects": {
                     "readonly": true,
                     "static": false,
                     "type": "bool",
@@ -78623,6 +78626,7 @@
                         "disable-comments",
                         "download-manager",
                         "elementor",
+                        "loginizer",
                         "map-block-gutenberg",
                         "ninja-forms",
                         "paid-memberships-pro",
@@ -81641,6 +81645,113 @@
                             "has_default": false,
                             "name": "visit",
                             "type": "callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\StoragePrerequisiteGrammar": {
+            "abstract": false,
+            "constants": {
+                "FEATURE": {
+                    "value_repr": "storage-prerequisites/v1"
+                },
+                "SECTION": {
+                    "value_repr": "storage_prerequisites"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "project": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "section_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\StoragePrerequisites": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_ready": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "lock": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
                             "variadic": false
                         }
                     ],

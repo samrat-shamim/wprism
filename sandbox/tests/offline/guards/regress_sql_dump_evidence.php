@@ -148,6 +148,28 @@ foreach ([
     wprism_check_same($original, hash('sha256', $native), 'projection never changes complete native bytes');
 }
 wprism_check_same([], SqlDumpEvidence::projectColumns($projectDump(''), 'fixture', ['id']), 'complete empty table projects an empty row roster');
+
+$completeDump = $projectDump($insert("7,'complete',NULL"));
+wprism_check_same([['id' => 7, 'payload' => 'complete', 'unused' => null]],
+    SqlDumpEvidence::fullRows($completeDump, 'fixture', ['id', 'payload', 'unused']),
+    'complete-row witness preserves every scalar column');
+wprism_check_same([['unused' => null, 'id' => 7, 'payload' => 'complete']],
+    SqlDumpEvidence::fullRows($completeDump, 'fixture', ['unused', 'id', 'payload']),
+    'complete-row witness binds column names while retaining caller order');
+wprism_check_same([], SqlDumpEvidence::fullRows($projectDump(''), 'fixture', ['id', 'payload', 'unused']),
+    'complete-row witness admits a separately inventoried empty table');
+wprism_check_same([['id' => 7]], SqlDumpEvidence::projectColumns($completeDump, 'fixture', ['id']),
+    'selected projection deliberately cannot prove complete-row preservation');
+foreach ([['id'], ['id', 'payload'], ['id', 'payload', 'wrong'], ['id', 'payload', 'unused', 'extra']] as $columns) {
+    wprism_check_throws(static fn() => SqlDumpEvidence::fullRows($completeDump, 'fixture', $columns), RuntimeException::class,
+        'complete-row witness refuses an incomplete or mismatched independent column roster');
+}
+$laterExtra = $projectDump($insert("7,'complete',NULL") . $insert("8,'later',NULL,'hidden'", '`id`, `payload`, `unused`, `extra`'));
+wprism_check_throws(static fn() => SqlDumpEvidence::fullRows($laterExtra, 'fixture', ['id', 'payload', 'unused']), RuntimeException::class,
+    'every row must obey complete column authority, including later rows');
+wprism_check_throws(static fn() => SqlDumpEvidence::fullRows($projectDump($insert("7,'complete',1.25")), 'fixture', ['id', 'payload', 'unused']), RuntimeException::class,
+    'complete-row mode does not coerce unsupported numeric literals');
+
 wprism_check_same([['id' => 7, 'payload' => 'reordered']],
     SqlDumpEvidence::projectColumns($projectDump($insert("'reordered',NULL,7", '`payload`, `unused`, `id`')), 'fixture', ['id', 'payload']),
     'column names bind values even when the complete native insert order changes');
@@ -161,6 +183,28 @@ foreach (['1.5', '1e3', '9223372036854775808', '-9223372036854775809'] as $value
     wprism_check_throws(static fn() => SqlDumpEvidence::projectColumns($projectDump($insert("7,$value,NULL")), 'fixture', ['payload']),
         RuntimeException::class, 'selected numeric identity must be an exact bounded integer');
 }
+// Whole Woo HPOS rows include decimal totals and can include unsigned BIGINTs.
+// The comparison mode retains lexemes; the identity projection above still refuses.
+foreach (['20.00', '-0.0001', '1.234567890123456789012345678901', '1e+30', '18446744073709551615'] as $number) {
+    wprism_check_same([['id' => '7', 'payload' => $number, 'unused' => 'NULL']],
+        SqlDumpEvidence::fullLiteralRows($projectDump($insert("7,$number,NULL")), 'fixture', ['id', 'payload', 'unused']),
+        'literal preservation retains exact decimal/exponent/unsigned numeric bytes');
+}
+wprism_check_same([['id' => '7', 'payload' => "'20.00'", 'unused' => '0x00FF']],
+    SqlDumpEvidence::fullLiteralRows($projectDump($insert("7,'20.00',0x00FF")), 'fixture', ['id', 'payload', 'unused']),
+    'literal evidence distinguishes quoted numeric text and preserves binary framing');
+wprism_check_same([], SqlDumpEvidence::fullLiteralRows($projectDump(''), 'fixture', ['id', 'payload', 'unused']),
+    'literal mode retains the independent empty-table witness');
+foreach ([['id'], ['id', 'payload', 'wrong'], ['id', 'payload', 'unused', 'extra']] as $columns) {
+    wprism_check_throws(static fn() => SqlDumpEvidence::fullLiteralRows($completeDump, 'fixture', $columns), RuntimeException::class,
+        'literal mode cannot omit or invent an independently inventoried column');
+}
+foreach (["7,20.00,NULL),(8,99.00,NULL", "7,20.00,NULL); DROP TABLE fixture; --", "7,20.00,NOW()",
+    "7,20.00,NULLx", "7,20.00,01", "7,20.00,0x0", "7,20.00,'bad\\q'", "7,20.00,1e+"] as $values) {
+    wprism_check_throws(static fn() => SqlDumpEvidence::fullLiteralRows($projectDump($insert($values)), 'fixture', ['id', 'payload', 'unused']),
+        RuntimeException::class, 'literal mode validates every token and tuple boundary without executing SQL');
+}
+
 $oneRow = $insert("7,'present',NULL");
 foreach ([strtolower($oneRow), ' ' . $oneRow, str_replace('INSERT INTO', 'REPLACE INTO', $oneRow),
     str_replace('INSERT INTO', 'INSERT IGNORE INTO', $oneRow), str_replace('`fixture`', 'fixture', $oneRow),

@@ -4,7 +4,7 @@ The [readiness contract](../../../docs/agents/adapter-production-readiness.md)
 qualifies each scenario family against the adapter's declared surface. The
 current surface is nine settings and exact `user/import` and `user/export`
 mapping-template rows at the locked 2.7.5 artifact. This audit closes the
-clean-target and reference families and identifies why derived-state repair does not apply to
+clean-target, dirty-target and reference families and identifies why derived-state repair does not apply to
 that surface. It does not qualify the remaining families or promote the adapter.
 
 ## Identity and references
@@ -43,8 +43,85 @@ complete surrounding database and files, and exposes all nine settings. Native
 reopen, export and import consume the target values. A source rename and header
 edit reach the existing target row, repeated Apply leaves the full native
 observation unchanged, and source/target canonical recapture is byte-identical.
-The lane covers this family for the declared surface; signed deletion, conflicts,
+The lane covers this family for the declared surface; signed deletion,
 recovery and combinations retain their separate gaps.
+
+## Dirty target
+
+The [dirty-target lane](../tests/live/regress_dirty_target.sh) uses the exact
+2.7.5 artifact and [explicit shared-runner hooks](../fixtures/dirty-target-entry.json).
+Native Save first gives both original templates historical names. Capture enrolls
+their identities; another native Save restores their current names and recapture
+retains all five UUID/local-ID mappings. The [oracle](../fixtures/dirty-target-evidence.php)
+proves both originals now differ from fresh current-key UUIDs. Independently
+created, unmapped target rows therefore exercise genuine collisions.
+
+Plan and unapproved Apply refuse with exact public/private causes, preserving
+the complete database, canonical tree, policy and eleven-table/file census.
+Explicit adoption retains the existing target template IDs; the standard
+[post-Apply oracle](../fixtures/roundtrip-evidence.php) checks all surrounding
+rows, activation defaults, local settings and operational files. Native target
+edits then produce drift, and independent source edits produce three-way
+conflicts. Both refuse without mutation; explicit resolution changes only the
+three authored values, retains target IDs and inputs, and repeated Apply is
+stable. All five templates reopen, actual CSV consumers use target-local data,
+and recapture matches the source exactly.
+
+The native settings controller replaces its entire option, including removal of
+unrecognized members. The evidence treats that user-initiated Save separately
+from WPrism's nine-key Apply projection, which preserves target-local members.
+[Negative controls](../tests/offline/regress_dirty_target_evidence.php) reject
+lost local values, incomplete raw observations, unintended Plan diagnostics,
+identity rebinding and incomplete refusal preservation. Source observations use
+the shared owned cron window while retaining every cron row in comparisons.
+Signed deletion, failure/recovery and concurrency remain separate open families.
+
+## Transaction failure and retry
+
+The [recovery lane](../tests/live/regress_recovery.sh) uses the exact 2.7.5
+artifact and existing shared database fault switches. Native source Save and
+Capture change the settings option plus the original import/export templates.
+Read-only Plan binds those three updates and preserves the complete database.
+Failure at the authored commit rolls back all native changes. A second attempt
+fails at ledger commit: the three native values persist while baseline hashes
+and the applied revision remain stale. Ordinary retry settles them and removes
+the marker; repeated Apply preserves the settled result.
+
+The [oracle](../fixtures/recovery-evidence.php) compares complete rows, independent
+column inventories and opaque schemas for all eighteen tables, canonical files,
+policy and the native file/row census. Only exact fresh promotion sessions and
+the phase-specific marker/ledger transitions are allowed. An incomplete retry
+replays unchanged entities, so its next marker contains the complete baseline
+roster, even though only three values differ. The [offline controls](../tests/offline/regress_recovery_evidence.php)
+check this against the product planner and reject stale narrower markers,
+changed surrounding state, malformed revisions and incomplete observations.
+Both failures require their exact public refusal and fresh private injected cause.
+
+Five native template reopens, four CSV consumers and exact canonical recapture
+pass after retry. The [process-death variant](../tests/live/regress_recovery_crash.sh)
+reuses this full fixture at the same two commit boundaries with actual SIGKILL.
+The shared subprocess control requires kernel signal 9 and absent PHP cleanup;
+the retained container record binds the exact invocation, real init, requested
+fault environment and non-OOM termination. The fixture captures and removes
+the stopped container before diagnostic collection, whose fresh record set must
+remain empty. It permits only the crashed owner's exact durable lease alongside
+the existing phase changes: `apply-session-begin` after authored rollback,
+`apply-ledger` after ledger rollback. The product finalizer renews that latter
+phase before opening its transaction, so it survives the interruption.
+
+At each crash boundary, an early ordinary Apply must return the exact classified
+`promotion_lease_held` envelope and fresh private cause naming the captured owner,
+phase and expiry. The entire database, canonical tree and native state must
+remain identical, including the crashed session and interrupted write set.
+The observed lease must remain live throughout that refused invocation. The
+sixty-second test TTL provides headroom for complete observations.
+Successful retries wait for the observed lease to expire naturally; they never
+clear the lease or modify timestamps. Successful
+retry and repeat must release their leases and retain complete surrounding state.
+Native reopens, CSV consumers and exact recapture are required again afterward.
+Other interruption points, tamper and active-writer contention remain
+unqualified. Signed deletion and the remaining recovery cases retain gaps;
+overall readiness and shipped package identity are unchanged.
 
 ## Derived state
 
@@ -65,9 +142,8 @@ listener as an adapter repair would destroy target-local operational state.
 The required derived-state repair family is therefore structurally
 `not_applicable` for the declared surface, rather than an unimplemented action.
 
-Nine families remain gaps in [the readiness record](production-readiness.json).
+Eight families remain gaps in [the readiness record](production-readiness.json).
 The existing positive and refusal evidence stays useful, but it does not establish
-complete dirty-target qualification, every dependency/lifecycle/platform
-boundary, the omitted-password native case, signed deletion and recovery,
+every dependency/lifecycle/platform boundary, the omitted-password native case, signed deletion and remaining recovery cases,
 concurrency, or all difficult-value/data boundaries. Those require their own
 concrete evidence before promotion.

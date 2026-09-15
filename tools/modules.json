@@ -90,6 +90,8 @@
     "DatabaseWorkAuthority",
     "DatabaseTransactionOutcomeException",
     "ExactOptionReader",
+    "StoragePrerequisiteGrammar",
+    "StoragePrerequisites",
     "NativeOptionInputs",
     "NativeCoreCache",
     "NativePostTypes",
@@ -176,7 +178,7 @@
             ]
           }
         ],
-        "file_count": 96,
+        "file_count": 98,
         "files": [
           "BlockMediaDerivativeGrammar.php",
           "MediaDerivativeRecipe.php",
@@ -210,6 +212,8 @@
     "Db.php",
     "DurableFilesystem.php",
     "ExactOptionReader.php",
+    "StoragePrerequisiteGrammar.php",
+    "StoragePrerequisites.php",
     "ExactOptionWriter.php",
     "ExecutableTreeIdentity.php",
     "FilesystemTreeSnapshot.php",

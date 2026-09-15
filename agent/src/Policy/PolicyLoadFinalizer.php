@@ -6,6 +6,7 @@ namespace WPrism;
 // SitePolicyValidator: direct finalizer users close the loader graph, while
 // Policy's own require is already marked before this file is evaluated.
 require_once __DIR__ . '/Policy.php';
+require_once __DIR__ . '/../Kernel/StoragePrerequisiteGrammar.php';
 require_once __DIR__ . '/CrossManifestGuards.php';
 require_once __DIR__ . '/../Grammar/OptionReferenceGrammar.php';
 require_once __DIR__ . '/../Adapter/AdapterContractGrammar.php';
@@ -53,6 +54,12 @@ final class PolicyLoadFinalizer {
         AdapterClaimResolutions::assert_binds($policy->manifests, $policy->site['policy'] ?? [], 'site.wprism.json');
         AdapterContractGrammar::validate_no_conflicting_adapter_claims($policy->manifests, $claimResolutions);
         AdapterContractGrammar::validate_no_incompatible_plugins($policy->manifests);
+        foreach (StoragePrerequisiteGrammar::project($policy->manifests) as $prerequisite) {
+            $rule = $policy->option_rule($prerequisite['option']);
+            if (($rule['class'] ?? null) !== 'runtime' || array_key_exists('sub_keys', $rule)) {
+                throw new \RuntimeException('wprism: storage prerequisite must remain wholly runtime in the effective policy');
+            }
+        }
         BlockValueGrammar::project($policy->manifests);
         BlockContentGrammar::project($policy->manifests, $policy->site['policy'] ?? []);
         BlockMediaDerivativeGrammar::project($policy->manifests);

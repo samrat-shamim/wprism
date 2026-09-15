@@ -299,6 +299,24 @@ teach the scalar provisioning command to replace a structured object. If a
 genuinely operator-required structured value has no safe provisioning path,
 that is a product-boundary gap to design and test before claiming support.
 
+### Deferred native migrations
+
+Trace migrations beyond activation: an admin or frontend request may run an
+upgrade that WP-CLI activation never reaches. A runtime migration cursor is
+not authored intent, but it can be a prerequisite for safely interpreting and
+replaying authored state. Declare `storage-prerequisites/v1` and a
+`storage_prerequisites` list of exact runtime option/string pairs when the
+native storage contract requires them. The engine reads durable rows, refuses
+unmet prerequisites before authored work, and never writes the cursor.
+
+This admission feature does not execute migrations or certify storage history.
+Automatic migration completion belongs in a separately audited, checkpointed
+lifecycle settlement provider. Qualify missing/stale cursor refusal, the
+supported native migration procedure, current authored settings, and consumers
+after replay. Recapture before the first HTTP/editor request cannot prove that
+later native migrations preserve the replayed state. Do not preseed a current
+cursor to make a fixture pass or classify the affected authored value as runtime.
+
 ### Finding the two versions the range names
 
 The refusal above is permanent, so the cost it creates recurs forever: somebody
@@ -2540,6 +2558,12 @@ plugin faithfully.
    `conformance_private_command` (`sandbox/tests/lib/conformance_private_command.sh`):
    its native reader runs outside WordPress as the site's CLI uid, and its
    host decoder retains complete records in a private, non-disposable sink.
+   A capsule hook runs in a fresh Bash child: the driver exports scalar
+   `COMPOSE`, but Bash cannot export `PAIR_COMPOSE` arrays. Before calling this
+   collector from a hook, restore its required caller context with
+   `read -r -a PAIR_COMPOSE <<<"${COMPOSE:?exact conformance transport required}"`.
+   This preserves the driver's pair and all selected overlays, including offline
+   artifacts; do not use `eval` or reconstruct a partial Compose command.
    This closes the `ee27e3b9` Polylang run's lost-cause gap: successful source
    Capture and target deploy did not explain the later redacted Apply refusal.
    The receipt-intent boundary also retains the original missing/ID/phase/record
@@ -3322,10 +3346,18 @@ an old pointer because both filenames become the same dependency marker.
 
 For a natural key, uniqueness is a **source and hostile-target invariant**, not
 one source-side probe result. Populate the candidate key, probe it, then create
-an independently managed target row with the same key. Plan must either offer
-one explicit table adoption or refuse multiple matching local rows; capture,
-plan and apply all reject two live rows with the same full canonical identity
-tuple. Do this even when the table has a primary key: the primary key is local
+an independent target row with the same key. A fresh target derives the same
+UUID; this exercises first binding, including equal-content rows, rather than
+an identity collision. To prove explicit adoption, capture the source under an
+old key, rename it through the native API, and recapture. Assert the source ID
+and durable UUID remain unchanged while the current key would derive another
+UUID. Then create that current key on an unmapped target: Plan must report the
+collision without persisting its derived identity, unapproved Apply must refuse,
+and explicit table adoption must retain the target ID and reach convergence.
+Never clear or rebind a durable map to manufacture this premise. Also create
+multiple matching local rows and prove refusal; capture, plan and apply reject
+two rows with the same full canonical identity tuple. Do this even when the
+table has a primary key: the primary key is local
 storage identity, not portable identity. An identity column also cannot carry a
 column codec — rewriting it during capture/materialization would make portable
 UUID derivation and target lookup disagree.
@@ -3849,6 +3881,39 @@ library.
    bodies into a plugin-specific value walker. Decode serialized plain values
    with the engine's `PlainData` codec, never an executable unserializer.
 
+   A complete-row recovery comparison requires `SqlDumpEvidence::fullRows()`
+   with an independently observed `SHOW FULL COLUMNS` roster; a selected
+   projection cannot prove that omitted fields survived. For tables containing
+   DECIMAL totals, floating-point literals or unsigned integers beyond PHP's
+   range, use `SqlDumpEvidence::fullLiteralRows()` with that same complete
+   roster. It validates every scalar and retains its original SQL literal:
+   numeric `20.00`, quoted text `'20.00'`, `NULL` and binary hex remain distinct.
+   Compare these literals as evidence; never cast them to floats, execute them,
+   or use them as decoded identities. The stricter `fullRows()` and selected
+   identity projection keep their existing integer bounds. Retain and compare
+   the opaque schema sections too. Predict the exact allowed retry-marker and
+   promotion-session transitions instead of excluding their tables. An authored
+   commit failure must preserve native data; a later ledger-finalization failure
+   may leave committed data with a stale baseline. Prove both states separately,
+   then require retry to settle the baseline and repeat to leave it settled.
+   Derive each marker from that attempt's planned work: an incomplete retry can
+   replay unchanged entities and record a larger write set than the first attempt.
+   A thrown exception does not prove process-death recovery. The shared database
+   seam supports `WPRISM_TEST_DB_FAULT_MODE=kill` with `WPRISM_TEST_MODE=1` and
+   an exact `WPRISM_TEST_FAIL_DB_CONTEXT`; the default remains `throw`. Kill mode
+   requires real POSIX `SIGKILL`, so PHP cleanup cannot run. The shared pair's
+   CLI services use Docker `init: true`: Linux namespace PID 1 otherwise ignores
+   self-SIGKILL. Inspect the stopped container with `ContainerProcessEvidence`
+   to bind its init, exact command, environment and invocation window and exclude
+   OOM/runtime failure, then remove it before diagnostic readers run; retained
+   stopped oneoffs trigger Compose orphan warnings. Preserve the durable lease
+   left by the crash. An early retry must refuse with its exact public/private
+   cause and preserve the entire database, canonical tree and native state,
+   including the crashed session and marker. Prove the captured lease remains
+   live throughout that invocation; give the bounded test TTL enough headroom
+   for complete observations. Wait for verified natural expiry before a
+   successful retry; never delete the lease or change timestamps to proceed.
+
    Complete uninstall and isolated missing-widget history are different
    premises. Full Plan/Apply checks retained canonical maps before dead-map
    pruning; missing backing data must reach `canonical_identity_recovery_required`,
@@ -4126,18 +4191,15 @@ adapter '<name>' certification was exercised against '<axis>' cell '<cell>',
 which the agent-owned platform boundary no longer carries`. Re-sign with
 `wprism adapter certify … --pin`, which mints the current wire generation.
 
-**Be exact about what a site certificate attests.** It says two things, and the
-bundle records that rather than leaving it to be assumed: *this organization's
-key approves these exact adapter bytes*, and *the engine's own validators
-accept the manifest's grammar*. It does not attest that the adapter was
-exercised against a live site, that its deletion semantics were reviewed, or
-that WPrism endorses it. That is why the bundle carries a single named test,
-`manifest-grammar`, whose result records `exercised: false` beside the grammar
-verdict and your stated reason — `evidence.tests: ["something"]` is otherwise
-indistinguishable downstream from a reviewed conformance run, and
-`exercised: false` exists to stop exactly that collapse. `wprism adapter list`
-reads `site_signed`; the projection reads `Site-certified`, never
-`Platform-certified`. The full mechanics are in
+**Be exact about what a site certificate attests.** Without an exercised bundle,
+`certify` signs approval of the exact adapter bytes and the real loader's grammar
+verdict. Its bundle records `exercised: false` with empty tests and artifacts;
+the resulting claim is **experimental**, and certification-only gates remain
+blocked. Neither `--pin` nor an authored `--ratification-file` upgrades approval
+into evidence. To obtain a Site-certified claim, supply `--bundle=<directory>`
+and `--evidence-repo=<reviewed-checkout>` with named passing tests, artifacts and
+bound inputs. That is site-rooted exercised evidence, not WPrism endorsement.
+The full mechanics are in
 [Site-installed adapters and external certification](#site-installed-adapters-and-external-certification)
 below.
 
@@ -4518,8 +4580,8 @@ A reviewer's bundle states a passing exercise. An operator certifying their own
 adapter usually cannot produce one, so the bundle declares what it proves:
 `evidence` is `{"exercised": <bool>, "grammar": "ok", "reason": "<text>"}`.
 `exercised: false` requires empty `tests` and `artifacts`, is accepted **only**
-under a site trust root, and rides onto the resulting claim — so `certified`
-never reads as "somebody ran it". `exercised: true` is the reviewer's shape and
+under a site trust root, and yields an experimental approval-only claim. A
+Site-certified claim requires verified exercised evidence. `exercised: true` is the reviewer's shape and
 the only one an agent-owned key may sign; `sign-site` refuses an agent-owned
 key by name.
 
@@ -4581,8 +4643,8 @@ in. Narrow a claim with an `unsupported[]` row and its reason, which a reader ca
 weigh — never by leaving a surface out, which no reader can see.
 
 What does not change: the bundle still records `exercised: false`, `tests` is
-still empty, and the claim still reads `Site-certified`. An authored entry is a
-stronger *argument*, never evidence of a run. And because `wprism adapter recertify`
+still empty, and the claim remains experimental with certification-only gates
+blocked. An authored entry is a stronger *argument*, never evidence of a run. And because `wprism adapter recertify`
 DERIVES, it reports an authored certificate as a `blocked` row rather than
 replacing your claim with the floor — re-sign that one with
 `wprism adapter certify … --ratification-file=<your file>`, so keep the file beside

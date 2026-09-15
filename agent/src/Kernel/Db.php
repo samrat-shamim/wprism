@@ -58,6 +58,22 @@ final class Db {
         $targets = array_map('trim', explode(',', (string) getenv('WPRISM_TEST_FAIL_DB_CONTEXT')));
         if (getenv('WPRISM_TEST_MODE') === '1'
             && in_array($context, $targets, true)) {
+            $mode = (string) (getenv('WPRISM_TEST_DB_FAULT_MODE') ?: 'throw');
+            if ($mode === 'kill') {
+                // Transaction crash evidence must bypass catch/finally and shutdown handlers;
+                // exit(137) would execute cleanup and falsely qualify that boundary.
+                if (!function_exists('posix_kill')) {
+                    throw new \RuntimeException('wprism: database SIGKILL fault injection requires posix_kill');
+                }
+                $pid = getmypid();
+                if (!is_int($pid) || $pid <= 0 || !posix_kill($pid, 9)) {
+                    throw new \RuntimeException('wprism: database SIGKILL fault injection failed');
+                }
+                throw new \RuntimeException('wprism: database SIGKILL fault injection did not terminate the process');
+            }
+            if ($mode !== 'throw') {
+                throw new \RuntimeException('wprism: unknown database test fault mode');
+            }
             throw new DatabaseMutationException($context . ' (injected)');
         }
     }

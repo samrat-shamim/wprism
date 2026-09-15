@@ -1591,8 +1591,9 @@ check(
         'declaration_evidence' => 'non_surface',
         'engine_features' => 'non_surface',
         'incompatible_plugins' => 'non_surface',
+        'storage_prerequisites' => 'non_surface',
     ],
-    'every feature-claimed key is published with its reviewed arm: typed refinements as `field`, and feature claims, evidence, and incompatibility declarations as `non_surface`'
+    'every feature-claimed key is published with its reviewed arm: typed refinements as `field`, and feature claims, evidence, incompatibility declarations, and storage prerequisites as `non_surface`'
 );
 check(
     array_keys($emittedArms) === array_values(array_diff(array_keys($emittedArms), $mergedPartition)),

@@ -35,17 +35,15 @@ use WPrism\Canon;
 use WPrism\ManifestDispositions;
 use WPrism\Policy;
 
-// PR #614 changed TEC's reviewed 6.17.4 boundary; PR #615 changed CF7's message
-// PII declaration and interpreter. Re-pin only those two capsule addresses and
-// their containing worlds. TEC's disposition also moves the cohort registry,
-// so every registry-addressed snapshot changes. Polylang was already re-pinned
-// by PR #613; its digest, all other capsule addresses and every pin order stay.
-const BASELINE_FIXTURE_SHA256 = 'ee33e3cdb8db606dcae93f020576f11c9193c383fdc5102aa55fe4adaa6399c0';
-const RANK_WORLD_MANIFEST_HASH = 'e49b603763d5530c7f4593d072ee34d8ab8163456b3058972e655f365292b2cf';
-const YOAST_WORLD_MANIFEST_HASH = 'b760b00a09dfe0d85d658a8564cbde0a9fbdd1e1884fdcfcc0cb5a948a78788f';
-const REGISTRY_SHA256 = '6448cabb56ddb12ffc0a4beb3ecd2bb0d15e33807eed91c4b465dcea1478cb4a';
-const RANK_WORLD_SNAPSHOT_SHA256 = '6ca6c7af2392377e4056c4ca7812f864a85b4e54692695b1f446c5491a676bb6';
-const YOAST_WORLD_SNAPSHOT_SHA256 = 'b455d077f0ddf0251b1c3231845998d5ba1993888bd6f88123ca698aa0296f53';
+// The native pa_* hierarchy fact moves only Woo's manifest and adapter digest.
+// Its three containing pin sets move with it; the disposition registry, pin
+// order, neighbouring adapters and all unrelated snapshots stay byte-identical.
+const BASELINE_FIXTURE_SHA256 = '8a08f90dafdced2a2b381b44d56d0bc62b732837ad5cd48e480459b45cb456ec';
+const RANK_WORLD_MANIFEST_HASH = 'dcd81ea6184670f6b2c9e89f7a262d16b7540da312ce2a389cd70ec13e142d43';
+const YOAST_WORLD_MANIFEST_HASH = 'cf99174a69ab377c55438f9d0b3753f32c70338ebe09b44eacba0df5e448c0d8';
+const REGISTRY_SHA256 = 'ab45dd77fb0e1c80d36121bd45fdf7da559467d3ec961f837eef5c04923485c7';
+const RANK_WORLD_SNAPSHOT_SHA256 = '5e5711da82585882b8f9f14976144bd6715dbd85dea0a8adb0ed366feb2b5dc5';
+const YOAST_WORLD_SNAPSHOT_SHA256 = 'acb63ab75ba74c2cd5cd4fd2313fad1f828002ecdf6559ffc0fd3bd6058d7beb';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';

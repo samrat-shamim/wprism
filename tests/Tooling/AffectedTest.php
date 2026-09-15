@@ -937,6 +937,8 @@ final class AffectedTest extends TestCase
         ] as $path) {
             self::assertSame([
                 'adapter-package:woocommerce',
+                'integration-scenario:importer-woocommerce-customers:offline:regress_importer_woocommerce_apply_evidence.php',
+                'integration-scenario:importer-woocommerce-customers:offline:regress_importer_woocommerce_customers.php',
                 'integration-scenario:rank-math-commerce-multilingual:offline:regress_canonical_recapture_evidence.php',
                 'integration-scenario:rank-math-commerce-multilingual:offline:regress_deletion_boundary.php',
                 'integration-scenario:rank-math-commerce-multilingual:offline:regress_pair_lane_isolation.php',

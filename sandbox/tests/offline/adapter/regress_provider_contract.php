@@ -3266,7 +3266,6 @@ $driveRebuild = static function (
                 scoped: false,
                 skipScopedCore: false,
                 scopedCoreComplete: null,
-                suppressScopedExternalEffects: false,
                 scopedSession: null,
                 scopedObservation: null
             ),
@@ -3395,7 +3394,6 @@ $expectedRebuildRequest = <<<'PHP'
                 scopedCoreComplete: $scopedCoreComplete === null
                     ? null
                     : \Closure::fromCallable($scopedCoreComplete),
-                suppressScopedExternalEffects: $scopedPromotion,
                 scopedSession: $this->scopedWorkflow->session,
                 scopedObservation: $this->scopedWorkflow->observation
         );

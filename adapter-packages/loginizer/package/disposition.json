@@ -1,0 +1,78 @@
+{
+  "capabilities": {
+    "deletion_semantics": {
+      "supported": [],
+      "unsupported": [
+        "plugin-specific entity deletion"
+      ]
+    },
+    "entity_sections": [],
+    "field_sections": [
+      "options"
+    ],
+    "lifecycle_phases": [
+      "retire",
+      "activate",
+      "verify"
+    ],
+    "operations": [
+      "capture",
+      "compile",
+      "plan",
+      "deploy",
+      "apply",
+      "recapture",
+      "render-api"
+    ]
+  },
+  "default_authored_keyspaces": [],
+  "evidence": {
+    "bundle_schema": "wprism-subject-certification-bundle/v1",
+    "tests": [
+      "conformance-loginizer",
+      "exact-artifact-version-matrix",
+      "regress-package-contract"
+    ]
+  },
+  "reason": "Certified for exact Loginizer 2.1.0 on single-site WordPress. The brute-force settings, IP whitelist/blacklist maps, login-notification template and disable toggle are declared authored with closed sub-key sets the plugin's own writer produces; version/reset/message markers and the loginizer_logs failed-attempt table are declared runtime and excluded. Evidence exercises native authoring through the plugin's own admin-page save handlers, hostile-target convergence across every owned family through the plugin's boot globals and whitelist/blacklist access decisions, the home-URL template binding, deactivate/reactivate and uninstall-residue recovery with exact reinstall, a three-way settings conflict with forced convergence and idempotent retry, unauthorized-deletion refusal with authorized row deletion, the closed-sub-key refusal of an undeclared tenth member, and refusal of the adjacent 2.0.9 artifact whose settings writer is byte-identical, so the refusal stands on the declared range alone.",
+  "status": "certified",
+  "supported_versions": {
+    "plugin": "loginizer/loginizer.php",
+    "range": {
+      "max": "2.1.1",
+      "min": "2.1.0"
+    }
+  },
+  "unsupported": [
+    {
+      "operation": "all",
+      "reason": "WPrism v1 refuses multisite before policy load, so Loginizer's network-mode branches and its site-option reads under lz_is_multisite() are outside this adapter.",
+      "surface": "multisite"
+    },
+    {
+      "operation": "capture",
+      "reason": "reCAPTCHA site/secret credentials mixed with display settings in one blob; undeclared and left invisible rather than guessed.",
+      "surface": "options.loginizer_captcha"
+    },
+    {
+      "operation": "capture",
+      "reason": "Two-factor settings, email templates and the 2FA IP bypass list are unreviewed; undeclared.",
+      "surface": "options.loginizer_2fa"
+    },
+    {
+      "operation": "capture",
+      "reason": "Passwordless login settings are unreviewed; undeclared.",
+      "surface": "options.loginizer_epl"
+    },
+    {
+      "operation": "capture",
+      "reason": "Security checksums, social login, SSO links, IP-method selection and dashboard announcement markers are unreviewed; undeclared.",
+      "surface": "options.loginizer_security_social_sso_dashboard"
+    },
+    {
+      "operation": "capture",
+      "reason": "License, softwp-upgrade, promo-timer and notice options are target-local plugin lifecycle state, unreviewed and undeclared.",
+      "surface": "options.loginizer_license_promo"
+    }
+  ]
+}

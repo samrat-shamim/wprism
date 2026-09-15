@@ -1,6 +1,7 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/StoragePrerequisiteGrammar.php';
 require_once __DIR__ . '/../Kernel/ColumnValueCases.php';
 require_once __DIR__ . '/../Kernel/FieldTemplateMap.php';
 require_once __DIR__ . '/../Kernel/InputFileBinding.php';
@@ -374,6 +375,12 @@ final class AdapterContractGrammar {
             'since' => 3,
             'keys' => [],
         ],
+        // Physical migration cursors admit authored work without becoming
+        // portable state or authorizing a native migration callback.
+        StoragePrerequisiteGrammar::FEATURE => [
+            'since' => 3,
+            'keys' => [StoragePrerequisiteGrammar::SECTION => 'non_surface'],
+        ],
         // A value-vocabulary extension inside actions[]: `phase` gains
         // schema_settle and that phase alone gains `prepares`. No top-level
         // key is claimed. ActionProviderGrammar owns the feature spelling and
@@ -653,6 +660,7 @@ final class AdapterContractGrammar {
         require_once __DIR__ . '/../Grammar/AttrIdCodecGrammar.php';
         require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
         $grammars = [
+            StoragePrerequisiteGrammar::SECTION => StoragePrerequisiteGrammar::section_grammar(),
             BlockValueGrammar::SECTION => BlockValueGrammar::section_grammar(),
             BlockContentGrammar::SECTION => BlockContentGrammar::section_grammar(),
             BlockMediaDerivativeGrammar::SECTION => BlockMediaDerivativeGrammar::section_grammar(),

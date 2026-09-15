@@ -48,7 +48,7 @@ final class ApplyRebuildCoordinator {
                     $request->work,
                     $request->tree,
                     $appliedDeletions,
-                    $request->suppressScopedExternalEffects
+                    $request->retryingIncompleteApply
                 );
                 if ($request->scoped && $request->scopedCoreComplete !== null) {
                     ($request->scopedCoreComplete)();

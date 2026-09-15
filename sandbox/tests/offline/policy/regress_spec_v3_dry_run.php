@@ -810,6 +810,7 @@ wprism_check_same(
         'agent/src/Kernel/BlockContentGrammar.php',
         'agent/src/Kernel/BlockValueGrammar.php',
         'agent/src/Kernel/ReferenceShapeGrammar.php',
+        'agent/src/Kernel/StoragePrerequisiteGrammar.php',
         'agent/src/Kernel/TableRowScope.php',
         'agent/src/Policy/ManifestGrammar.php',
         'agent/src/Policy/Policy.php',
@@ -817,8 +818,9 @@ wprism_check_same(
     ],
     $featureReaders,
     'V3-FEAT: the channel has exactly one shipped OWNER — the contract grammar, which holds the vocabulary and '
-        . 'refuses an unimplemented name — beside ten gate readers (provider contracts, body mode, derived body, column '
-        . 'framing, leaf content, block groups, value predicates, row ownership, invalidate verbs, interpreter ownership) that ask only '
+        . 'refuses an unimplemented name — beside eleven gate readers (provider contracts, body mode, derived body, column '
+        . 'framing, leaf content, block groups, value predicates, row ownership, invalidate verbs, interpreter ownership, '
+        . 'storage prerequisites) that ask only '
         . 'whether THIS document declared the feature their gated declaration needs, and one publisher that '
         . 'refuses nothing'
 );
@@ -867,6 +869,7 @@ wprism_check_same(
         'scalar-reference-intersection/v1',
         'schema-settlement/v1',
         'spec-window/v1',
+        'storage-prerequisites/v1',
         'structured-body-refs/v1',
         'structured-evidence/v1',
         'table-row-scope-sets/v1',
@@ -948,10 +951,11 @@ wprism_check_same(
         'declaration_evidence' => 'non_surface',
         'engine_features' => 'non_surface',
         'incompatible_plugins' => 'non_surface',
+        'storage_prerequisites' => 'non_surface',
     ],
     AdapterContractGrammar::feature_key_arms(),
-    'V3-ARM: the roster classifies nine keys — six value grammar sections as '
-        . '`field`, and the claim channel, evidence records, and incompatibility list as `non_surface`'
+    'V3-ARM: the roster classifies ten keys — six value grammar sections as '
+        . '`field`, and the claim channel, evidence records, incompatibility list, and storage prerequisites as `non_surface`'
 );
 $report('feature-claimed key arms: ' . json_encode(AdapterContractGrammar::feature_key_arms(), JSON_UNESCAPED_SLASHES));
 
@@ -1259,9 +1263,9 @@ foreach ($spaces as $space => $values) {
 }
 
 wprism_check_same(
-    ['acf', 'core', 'elementor', 'polylang', 'redirection', 'woocommerce', 'yoast'],
+    ['acf', 'core', 'elementor', 'loginizer', 'polylang', 'redirection', 'woocommerce', 'yoast'],
     $unprefixed['adapter name'],
-    'V3-NS: the seven unhyphenated shipped adapter names can be read as <vendor>-<name> under no reading'
+    'V3-NS: the eight unhyphenated shipped adapter names can be read as <vendor>-<name> under no reading'
 );
 wprism_check_same(
     count($idKinds),

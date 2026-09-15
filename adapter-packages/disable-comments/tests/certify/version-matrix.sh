@@ -5,6 +5,12 @@ seed_disable_comments_content() {
   unset -f wp_conf1
 }
 
+seed_disable_comments_target_runtime() {
+  wp_conf2() { wp2 "$@"; }
+  . "$(dirname "${BASH_SOURCE[0]}")/../conformance/postdeploy.sh"
+  unset -f wp_conf2
+}
+
 check_disable_comments_boundary_content() {
   local post_id="$1" port="$2" label="$3" body status xml
   post_id=$($post_id post list --post_type=post --name=disable-comments-endpoint-fixture --field=ID)
@@ -102,11 +108,13 @@ EOF
   [ "$INSTALLED_2" = "$DISABLE_COMMENTS_VERSION" ] \
     || fail "side 2 installed version mismatch: expected $DISABLE_COMMENTS_VERSION, got $INSTALLED_2"
   wp2 wprism deploy --repo=/siterepo
+  seed_disable_comments_target_runtime
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
   assert_version_matrix_apply_ready
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
     || fail "apply canary not clean at Disable Comments $DISABLE_COMMENTS_VERSION"
+  disable_comments_assert_runtime wp2
   check_disable_comments_boundary_content wp2 "$PORT2" target
 
   wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-final
@@ -123,6 +131,7 @@ EOF
     && fail "Disable Comments uninstall left plugin code installed"
   [ "$(wp2 option get disable_comments_options 2>/dev/null || true)" = "" ] \
     || fail "Disable Comments uninstall left the authored option row"
+  disable_comments_assert_uninstall_runtime wp2
   wp2 plugin install "$DISABLE_ARTIFACT_2" --force >/dev/null
   wp2 wprism deploy --repo=/siterepo
   wp2 plugin is-active disable-comments >/dev/null \

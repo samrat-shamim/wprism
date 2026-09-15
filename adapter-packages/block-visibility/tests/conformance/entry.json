@@ -1,6 +1,6 @@
 {
   "entry": {
-    "mode": "capture-plan",
+    "mode": "roundtrip",
     "pin": ["core", "block-visibility"],
     "plugins": [{"slug": "block-visibility", "version": "3.7.1"}],
     "post_types": ["post", "page", "attachment", "visibility_preset"],

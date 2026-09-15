@@ -6,6 +6,7 @@ namespace WPrism;
 // class before declaring itself, while direct ManifestValidator consumers get
 // the same complete grammar surface through Policy's require_once graph.
 require_once __DIR__ . '/Policy.php';
+require_once __DIR__ . '/../Kernel/StoragePrerequisiteGrammar.php';
 require_once __DIR__ . '/../Grammar/FieldGrammar.php';
 require_once __DIR__ . '/../Grammar/PostTypeGrammar.php';
 require_once __DIR__ . '/ManifestGrammar.php';
@@ -83,6 +84,7 @@ final class ManifestValidator {
         PostTypeGrammar::validate_regen_dependencies($manifest);
         ActionProviderGrammar::validate_providers($manifest);
         ActionProviderGrammar::validate_actions($manifest);
+        StoragePrerequisiteGrammar::validate($manifest);
         OptionGrammar::validate_env_options($manifest, $label);
         UserMetaGrammar::validate_user_meta_rules(
             $manifest,

@@ -1,4 +1,4 @@
-# Managed native duplication is not production-ready
+# Managed native duplication remains unsupported
 
 The 2026-09-09 Terra review verified the official Yoast Duplicate Post **4.7**
 ZIP against this capsule's artifact lock:
@@ -11,20 +11,21 @@ seeded blacklist excludes `_wprism_uuid`.
 
 The only conformance call to `duplicate_post_create_duplicate()` is
 `tests/conformance/seed.sh:105`, before the first WPrism Capture. It proves
-native cloning of an unmanaged source, not cloning after the original has
-durable WPrism identity. The certified native-clone claim therefore exceeded
-its evidence. That initial review was source evidence; the follow-on native
-post-Capture reproduction is recorded below. The separate
+the bounded native clone of an unmanaged source, not cloning after the original
+has durable WPrism identity. The managed-clone workflow is therefore explicitly
+unsupported, not silently included in the certified claim. That initial review
+was source evidence; the follow-on native post-Capture reproduction is recorded
+below. The separate
 [Duplicate Page investigation](../../../docs/agents/managed-clone-identity.md)
 executes that mechanism with another real plugin and verifies WPrism's exact
 refusal plus complete SQL/canonical preservation.
 
-The capsule is now **experimental / unready**. Earlier option, `_dp_original`,
-role-provider, lifecycle, deletion and round-trip tests remain available;
-they do not authorize the missing managed-clone workflow. No runtime provider
-or manifest rule changed, and no fixture silently adds a UUID blacklist.
-The same exact 4.7 ZIP is retained as an exercise fixture, not a certified
-boundary; its URL and SHA-256 are unchanged.
+The capsule is **certified for its bounded surface**. Its option, `_dp_original`,
+role-provider, lifecycle, deletion, recovery and round-trip tests authorize
+that surface while this managed-clone workflow remains excluded. No runtime
+provider or manifest rule silently adds a UUID blacklist or repairs identity.
+The same exact 4.7 ZIP remains the reviewed artifact boundary; its URL and
+SHA-256 are unchanged.
 
 ## Native refusal checkpoint
 
@@ -34,10 +35,10 @@ PHP 8.3.33 and the platform-locked Twenty Twenty-One **2.8** theme. The
 only active plugin was the exact 4.7 ZIP above. The shared conformance
 runner consumed this capsule's existing seed and artifact lock with only
 the supported `mode: capture-plan` fixture override. Its two Captures were
-deterministic, lint passed, and the actual capability/Plan paths retained
-the experimental `authored_state_not_certified` blocker. No deploy or Apply
-was attempted; the historical round-trip fixture remains available, not green
-production authority under this disposition.
+deterministic and lint passed. This checkpoint records the exact refusal
+boundary only. No deploy or Apply was attempted in this diagnostic refusal
+case; the bounded deploy, Apply and recapture authority is exercised by the
+capsule's main conformance and exact version matrix.
 
 After that completed profile, the native admin API duplicated already-captured
 post **3100001** into post **3100004**, using the seeded blacklist unchanged.
@@ -89,14 +90,14 @@ native cloning semantics, combinations, recovery, or readiness evidence.
 ## Restoration boundary
 
 The native collision and exact refusal-preservation premise are now covered.
-Restoration still requires a reviewed explicit identity-repair/recovery
-workflow and complete successful managed-clone round-trip evidence, including
-its failure/uncertainty cases. A deliberately configured safe
+Future support for managed cloning would require a reviewed explicit
+identity-repair/recovery workflow and complete successful managed-clone
+round-trip evidence, including its failure/uncertainty cases. A deliberately configured safe
 blacklist is a separate case: prove its native exclusion, fresh Capture mint,
 full round-trip and continued operator ownership of that setting; do not
 substitute it for the default workflow.
 
 The changed disposition moves this adapter's digest and combined compiled
 policy identities. Existing deployments must recompile and explicitly re-pin
-the reviewed claim. Do not fall back to the former certification or conceal
-the experimental readiness refusal.
+the reviewed bounded claim. Do not widen it by falling back to the former
+managed-clone behavior or by concealing the explicit refusal.
