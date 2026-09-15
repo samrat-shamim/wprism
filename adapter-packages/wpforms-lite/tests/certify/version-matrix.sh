@@ -1,6 +1,8 @@
 seed_wpforms_lite_content() {
   wp_conf1() { wp1 "$@"; }
   local CONF_REPO1="siterepo/${PAIR}1"
+  export CONF_PAIR="$PAIR" CONF1_PORT="$PORT1" CONF2_PORT="$PORT2"
+  export WPRISM_ARTIFACT_LIBRARY_ROOT="${WPRISM_SOURCE_ROOT:?}"
   . "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"
   unset -f wp_conf1
 }
@@ -8,6 +10,8 @@ seed_wpforms_lite_content() {
 check_wpforms_lite_content() {
   wp_conf2() { wp2 "$@"; }
   local CONF_REPO2="siterepo/${PAIR}2"
+  export CONF_PAIR="$PAIR" CONF1_PORT="$PORT1" CONF2_PORT="$PORT2"
+  export WPRISM_ARTIFACT_LIBRARY_ROOT="${WPRISM_SOURCE_ROOT:?}"
   . "$(dirname "${BASH_SOURCE[0]}")/../conformance/check.sh"
   unset -f wp_conf2
 }
