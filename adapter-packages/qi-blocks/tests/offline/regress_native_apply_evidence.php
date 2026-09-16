@@ -239,7 +239,8 @@ wprism_check_same($mediaRecords['target']['page_body'], Blocks::apply_rewrite($p
 $http = [];
 foreach ($mediaRecords as $side => &$record) {
     $http[$side] = ['format' => 'wprism-qi-native-media-pixels/v1', 'home' => $record['home'],
-        'page' => $record['ids']['page'], 'attachment' => $record['ids']['image'], 'images' => []];
+        'page' => $record['ids']['page'], 'attachment' => $record['ids']['image'],
+        'original_samples' => [[0, 0, 0, 0], [255, 0, 0, 0], [0, 255, 173, 0], [255, 255, 173, 0], [127, 127, 0, 0]], 'images' => []];
     foreach (QiNativeMediaCorpus::DIMENSIONS as $i => [$width, $height]) {
         $path = '2026/09/tmp-qi-image-' . $width . 'x' . $height . '.png';
         $file = ['sha256' => hash('sha256', $path), 'bytes' => 90 + $i, 'width' => $width, 'height' => $height, 'mime' => 'image/png'];
@@ -273,10 +274,12 @@ foreach ([
 $httpMedia = static fn(array $target) => QiNativeMediaEvidence::http($http['source'], $target, $mediaRecords['source'], $mediaRecords['target']);
 $httpMedia($http['target']);
 wprism_check(true, 'all four HTTP images bind native owners, URLs, dimensions and decoded pixels independently of PNG encoding');
-foreach (['missing image', 'wrong pixels', '404', 'wrong dimensions', 'wrong home', 'missing digest'] as $fault) {
+foreach (['missing image', 'wrong pixels', '404', 'wrong dimensions', 'wrong home', 'missing digest', 'uniform original', 'missing original premise'] as $fault) {
     $bad = $http['target'];
     if ($fault === 'missing image') array_pop($bad['images']);
     if ($fault === 'wrong pixels') $bad['images'][1]['pixels_sha256'] = str_repeat('f', 64);
+    if ($fault === 'uniform original') $bad['original_samples'] = array_fill(0, 5, [43, 108, 132, 0]);
+    if ($fault === 'missing original premise') unset($bad['original_samples']);
     if ($fault === '404') $bad['images'][1]['status'] = 404;
     if ($fault === 'wrong dimensions') $bad['images'][1]['width'] = 295;
     if ($fault === 'wrong home') $bad['home'] = $seed['home'];

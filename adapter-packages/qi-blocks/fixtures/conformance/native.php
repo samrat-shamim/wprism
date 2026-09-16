@@ -21,9 +21,8 @@ $rest = static function (string $path, array $data) use ($assert): array {
 };
 if ($phase === 'seed') {
     $assert(!file_exists($receiptPath), 'Native source receipt already exists; use a clean conformance pair');
-    $image = imagecreatetruecolor(1200, 800);
-    imagefill($image, 0, 0, imagecolorallocate($image, 43, 108, 132));
-    ob_start(); imagepng($image); $png = ob_get_clean(); imagedestroy($image);
+    $png = QiConformanceCorpus::image_png();
+    QiConformanceCorpus::image_samples($png);
     $upload = wp_upload_bits('tmp-qi-image.png', null, $png);
     $assert(empty($upload['error']), 'Native upload refused its image');
     $attachment = wp_insert_attachment(['post_title' => 'Qi conformance image', 'post_status' => 'inherit', 'post_mime_type' => 'image/png'], $upload['file'], 0, true);
