@@ -1237,5 +1237,29 @@
       "canonical retirement and host lifecycle/promotion/recovery",
       "remaining native editor/media and participant combination qualification"
     ]
+  },
+  "native_dependency_caller_authority_hardening": {
+    "source_engine_commit": "77a3b8ca098db8b3dca9e314e38658c4a527685a",
+    "prior_full_gate": {
+      "source_engine_commit": "a4d199ab267d525a55d51961fe73c9529e16a58a",
+      "exit": 2,
+      "failed_suite": "regress-fetch-artifact",
+      "cause": "Extracted live callers omitted the mandatory canonical first-three-active-statement package authority preamble. The sourced baseline was not a substitute for caller authority.",
+      "log_sha256": "89156646dbde05a0eb9b7f530c7caa9f73f1335aeb8e58ec44e29a9af43a0756",
+      "adapter_aggregate": "29 packages, 148 package tests and 12 offline scenario gates across seven scenarios passed; the failed shared leaf prevents a green full gate."
+    },
+    "fix": "Both callers retain canonical first-three-statement authority. The shared capsule fixture validates caller root and artifact scope before requiring any pair input, and never replaces authority. Existing authoring requirement is clarified for fixture extraction.",
+    "focused_checks": {
+      "regress-fetch-artifact": {
+        "exit": 0,
+        "log_sha256": "e2c7d7006eb677fd6c9154a66432c2a10ce9a1ecebb30c8ae4fb9ed20539aa7c"
+      },
+      "native_dependencies": {
+        "exit": 0,
+        "assertions": 56,
+        "log_sha256": "a4b1e8d313a026841e740a27a76d4b873ec0172e110765305a812c26d3263a70"
+      }
+    },
+    "native_evidence_scope": "All native operational suffixes of setup, complete Apply extension and dependency driver are byte-identical to the independently reviewed and passed 8f6ee554 native run. Changed ownership prefixes execute deterministically offline, including canonical ownership and wrong-root/wrong-scope refusal before pair mutation. No new live sweep; the source-bound native claim remains 8f6ee554."
   }
 }
