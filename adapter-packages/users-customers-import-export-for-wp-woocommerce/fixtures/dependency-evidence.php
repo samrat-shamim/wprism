@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/settings-evidence.php';
 require_once $root . '/sandbox/tests/lib/check.php';
 require_once $root . '/sandbox/tests/lib/SqlDumpEvidence.php';
+require_once $root . '/agent/src/Repository/RepositoryIdentityRegistry.php';
 
 final class ImporterDependencyEvidence {
     public const PLUGIN = 'users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php';
@@ -88,18 +89,26 @@ final class ImporterDependencyEvidence {
 
     public static function initialApplyWarnings(array $tree, array $target): array {
         $paths = array_column($tree['files'] ?? [], 'path');
-        $terms = array_values(array_filter($paths,
-            static fn(string $path): bool => preg_match('~^terms/category/[0-9a-f-]{36}--uncategorized\.json$~D', $path) === 1));
-        $templates = array_values(array_filter($paths,
-            static fn(string $path): bool => preg_match('~^tables/wt_iew_mapping_template/[0-9a-f-]{36}--selected-users\.json$~D', $path) === 1));
+        $terms = self::canonicalIdentityPaths($paths, 'terms/category/', '--uncategorized.json');
+        $templates = self::canonicalIdentityPaths($paths, 'tables/wt_iew_mapping_template/', '--selected-users.json');
         if (count($terms) !== 1 || count($templates) !== 1 || !is_int($target['original'] ?? null)
             || $target['original'] < 1) {
             throw new RuntimeException('initial Importer adoption warnings require exact native identities');
         }
-        $termUuid = substr(basename($terms[0]), 0, 36);
-        $templateUuid = substr(basename($templates[0]), 0, 36);
-        return ["adopted env term 1 as $termUuid ({$terms[0]})",
-            "adopted env table row wt_iew_mapping_template:{$target['original']} as $templateUuid ({$templates[0]})"];
+        $termPath = array_key_first($terms);
+        $templatePath = array_key_first($templates);
+        return ["adopted env term 1 as {$terms[$termPath]} ($termPath)",
+            "adopted env table row wt_iew_mapping_template:{$target['original']} as {$templates[$templatePath]} ($templatePath)"];
+    }
+
+    private static function canonicalIdentityPaths(array $paths, string $prefix, string $suffix): array {
+        $identities = [];
+        foreach ($paths as $path) {
+            if (!is_string($path) || !str_starts_with($path, $prefix) || !str_ends_with($path, $suffix)) continue;
+            $uuid = substr($path, strlen($prefix), -strlen($suffix));
+            if (WPrism\RepositoryIdentityRegistry::is_uuid($uuid)) $identities[$path] = $uuid;
+        }
+        return $identities;
     }
 }
 

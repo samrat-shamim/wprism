@@ -109,8 +109,8 @@ foreach ($premises as $case => $premise) {
             'dependency premise rejects a changed field: ' . $case . ' ' . $key);
     }
 }
-$termUuid = '11111111-1111-1111-1111-111111111111';
-$templateUuid = '22222222-2222-2222-2222-222222222222';
+$termUuid = '11111111-1111-4111-8111-111111111111';
+$templateUuid = '22222222-2222-5222-a222-222222222222';
 $warningTree = ['files' => [
     ['path' => "terms/category/$termUuid--uncategorized.json"],
     ['path' => "tables/wt_iew_mapping_template/$templateUuid--selected-users.json"],
@@ -123,6 +123,14 @@ wprism_check_throws(static fn() => ImporterDependencyEvidence::initialApplyWarni
     RuntimeException::class, 'initial Apply cannot hide a missing canonical adoption identity');
 wprism_check_throws(static fn() => ImporterDependencyEvidence::initialApplyWarnings($warningTree, ['original' => '103']),
     RuntimeException::class, 'initial Apply cannot weaken the native template identity type');
+foreach (['grouping' => '111111111-111-4111-8111-111111111111',
+    'version' => '11111111-1111-9111-8111-111111111111',
+    'variant' => '11111111-1111-4111-7111-111111111111'] as $case => $malformed) {
+    $changed = $warningTree;
+    $changed['files'][0]['path'] = "terms/category/$malformed--uncategorized.json";
+    wprism_check_throws(static fn() => ImporterDependencyEvidence::initialApplyWarnings($changed, ['original' => 103]),
+        RuntimeException::class, 'initial Apply rejects a noncanonical UUID ' . $case);
+}
 $state = ['format' => 'wprism-importer-native-settings/v1', 'tables' => array_fill_keys([
     'posts', 'postmeta', 'options', 'terms', 'term_taxonomy', 'term_relationships', 'termmeta',
     'users', 'usermeta', 'wt_iew_action_history', 'wt_iew_mapping_template'], [['fixture' => 'preserve']]),
