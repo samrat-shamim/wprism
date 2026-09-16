@@ -163,7 +163,8 @@ Native reopens, CSV consumers and exact recapture are required again afterward.
 The shared provider, receipt-tamper and competing-operation suites exercise the
 generic machinery around this real plugin path. The signed deletion lane adds
 external-exclusion loss at Delete's final pre-COMMIT frontier, verified complete
-rollback, successful retry and a fixed point.
+rollback of the selected map/state ledger preimage, successful retry with exact
+deletion receipt state, and a fixed point with every action and diagnostic bucket closed.
 
 ## Derived state
 

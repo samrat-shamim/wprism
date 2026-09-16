@@ -114,7 +114,8 @@ scenario covers native Importer plus WooCommerce behavior under both load orders
 full Apply and scoped Apply.
 Signed template deletion now proves native tombstone capture, direct Apply
 refusal, external-exclusion loss at the final delete commit frontier, verified
-rollback, successful retry, surviving copy/history consumers and a no-action
+rollback of the selected map/state ledger preimage, successful retry with exact
+deletion receipts, surviving copy/history consumers and a closed no-action
 repeat. The production-readiness record covers every applicable family;
 derived-state repair is structurally inapplicable to the declared surface. The
 [readiness scope audit](evidence/readiness-scope.md) maps these decisions to the
@@ -190,8 +191,8 @@ draft. Full observations cover eleven native tables and operational files.
 Both Save As copies and completed export history reopen after deletion. Public
 Capture emits exactly three tombstones bound to the prior hash, revision and
 source path, and repeated Capture preserves their bytes. Explicit fixture
-restoration prepares the target rows and their exact identity-map preimage; it
-is not product recovery. Public
+restoration prepares the target rows and their exact identity-map and state
+preimage; it is not product recovery. Public
 Plan identifies those three rows, and direct `apply --with-deletes` refuses
 before mutation with the exact public and private writer-exclusion cause.
 
@@ -199,8 +200,9 @@ The fixture first checks the exact code-baseline warning caused by native
 activation after adoption, then reconciles that baseline explicitly. It binds
 the exact plugin and active-theme bytes to immutable releases, enrolls full
 recovery, and runs signed host promotion. Loss of external writer exclusion at
-Delete's final pre-COMMIT frontier must restore the complete native preimage;
-the next promotion deletes the exact rows and a repeat reaches a fixed point.
+Delete's final pre-COMMIT frontier must restore the complete native and ledger
+preimage; the next promotion removes the selected mappings, binds their exact
+deletion receipt hashes in state, and a repeat reaches a closed fixed point.
 
 The exact-artifact version matrix reuses the complete 2.7.5 ordinary host roundtrip,
 then replaces the active target plugin with official locked 2.7.4 bytes.

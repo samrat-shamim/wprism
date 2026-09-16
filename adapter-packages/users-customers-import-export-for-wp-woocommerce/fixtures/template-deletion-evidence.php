@@ -72,22 +72,66 @@ final class ImporterTemplateDeletionEvidence {
         self::same(json_decode($jobs[0]['data'], true, 32, JSON_THROW_ON_ERROR), $history['template_data'], 'native history reopens its complete form after original deletion');
     }
 
-    public static function identities(array $before, array $after, array $native): void {
-        self::check(($before['format'] ?? null) === 'wprism-importer-template-identities/v1'
-            && array_keys($before) === ['format', 'rows'] && count($before['rows']) === 3,
-            'complete target identity preimage');
+    public static function ledgerPreimage(array $before, array $after, array $native): void {
+        self::check(($before['format'] ?? null) === 'wprism-importer-template-ledger/v1'
+            && array_keys($before) === ['format', 'map', 'state']
+            && count($before['map']) === 3 && count($before['state']) === 3,
+            'complete target ledger preimage');
         $ids = array_map('intval', array_column(self::selected($native['tables']['wt_iew_mapping_template'] ?? []), 'id'));
         sort($ids, SORT_NUMERIC);
-        self::check(array_map('intval', array_column($before['rows'], 'local_id')) === $ids,
+        $mapIds = array_map('intval', array_column($before['map'], 'local_id'));
+        sort($mapIds, SORT_NUMERIC);
+        self::check($mapIds === $ids,
             'identity preimage belongs to the three restored native rows');
-        foreach ($before['rows'] as $row) {
+        foreach ($before['map'] as $row) {
             self::check(array_keys($row) === ['uuid', 'entity_type', 'id_kind', 'local_id']
                 && preg_match('/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/D', $row['uuid']) === 1
                 && $row['entity_type'] === 'wt_iew_mapping_template' && $row['id_kind'] === 'iew_template',
                 'exact typed target identity binding');
         }
-        self::check(count(array_unique(array_column($before['rows'], 'uuid'))) === 3, 'distinct target identity bindings');
-        self::same($before, $after, 'target restoration preserves every selected identity binding');
+        $uuids = array_column($before['map'], 'uuid');
+        sort($uuids, SORT_STRING);
+        self::check(count(array_unique($uuids)) === 3, 'distinct target identity bindings');
+        $stateUuids = [];
+        foreach ($before['state'] as $row) {
+            self::check(array_keys($row) === ['uuid', 'entity_type', 'content_hash']
+                && $row['entity_type'] === 'wt_iew_mapping_template'
+                && preg_match('/^[a-f0-9]{64}$/D', $row['content_hash']) === 1,
+                'exact typed target state binding');
+            $stateUuids[] = $row['uuid'];
+        }
+        sort($stateUuids, SORT_STRING);
+        self::check($stateUuids === $uuids, 'state preimage belongs to every selected identity');
+        self::same($before, $after, 'target restoration preserves every selected ledger binding');
+    }
+
+    public static function ledgerTerminal(array $before, array $after, array $plan): void {
+        self::check(($after['format'] ?? null) === 'wprism-importer-template-ledger/v1'
+            && array_keys($after) === ['format', 'map', 'state'] && $after['map'] === []
+            && count($after['state']) === 3, 'terminal ledger has no selected map and three state receipts');
+        $uuids = array_column($before['map'] ?? [], 'uuid');
+        sort($uuids, SORT_STRING);
+        self::check(count($uuids) === 3 && count(array_unique($uuids)) === 3, 'complete terminal identity premise');
+        self::check(is_array($plan['delete'] ?? null) && count($plan['delete']) === 3,
+            'three planned deletion receipts');
+        $receipts = [];
+        foreach ($plan['delete'] ?? [] as $row) {
+            self::check(is_array($row) && in_array($row['uuid'] ?? null, $uuids, true)
+                && preg_match('/^[a-f0-9]{64}$/D', $row['receipt_hash'] ?? '') === 1,
+                'exact planned deletion receipt');
+            $receipts[$row['uuid']] = $row['receipt_hash'];
+        }
+        self::check(count($receipts) === 3, 'one planned receipt for every selected identity');
+        $observed = [];
+        foreach ($after['state'] as $row) {
+            self::check(array_keys($row) === ['uuid', 'entity_type', 'content_hash']
+                && isset($receipts[$row['uuid']]) && $row['entity_type'] === 'deletion'
+                && hash_equals($receipts[$row['uuid']], $row['content_hash']),
+                'terminal state binds the exact deletion receipt');
+            $observed[] = $row['uuid'];
+        }
+        sort($observed, SORT_STRING);
+        self::check($observed === $uuids, 'terminal state covers every selected identity exactly once');
     }
 
     public static function initialCapture(array $agent, array $host): void {
@@ -156,7 +200,8 @@ elseif ($mode === 'removed') ImporterTemplateDeletionEvidence::removed($read($ar
 elseif ($mode === 'same') ImporterTemplateDeletionEvidence::same($read($argv[2]), $read($argv[3]), 'complete native preservation');
 elseif ($mode === 'tombstones') ImporterTemplateDeletionEvidence::tombstones($read($argv[2]), $read($argv[3]));
 elseif ($mode === 'reopened') ImporterTemplateDeletionEvidence::reopened($read($argv[2]), $read($argv[3]), $read($argv[4]), $read($argv[5]), (int) $argv[6]);
-elseif ($mode === 'identities') ImporterTemplateDeletionEvidence::identities($read($argv[2]), $read($argv[3]), $read($argv[4]));
+elseif ($mode === 'ledger-preimage') ImporterTemplateDeletionEvidence::ledgerPreimage($read($argv[2]), $read($argv[3]), $read($argv[4]));
+elseif ($mode === 'ledger-terminal') ImporterTemplateDeletionEvidence::ledgerTerminal($read($argv[2]), $read($argv[3]), $read($argv[4]));
 elseif ($mode === 'private-refusal') ImporterTemplateDeletionEvidence::privateRefusal($read($argv[2]), $argv[3]);
 else throw new RuntimeException('unknown deletion evidence mode');
 echo 'PASS: Importer deletion ' . $mode . "\n";

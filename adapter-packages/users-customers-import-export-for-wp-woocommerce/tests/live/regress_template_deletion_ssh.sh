@@ -51,6 +51,25 @@ importer_delete_assert() { # <semantic-mode> <capture-label>...
   php "$PACKAGE_ROOT/fixtures/template-deletion-evidence.php" "$mode" "${inputs[@]}"
 }
 
+importer_delete_assert_converged_plan() { # <capture-label>
+  local label="$1" plan="$DIAG_DIR/importer-delete-$1.stdout"
+  assert_wprism_required_environment 'Importer deletion fixed point' json "$(cat "$plan")"
+  jq -e --slurpfile repo "$DIAG_DIR/importer-delete-deletion-repository.stdout" '
+    .create == [] and .update == [] and .adopt == [] and .drift == [] and .conflict == []
+    and .collision == [] and .delete == [] and .delete_conflict == []
+    and .code_mismatch == [] and .code_drift == [] and .provider_problems == [] and .warnings == []
+    and .incomplete_apply == [] and .incomplete_lifecycle == [] and .missing_user == []
+    and .skipped_user_meta == [] and .adapter_dispositions == [] and .selected_actions == []
+    and .regen_pending == [] and .regen_context == []
+    and (.env_missing | type == "array" and all(.[]; .required == false))
+    and ([.deleted[].uuid] | sort) == ($repo[0].deletions | keys | sort)
+    and all(.deleted[]; . as $row |
+      $row.type == "wt_iew_mapping_template" and $row.deletion_kind == "table"
+      and $row.deletion_type == "wt_iew_mapping_template"
+      and $row.receipt_hash == ($repo[0].deletions[$row.uuid].hash // ""))
+  ' "$plan" >/dev/null || fail 'Importer signed deletion did not converge to an exact no-action plan'
+}
+
 wprism_ssh_adopt_extension() {
   local slug=users-customers-import-export-for-wp-woocommerce fixture=/home/wprism/recovery-fixture
   local label binding index=0 history_id failure_code retry_code repeat_code status_json
@@ -122,7 +141,7 @@ wprism_ssh_adopt_extension() {
   grep -Fq 'deploy complete:' "$DIAG_DIR/importer-delete-code-baseline.stdout" \
     || fail 'Importer signed deletion host deploy lacked its terminal product result'
   importer_delete_capture baseline json importer_delete_observe
-  importer_delete_capture baseline-identities json importer_delete_native template-deletion-native identity-map
+  importer_delete_capture baseline-ledger json importer_delete_native template-deletion-native identity-ledger
   for label in export-original import-original import-draft; do
     importer_delete_capture "native-$label" json importer_delete_native template-deletion-native delete "$label"
     jq -e --arg label "$label" --slurpfile seed "$DIAG_DIR/importer-delete-seed.stdout" \
@@ -146,13 +165,14 @@ wprism_ssh_adopt_extension() {
   importer_delete_capture repeated-repository json importer_delete_native template-deletion-native repository
   importer_delete_assert same deletion-repository repeated-repository
   jq -cn --slurpfile native "$DIAG_DIR/importer-delete-baseline.stdout" \
-    --slurpfile identities "$DIAG_DIR/importer-delete-baseline-identities.stdout" \
-    '{native:$native[0],identities:$identities[0]}' \
+    --slurpfile ledger "$DIAG_DIR/importer-delete-baseline-ledger.stdout" \
+    '{native:$native[0],ledger:$ledger[0]}' \
     | importer_delete_capture restore-fixture json importer_delete_native template-deletion-native restore-fixture
   importer_delete_capture restored json importer_delete_observe
   importer_delete_assert same baseline restored
-  importer_delete_capture restored-identities json importer_delete_native template-deletion-native identity-map
-  importer_delete_assert identities baseline-identities restored-identities baseline
+  importer_delete_capture restored-ledger json importer_delete_native template-deletion-native observe-ledger \
+    <"$DIAG_DIR/importer-delete-baseline-ledger.stdout"
+  importer_delete_assert ledger-preimage baseline-ledger restored-ledger baseline
   importer_delete_capture intent-commit empty ssh_fixture \
     'set -eu; git -C /home/wprism/site add -- state; git -C /home/wprism/site commit -m "Capture native Importer template deletions" >/dev/null; test -z "$(git -C /home/wprism/site status --porcelain)"'
   importer_delete_capture plan json "$WPRISM" --envs-file="$TMP/envs.json" plan target --format=json
@@ -175,6 +195,9 @@ wprism_ssh_adopt_extension() {
 
   importer_delete_capture direct-repository json importer_delete_native template-deletion-native repository
   importer_delete_assert same deletion-repository direct-repository
+  importer_delete_capture direct-ledger json importer_delete_native template-deletion-native observe-ledger \
+    <"$DIAG_DIR/importer-delete-baseline-ledger.stdout"
+  importer_delete_assert same baseline-ledger direct-ledger
   [ -z "$(target_ledger_value promotion_lock)" ] || fail 'Importer refused direct deletion retained its target lock'
 
   # Recovery preparation/claim, lifecycle, upload and Apply preflight consume
@@ -204,6 +227,9 @@ wprism_ssh_adopt_extension() {
   importer_delete_assert same baseline rollback-preserved
   importer_delete_capture rollback-repository json importer_delete_native template-deletion-native repository
   importer_delete_assert same deletion-repository rollback-repository
+  importer_delete_capture rollback-ledger json importer_delete_native template-deletion-native observe-ledger \
+    <"$DIAG_DIR/importer-delete-baseline-ledger.stdout"
+  importer_delete_assert same baseline-ledger rollback-ledger
   [ -z "$(target_ledger_value promotion_lock)" ] || fail 'Importer signed deletion rollback retained its target lock'
   jq -e '.state == "released"' <<<"$(ssh_fixture 'cat /home/wprism/recovery-fixture/provider-state.json')" >/dev/null \
     || fail 'Importer signed deletion rollback retained external writer exclusion'
@@ -219,6 +245,9 @@ wprism_ssh_adopt_extension() {
     || fail 'Importer signed deletion retry lacked its committed recovery receipt'
   importer_delete_capture signed-removed json importer_delete_observe
   importer_delete_assert removed baseline signed-removed
+  importer_delete_capture signed-ledger json importer_delete_native template-deletion-native observe-ledger \
+    <"$DIAG_DIR/importer-delete-baseline-ledger.stdout"
+  importer_delete_assert ledger-terminal baseline-ledger signed-ledger plan
   importer_delete_capture signed-export-copy json importer_delete_native templates-native reopen 'Selected users copy'
   importer_delete_capture signed-import-copy json importer_delete_native import-templates-native reopen 'Reusable input copy'
   importer_delete_capture signed-history-copy json importer_delete_native template-deletion-native history-reopen "$history_id"
@@ -226,10 +255,7 @@ wprism_ssh_adopt_extension() {
     "$DIAG_DIR/importer-delete-signed-export-copy" "$DIAG_DIR/importer-delete-signed-import-copy" \
     "$DIAG_DIR/importer-delete-signed-history-copy" "$history_id"
   importer_delete_capture converged-plan json "$WPRISM" --envs-file="$TMP/envs.json" plan target --format=json
-  jq -e '.create == [] and .update == [] and .adopt == [] and .drift == []
-    and .conflict == [] and .delete == [] and .delete_conflict == []' \
-    "$DIAG_DIR/importer-delete-converged-plan.stdout" >/dev/null \
-    || fail 'Importer signed deletion did not converge to a no-action plan'
+  importer_delete_assert_converged_plan converged-plan
   if "$WPRISM" --envs-file="$TMP/envs.json" promote target --with-deletes >"$repeat_stdout" 2>"$repeat_stderr"; then
     repeat_code=0
   else
@@ -239,6 +265,9 @@ wprism_ssh_adopt_extension() {
   assert_ssh_fixture_positive_diagnostics 'Importer signed deletion fixed point' "$repeat_stdout" "$repeat_stderr"
   importer_delete_capture repeat-stable json importer_delete_observe
   importer_delete_assert same signed-removed repeat-stable
+  importer_delete_capture repeat-ledger json importer_delete_native template-deletion-native observe-ledger \
+    <"$DIAG_DIR/importer-delete-baseline-ledger.stdout"
+  importer_delete_assert same signed-ledger repeat-ledger
   [ -z "$(target_ledger_value promotion_lock)" ] || fail 'Importer signed deletion fixed point retained its target lock'
   jq -e '.state == "released"' <<<"$(ssh_fixture 'cat /home/wprism/recovery-fixture/provider-state.json')" >/dev/null \
     || fail 'Importer signed deletion fixed point retained external writer exclusion'
