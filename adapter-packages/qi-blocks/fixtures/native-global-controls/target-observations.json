@@ -1,0 +1,659 @@
+{
+    "format": "wprism-qi-native-target-global-controls/v1",
+    "source_commit": "af41f1080248889ff364a2b93f60a56c2200383d",
+    "pair": "qiglobaleditor916a",
+    "versions": {
+        "wordpress": "7.1",
+        "qi-blocks": "1.5.2"
+    },
+    "artifact_sha256": "6168357231ad0d39e41bcf71b1a0d4ad0fa08a5cc4263cc708dfe198b1f1f887",
+    "target_home": "http://localhost:9517",
+    "ids": {
+        "image": 9,
+        "first": 10,
+        "second": 11,
+        "page": 12
+    },
+    "writer": "Actual target native WordPress list-view Lock/Rename/Hide modal Apply and editor Save; no application store or direct database authoring.",
+    "scope": "Twelve actual target browser Saves after divergent-ID Apply. Complete native readback and two complete immutable target captures compile and converge per case. Seven observed complete REST response content hashes match native readback. Remaining network windows were truncated after reload and provide no response qualification. No post-edit cross-site timestamp normalization or production promotion claim.",
+    "first_save_body": "target-first-save.html",
+    "cases": [
+        {
+            "case": "global-lock-rename",
+            "body_sha256": "227e9797f6f2d6c71e97714cf14f3920f2618cc39862d92f153c081e560de961",
+            "body_bytes": 80737,
+            "lock": {
+                "move": true,
+                "remove": false
+            },
+            "metadata": {
+                "name": "Qi renamed native image"
+            },
+            "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":9,\"url\":\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":true,\"remove\":false},\"metadata\":{\"name\":\"Qi renamed native image\"}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-9\"  src=\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->",
+            "native_stdout_sha256": "c456b03e23a563d337daf85be88f87196e458a825c12fda68842f214d30e988e",
+            "capture_page_sha256": {
+                "a": "54d16ef66796d5c581328c4aa2a31b1ea69034ba9aa3bd1b121c6ec15fb69a14",
+                "b": "54d16ef66796d5c581328c4aa2a31b1ea69034ba9aa3bd1b121c6ec15fb69a14"
+            },
+            "admission_log_sha256": "fad9a661ccf6657d75337592a2c814cda232359ebf9ba3815986449aec1449e8",
+            "compiled_entities": 7,
+            "capture_warnings": [],
+            "capture_notes": [],
+            "native_unselected_state": "Complete posts except edited page/revisions, Qi options/styles, metadata/files, upload census, IDs, UUIDs and featured relations remain byte-identical to setup-complete."
+        },
+        {
+            "case": "global-mobile-hidden",
+            "body_sha256": "c61286414082c11bf792650f365885195a72117832602e2af75e7c85e556994b",
+            "body_bytes": 80785,
+            "lock": {
+                "move": true,
+                "remove": false
+            },
+            "metadata": {
+                "name": "Qi renamed native image",
+                "blockVisibility": {
+                    "viewport": {
+                        "mobile": false
+                    }
+                }
+            },
+            "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":9,\"url\":\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":true,\"remove\":false},\"metadata\":{\"name\":\"Qi renamed native image\",\"blockVisibility\":{\"viewport\":{\"mobile\":false}}}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-9\"  src=\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->",
+            "native_stdout_sha256": "a386521a1fc9b248b5a054b9dc414d603735b61afb440a4c0817789dd24ff6df",
+            "capture_page_sha256": {
+                "a": "8162a066740de59930f1593d7d50698728fbc90664d1f251c21bd50a772b0849",
+                "b": "8162a066740de59930f1593d7d50698728fbc90664d1f251c21bd50a772b0849"
+            },
+            "admission_log_sha256": "fc663fd1471ad76c57968672b0007900c5197402c50e3e85e86292ab4443cbf7",
+            "compiled_entities": 7,
+            "capture_warnings": [],
+            "capture_notes": [],
+            "native_unselected_state": "Complete posts except edited page/revisions, Qi options/styles, metadata/files, upload census, IDs, UUIDs and featured relations remain byte-identical to setup-complete."
+        },
+        {
+            "case": "global-omitted",
+            "body_sha256": "bf6d9bba5c65aab439dc868de15a8457260f858cb998bc69690f170efc21b2ba",
+            "body_bytes": 80761,
+            "lock": {
+                "move": true,
+                "remove": false
+            },
+            "metadata": {
+                "name": "Qi renamed native image",
+                "blockVisibility": false
+            },
+            "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":9,\"url\":\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":true,\"remove\":false},\"metadata\":{\"name\":\"Qi renamed native image\",\"blockVisibility\":false}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-9\"  src=\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->",
+            "native_stdout_sha256": "e9d20c8489b90c12bf5e1f5df5091e9f23ebfd307011968bf8824047fabdc759",
+            "capture_page_sha256": {
+                "a": "ee20336fcb77d71722d89afff64ed29da780a6a81b309fb0dcb1a039730c3951",
+                "b": "ee20336fcb77d71722d89afff64ed29da780a6a81b309fb0dcb1a039730c3951"
+            },
+            "admission_log_sha256": "c076e2078dbc1d722ae32b041d0a6ea66f74fd44ebacf49b7452a967ba79f46b",
+            "compiled_entities": 7,
+            "capture_warnings": [],
+            "capture_notes": [],
+            "native_unselected_state": "Complete posts except edited page/revisions, Qi options/styles, metadata/files, upload census, IDs, UUIDs and featured relations remain byte-identical to setup-complete."
+        },
+        {
+            "case": "global-lock-both",
+            "body_sha256": "8afdded80bf057a8107f9c1fbdb39f08d49f112a09182d30b022d57569f1c6f1",
+            "body_bytes": 80760,
+            "lock": {
+                "move": true,
+                "remove": true
+            },
+            "metadata": {
+                "name": "Qi renamed native image",
+                "blockVisibility": false
+            },
+            "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":9,\"url\":\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":true,\"remove\":true},\"metadata\":{\"name\":\"Qi renamed native image\",\"blockVisibility\":false}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-9\"  src=\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->",
+            "native_stdout_sha256": "050202d196d4c54d1b262589296d0dc97f1ed92905d06a0b84a59a9d6c70b8c3",
+            "capture_page_sha256": {
+                "a": "c5b2a3608bb098d96d032fe81a35d8c3788ac52d994e411ae0507e5810a81928",
+                "b": "c5b2a3608bb098d96d032fe81a35d8c3788ac52d994e411ae0507e5810a81928"
+            },
+            "admission_log_sha256": "d538d1ce685886f27ba4a214b0ea8f5ce95c1cff08c88a95db3788eacbe7cd0c",
+            "compiled_entities": 7,
+            "capture_warnings": [],
+            "capture_notes": [],
+            "native_unselected_state": "Complete posts except edited page/revisions, Qi options/styles, metadata/files, upload census, IDs, UUIDs and featured relations remain byte-identical to setup-complete."
+        },
+        {
+            "case": "global-lock-removal",
+            "body_sha256": "c0823ea0c47e38586f12ed2e3af625ec083837f430ad48e319a8524a015ab7ac",
+            "body_bytes": 80761,
+            "lock": {
+                "move": false,
+                "remove": true
+            },
+            "metadata": {
+                "name": "Qi renamed native image",
+                "blockVisibility": false
+            },
+            "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":9,\"url\":\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":false,\"remove\":true},\"metadata\":{\"name\":\"Qi renamed native image\",\"blockVisibility\":false}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-9\"  src=\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->",
+            "native_stdout_sha256": "5f87b8b98c96a4a291109441aa0da2d34cd1258a08a55347b345624cf61d1259",
+            "capture_page_sha256": {
+                "a": "d238a3677249e518c21d6e0527dde673729bf3c8a2c1aab24afa4afa012161d5",
+                "b": "d238a3677249e518c21d6e0527dde673729bf3c8a2c1aab24afa4afa012161d5"
+            },
+            "admission_log_sha256": "32e98ca280c2c329ee146eaefb1d52734920b2a82df04ca6621a9b4ac8b146d1",
+            "compiled_entities": 7,
+            "capture_warnings": [],
+            "capture_notes": [],
+            "native_unselected_state": "Complete posts except edited page/revisions, Qi options/styles, metadata/files, upload census, IDs, UUIDs and featured relations remain byte-identical to setup-complete."
+        },
+        {
+            "case": "global-visible-unlocked",
+            "body_sha256": "5d734c660777b4750d56e03131717e446aa83312b0ee51326bd9cb45e72b9c07",
+            "body_bytes": 80738,
+            "lock": {
+                "move": false,
+                "remove": false
+            },
+            "metadata": {
+                "name": "Qi renamed native image"
+            },
+            "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":9,\"url\":\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":false,\"remove\":false},\"metadata\":{\"name\":\"Qi renamed native image\"}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-9\"  src=\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->",
+            "native_stdout_sha256": "ad7f0399ba93789582f685b0d9bd907c68cb35883b9f856a17d336329ce8b8a8",
+            "capture_page_sha256": {
+                "a": "4fd715c5b8101643ab41e6d3fbff8145ff56e84c798b418f90e12996f53ab7aa",
+                "b": "4fd715c5b8101643ab41e6d3fbff8145ff56e84c798b418f90e12996f53ab7aa"
+            },
+            "admission_log_sha256": "18e969889b7667600bc46a62a5e27513d4e92df4349514a175ef916e8a797020",
+            "compiled_entities": 7,
+            "capture_warnings": [],
+            "capture_notes": [],
+            "native_unselected_state": "Complete posts except edited page/revisions, Qi options/styles, metadata/files, upload census, IDs, UUIDs and featured relations remain byte-identical to setup-complete."
+        },
+        {
+            "case": "global-reset",
+            "body_sha256": "faf7a877949e89f88bc2c3ecf0589a5ef7bc937c78404dcd5e7af906936db174",
+            "body_bytes": 80692,
+            "lock": {
+                "move": false,
+                "remove": false
+            },
+            "metadata": null,
+            "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":9,\"url\":\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":false,\"remove\":false}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-9\"  src=\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->",
+            "native_stdout_sha256": "7984771b476355fafc1dbc9cc54fff323b0bf0388b763bc98d10241455e1c452",
+            "capture_page_sha256": {
+                "a": "dc2598b39367453d3b6b9836da6b40f76d4557a6a32dc4f6f261479f1445969a",
+                "b": "dc2598b39367453d3b6b9836da6b40f76d4557a6a32dc4f6f261479f1445969a"
+            },
+            "admission_log_sha256": "0161851f9f73393db90012ac7c29522d0246b7e2849f5dc32f7bda3c7de3e767",
+            "compiled_entities": 7,
+            "capture_warnings": [],
+            "capture_notes": [],
+            "native_unselected_state": "Complete posts except edited page/revisions, Qi options/styles, metadata/files, upload census, IDs, UUIDs and featured relations remain byte-identical to setup-complete."
+        },
+        {
+            "case": "global-tablet-hidden",
+            "body_sha256": "20f50e9898a180c8dc405f0d34d90f774c16e474a0c2f719f7f1b55973dd5ad4",
+            "body_bytes": 80753,
+            "lock": {
+                "move": false,
+                "remove": false
+            },
+            "metadata": {
+                "blockVisibility": {
+                    "viewport": {
+                        "tablet": false
+                    }
+                }
+            },
+            "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":9,\"url\":\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":false,\"remove\":false},\"metadata\":{\"blockVisibility\":{\"viewport\":{\"tablet\":false}}}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-9\"  src=\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->",
+            "native_stdout_sha256": "ef1dc706884a4eb8bf8284c5eaebf718d4f9f277baa6672532a582bdfe8edc55",
+            "capture_page_sha256": {
+                "a": "a9bd3dc94e7d1b119d69bd1f6ec7f1b82ca8f8d2c80b15341d9861fd10afca82",
+                "b": "a9bd3dc94e7d1b119d69bd1f6ec7f1b82ca8f8d2c80b15341d9861fd10afca82"
+            },
+            "admission_log_sha256": "10c8a29fbaf49297efa45f11f4b12ca03f2ead19d3fe3cdf302a2037fef7241e",
+            "compiled_entities": 7,
+            "capture_warnings": [],
+            "capture_notes": [],
+            "native_unselected_state": "Complete posts except edited page/revisions, Qi options/styles, metadata/files, upload census, IDs, UUIDs and featured relations remain byte-identical to setup-complete."
+        },
+        {
+            "case": "global-desktop-hidden",
+            "body_sha256": "7e0a757cb06b983806f97258c4931b641a62dfaf18043ce523359a85cf9eb7ba",
+            "body_bytes": 80754,
+            "lock": {
+                "move": false,
+                "remove": false
+            },
+            "metadata": {
+                "blockVisibility": {
+                    "viewport": {
+                        "desktop": false
+                    }
+                }
+            },
+            "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":9,\"url\":\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":false,\"remove\":false},\"metadata\":{\"blockVisibility\":{\"viewport\":{\"desktop\":false}}}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-9\"  src=\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->",
+            "native_stdout_sha256": "68ff0d600e30aaca0f683d43ac06f5c80120bafe101f5b38080337c51c81c628",
+            "capture_page_sha256": {
+                "a": "856d01e40b5440602f3459b25a073323ffcc523fe8f46ff0367a11857c0b50ac",
+                "b": "856d01e40b5440602f3459b25a073323ffcc523fe8f46ff0367a11857c0b50ac"
+            },
+            "admission_log_sha256": "b15020af9f2130193df0495d25a7085df140da4eb7c2ff93457d1be70e4a23a3",
+            "compiled_entities": 7,
+            "capture_warnings": [],
+            "capture_notes": [],
+            "native_unselected_state": "Complete posts except edited page/revisions, Qi options/styles, metadata/files, upload census, IDs, UUIDs and featured relations remain byte-identical to setup-complete."
+        },
+        {
+            "case": "global-mobile-only",
+            "body_sha256": "386c3af7c51be17250b185425e8a8a6e57326e75d5f10affa2b3862b1432f8c6",
+            "body_bytes": 80753,
+            "lock": {
+                "move": false,
+                "remove": false
+            },
+            "metadata": {
+                "blockVisibility": {
+                    "viewport": {
+                        "mobile": false
+                    }
+                }
+            },
+            "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":9,\"url\":\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":false,\"remove\":false},\"metadata\":{\"blockVisibility\":{\"viewport\":{\"mobile\":false}}}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-9\"  src=\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->",
+            "native_stdout_sha256": "f4243064529d6f005844cd78591142fc55cfa1b5e50c72101db6919aaea15bd8",
+            "capture_page_sha256": {
+                "a": "2bd760ef35a86a7ecec03fa8b4b1e9ad6f1c9b40d1c56ff86c3b3ffaac9c664f",
+                "b": "2bd760ef35a86a7ecec03fa8b4b1e9ad6f1c9b40d1c56ff86c3b3ffaac9c664f"
+            },
+            "admission_log_sha256": "5a5db572cccc13d463375bbc7bf4837d0032126e7a395bcbfef492a6d2ff460b",
+            "compiled_entities": 7,
+            "capture_warnings": [],
+            "capture_notes": [],
+            "native_unselected_state": "Complete posts except edited page/revisions, Qi options/styles, metadata/files, upload census, IDs, UUIDs and featured relations remain byte-identical to setup-complete."
+        },
+        {
+            "case": "global-all-viewports-hidden",
+            "body_sha256": "402d49c1466cad77d7808af763e4298df44819ba9788374bb076c9f4d134c59a",
+            "body_bytes": 80784,
+            "lock": {
+                "move": false,
+                "remove": false
+            },
+            "metadata": {
+                "blockVisibility": {
+                    "viewport": {
+                        "desktop": false,
+                        "tablet": false,
+                        "mobile": false
+                    }
+                }
+            },
+            "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":9,\"url\":\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":false,\"remove\":false},\"metadata\":{\"blockVisibility\":{\"viewport\":{\"desktop\":false,\"tablet\":false,\"mobile\":false}}}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-9\"  src=\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->",
+            "native_stdout_sha256": "c80d4bf3b7ad3c156d4568b762001eb7de176c769d8f79cb671dfb9d8d931485",
+            "capture_page_sha256": {
+                "a": "6f41097a71dbec2a49efd65f69855860fbd30427fa0eb93a87be2002d23482b6",
+                "b": "6f41097a71dbec2a49efd65f69855860fbd30427fa0eb93a87be2002d23482b6"
+            },
+            "admission_log_sha256": "515262edeaa9846e11ddb9546ed49ff21c194c609c4a0b6ff9a1b90742500964",
+            "compiled_entities": 7,
+            "capture_warnings": [],
+            "capture_notes": [],
+            "native_unselected_state": "Complete posts except edited page/revisions, Qi options/styles, metadata/files, upload census, IDs, UUIDs and featured relations remain byte-identical to setup-complete."
+        },
+        {
+            "case": "global-reset-final",
+            "body_sha256": "faf7a877949e89f88bc2c3ecf0589a5ef7bc937c78404dcd5e7af906936db174",
+            "body_bytes": 80692,
+            "lock": {
+                "move": false,
+                "remove": false
+            },
+            "metadata": null,
+            "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":9,\"url\":\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":false,\"remove\":false}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-9\"  src=\"http://localhost:9517/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->",
+            "native_stdout_sha256": "d881c60ac989933e6b5747413f800884be80ff7681c6101da18a08585ae87b74",
+            "capture_page_sha256": {
+                "a": "6985f99486b87668afecd84697aa6927e0d856aff1ef472fde9da3f567d5fe17",
+                "b": "6985f99486b87668afecd84697aa6927e0d856aff1ef472fde9da3f567d5fe17"
+            },
+            "admission_log_sha256": "d9059d36c4418686ef4951c79246ab9d578fdb2f78cc3d147f4ffbea39e05f37",
+            "compiled_entities": 7,
+            "capture_warnings": [],
+            "capture_notes": [],
+            "native_unselected_state": "Complete posts except edited page/revisions, Qi options/styles, metadata/files, upload census, IDs, UUIDs and featured relations remain byte-identical to setup-complete."
+        }
+    ],
+    "observed_writers": [
+        {
+            "case": "global-lock-rename",
+            "url": "http://localhost:9517/wp-json/wp/v2/pages/12?_locale=user",
+            "status": 200,
+            "response_bytes": 152569,
+            "response_sha256": "62e8ef1e18e326c2edf22da65115edfa97b0bd6068c551cfe80b3c063326f504",
+            "request_sha256": "e9b61fcef5bea22bdddf07e934e65f0ea3a12fe7b17bb8876aee9804eb4f2d36",
+            "content_raw_sha256": "227e9797f6f2d6c71e97714cf14f3920f2618cc39862d92f153c081e560de961"
+        },
+        {
+            "case": "global-mobile-hidden",
+            "url": "http://localhost:9517/wp-json/wp/v2/pages/12?_locale=user",
+            "status": 200,
+            "response_bytes": 152669,
+            "response_sha256": "bb253e91829ead9dc4e0f7b86102d05ba78be7496fd8877b75ea170ddcafc38d",
+            "request_sha256": "8aeaacf22d91d4a61addfb7d2f548327c4d0b575d2ee1b35d9e86f8bb3ec8afb",
+            "content_raw_sha256": "c61286414082c11bf792650f365885195a72117832602e2af75e7c85e556994b"
+        },
+        {
+            "case": "global-omitted",
+            "url": "http://localhost:9517/wp-json/wp/v2/pages/12?_locale=user",
+            "status": 200,
+            "response_bytes": 151805,
+            "response_sha256": "771fa7572e0ac5952a6a3331826e764c9813d443bd24b22fce5f5c50b4d06dbe",
+            "request_sha256": "253acefa899ae126e310f1610c002aa9631db70ca131703603509bdf1214bd71",
+            "content_raw_sha256": "bf6d9bba5c65aab439dc868de15a8457260f858cb998bc69690f170efc21b2ba"
+        },
+        {
+            "case": "global-lock-both",
+            "url": "http://localhost:9517/wp-json/wp/v2/pages/12?_locale=user",
+            "status": 200,
+            "response_bytes": 151804,
+            "response_sha256": "431099dbdc6cd22458c0cd893b05fbf618d41e9073fdd209b46089844425f50d",
+            "request_sha256": "e7f2799d1b6f24166373376fa601593400fc295e9c12ceddf19405d71b17fdef",
+            "content_raw_sha256": "8afdded80bf057a8107f9c1fbdb39f08d49f112a09182d30b022d57569f1c6f1"
+        },
+        {
+            "case": "global-lock-removal",
+            "url": "http://localhost:9517/wp-json/wp/v2/pages/12?_locale=user",
+            "status": 200,
+            "response_bytes": 151805,
+            "response_sha256": "17ac7af874a16db5b8560e382c3547c8146d6cf0690f6195130adb73dcdffde9",
+            "request_sha256": "8bb4d0b5edad93caa1dd3e9fb6082ccaddfb09324a07af456724f6fd8b2dd669",
+            "content_raw_sha256": "c0823ea0c47e38586f12ed2e3af625ec083837f430ad48e319a8524a015ab7ac"
+        },
+        {
+            "case": "global-visible-unlocked",
+            "url": "http://localhost:9517/wp-json/wp/v2/pages/12?_locale=user",
+            "status": 200,
+            "response_bytes": 152570,
+            "response_sha256": "766fa568765cc4a759b46327f73c455d7fba86868e67c42b85eff14020b48939",
+            "request_sha256": "14958169a501551bb754439eeba010c512586b47529fcca7314360a044bf6c70",
+            "content_raw_sha256": "5d734c660777b4750d56e03131717e446aa83312b0ee51326bd9cb45e72b9c07"
+        },
+        {
+            "case": "global-reset",
+            "url": "http://localhost:9517/wp-json/wp/v2/pages/12?_locale=user",
+            "status": 200,
+            "response_bytes": 152518,
+            "response_sha256": "06bd075dce87a9f446b381a11a4f5d25d2ebe04555c48d8d62d038cf250951a8",
+            "request_sha256": "eee5c9bc7e9e8504db2862e57f807206c796cfa4680857e5245aaf0a6d73de9b",
+            "content_raw_sha256": "faf7a877949e89f88bc2c3ecf0589a5ef7bc937c78404dcd5e7af906936db174"
+        }
+    ],
+    "computed_visibility": [
+        {
+            "case": "global-mobile-hidden",
+            "viewport": [
+                375,
+                900
+            ],
+            "owner_count": 1,
+            "display": "none",
+            "image_count": 1,
+            "rect_count": 0,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f wp-block-hidden-mobile"
+        },
+        {
+            "case": "global-mobile-hidden",
+            "viewport": [
+                820,
+                900
+            ],
+            "owner_count": 1,
+            "display": "inline-block",
+            "image_count": 1,
+            "rect_count": 1,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f wp-block-hidden-mobile"
+        },
+        {
+            "case": "global-mobile-hidden",
+            "viewport": [
+                1440,
+                900
+            ],
+            "owner_count": 1,
+            "display": "inline-block",
+            "image_count": 1,
+            "rect_count": 1,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f wp-block-hidden-mobile"
+        },
+        {
+            "case": "global-omitted",
+            "viewport": [
+                1280,
+                720
+            ],
+            "owner_count": 0,
+            "display": null,
+            "image_count": 0,
+            "rect_count": null,
+            "classes": null
+        },
+        {
+            "case": "global-visible-unlocked",
+            "viewport": null,
+            "owner_count": 1,
+            "display": "inline-block",
+            "image_count": 1,
+            "rect_count": 1,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f"
+        },
+        {
+            "case": "global-tablet-hidden",
+            "viewport": [
+                375,
+                900
+            ],
+            "owner_count": 1,
+            "display": "inline-block",
+            "image_count": 1,
+            "rect_count": 1,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f wp-block-hidden-tablet"
+        },
+        {
+            "case": "global-tablet-hidden",
+            "viewport": [
+                820,
+                900
+            ],
+            "owner_count": 1,
+            "display": "inline-block",
+            "image_count": 1,
+            "rect_count": 1,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f wp-block-hidden-tablet"
+        },
+        {
+            "case": "global-tablet-hidden",
+            "viewport": [
+                1440,
+                900
+            ],
+            "owner_count": 1,
+            "display": "inline-block",
+            "image_count": 1,
+            "rect_count": 1,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f wp-block-hidden-tablet"
+        },
+        {
+            "case": "global-tablet-hidden",
+            "viewport": [
+                600,
+                900
+            ],
+            "owner_count": 1,
+            "display": "none",
+            "image_count": 1,
+            "rect_count": 0,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f wp-block-hidden-tablet"
+        },
+        {
+            "case": "global-desktop-hidden",
+            "viewport": [
+                375,
+                900
+            ],
+            "owner_count": 1,
+            "display": "inline-block",
+            "image_count": 1,
+            "rect_count": 1,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f wp-block-hidden-desktop"
+        },
+        {
+            "case": "global-desktop-hidden",
+            "viewport": [
+                600,
+                900
+            ],
+            "owner_count": 1,
+            "display": "inline-block",
+            "image_count": 1,
+            "rect_count": 1,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f wp-block-hidden-desktop"
+        },
+        {
+            "case": "global-desktop-hidden",
+            "viewport": [
+                1440,
+                900
+            ],
+            "owner_count": 1,
+            "display": "none",
+            "image_count": 1,
+            "rect_count": 0,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f wp-block-hidden-desktop"
+        },
+        {
+            "case": "global-mobile-only",
+            "viewport": [
+                375,
+                900
+            ],
+            "owner_count": 1,
+            "display": "none",
+            "image_count": 1,
+            "rect_count": 0,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f wp-block-hidden-mobile"
+        },
+        {
+            "case": "global-mobile-only",
+            "viewport": [
+                600,
+                900
+            ],
+            "owner_count": 1,
+            "display": "inline-block",
+            "image_count": 1,
+            "rect_count": 1,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f wp-block-hidden-mobile"
+        },
+        {
+            "case": "global-mobile-only",
+            "viewport": [
+                1440,
+                900
+            ],
+            "owner_count": 1,
+            "display": "inline-block",
+            "image_count": 1,
+            "rect_count": 1,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f wp-block-hidden-mobile"
+        },
+        {
+            "case": "global-all-viewports-hidden",
+            "viewport": [
+                375,
+                900
+            ],
+            "owner_count": 1,
+            "display": "none",
+            "image_count": 1,
+            "rect_count": 0,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f wp-block-hidden-desktop wp-block-hidden-mobile wp-block-hidden-tablet"
+        },
+        {
+            "case": "global-all-viewports-hidden",
+            "viewport": [
+                600,
+                900
+            ],
+            "owner_count": 1,
+            "display": "none",
+            "image_count": 1,
+            "rect_count": 0,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f wp-block-hidden-desktop wp-block-hidden-mobile wp-block-hidden-tablet"
+        },
+        {
+            "case": "global-all-viewports-hidden",
+            "viewport": [
+                1440,
+                900
+            ],
+            "owner_count": 1,
+            "display": "none",
+            "image_count": 1,
+            "rect_count": 0,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f wp-block-hidden-desktop wp-block-hidden-mobile wp-block-hidden-tablet"
+        },
+        {
+            "case": "global-reset-final",
+            "viewport": [
+                375,
+                900
+            ],
+            "owner_count": 1,
+            "display": "inline-block",
+            "image_count": 1,
+            "rect_count": 1,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f"
+        },
+        {
+            "case": "global-reset-final",
+            "viewport": [
+                600,
+                900
+            ],
+            "owner_count": 1,
+            "display": "inline-block",
+            "image_count": 1,
+            "rect_count": 1,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f"
+        },
+        {
+            "case": "global-reset-final",
+            "viewport": [
+                1440,
+                900
+            ],
+            "owner_count": 1,
+            "display": "inline-block",
+            "image_count": 1,
+            "rect_count": 1,
+            "classes": "wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f"
+        }
+    ],
+    "diagnostics": {
+        "editor_errors": [],
+        "editor_warnings": [],
+        "network": "Seven initial writer responses retained by full body/request/response hashes; later truncated windows excluded.",
+        "first_save": "Full first-Save diff contains only two deletions of two LF bytes outside the changed Single Image owner. This is explicit native authoring evidence, never runtime normalization.",
+        "all_viewports": "Initial scratch expectation guessed viewport member order; retained native writer and complete captures preserve desktop/tablet/mobile order. Initial failure retained; no adapter bytes changed."
+    },
+    "teardown": "Parent owned authoring session exited zero after QI_TARGET_GLOBAL_EDITOR_AUTHORING_CLEANUP_PASSED; pair list confirms no live or stopped owned pairs.",
+    "first_save_serialization": {
+        "before_sha256": "e1e1b72327e969b20e28c0df04586f125604d3038e3817b768dcce19614a6ba3",
+        "after_sha256": "227e9797f6f2d6c71e97714cf14f3920f2618cc39862d92f153c081e560de961",
+        "deletions": [
+            {
+                "offset": 19426,
+                "bytes_hex": "0a0a"
+            },
+            {
+                "offset": 55604,
+                "bytes_hex": "0a0a"
+            }
+        ],
+        "scope": "Complete independently replayed corpus differs from actual first native editor writer by exactly four LF bytes after Comments Template and Process. No other attribute or HTML differences."
+    }
+}

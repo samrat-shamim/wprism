@@ -17,6 +17,8 @@ final class QiNativeMediaEvidence {
             QiNativeApplyEvidence::check(($http['format'] ?? null) === 'wprism-qi-native-media-pixels/v1'
                 && $http['home'] === $native['home'] && $http['page'] === $native['ids']['page']
                 && $http['attachment'] === $native['ids']['image'], 'crop HTTP observation has the wrong native owner');
+            QiNativeApplyEvidence::check(($http['original_samples'] ?? null) === [[0, 0, 0, 0], [255, 0, 0, 0], [0, 255, 173, 0], [255, 255, 173, 0], [127, 127, 0, 0]],
+                'crop HTTP observation lacks its independent asymmetric original premise');
             QiNativeApplyEvidence::check(count($http['images']) === 4, 'crop HTTP observation must retain all four consumers');
             foreach (QiNativeMediaCorpus::DIMENSIONS as $i => [$width, $height]) {
                 $row = $http['images'][$i];

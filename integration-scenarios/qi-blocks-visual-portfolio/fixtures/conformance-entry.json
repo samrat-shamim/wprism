@@ -3,6 +3,7 @@
   "entry": {
     "mode": "agent-apply-roundtrip",
     "disable_target_cron": true,
+    "disable_source_cron": true,
     "adopt_by_slug": [
       "terms",
       "posts"

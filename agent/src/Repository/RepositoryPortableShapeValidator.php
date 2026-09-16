@@ -47,6 +47,7 @@ require_once __DIR__ . '/../Grammar/AuthoredValueCodec.php';
 require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 require_once __DIR__ . '/../Kernel/BlockAttributeReader.php';
 require_once __DIR__ . '/../Kernel/HtmlMediaReferences.php';
+require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
 
 final class RepositoryPortableShapeValidator {
     private const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
@@ -595,7 +596,8 @@ final class RepositoryPortableShapeValidator {
             $this->add('repository_html_media_invalid', $path, $rootLocator, $e->getMessage());
         }
         $rules = [];
-        foreach ($this->policy->block_attr_rules() as $block => $attributes) {
+        $allRules = $this->policy->block_attr_rules();
+        foreach ($allRules as $block => $attributes) {
             foreach ($attributes as $rule) {
                 // Repository edits bypass Capture. An explicit native
                 // refusal must also prevent a target-free compiled artifact.
@@ -609,6 +611,12 @@ final class RepositoryPortableShapeValidator {
             return;
         }
         foreach ($blocks as $block) {
+            try {
+                BlockValueGrammar::assert_closed_attributes($block['blockName'], $block['attrs'], $allRules[$block['blockName']]);
+            } catch (\RuntimeException $e) {
+                $this->add('repository_block_attribute_undeclared', $path, $rootLocator . '@' . $block['offset'] . '.attrs', $e->getMessage());
+                continue;
+            }
             foreach ($rules[$block['blockName']] as $attribute => $rule) {
                 if (!array_key_exists($attribute, $block['attrs'])) continue;
                 $locator = $rootLocator . '@' . $block['offset'] . '.attrs.' . $attribute;

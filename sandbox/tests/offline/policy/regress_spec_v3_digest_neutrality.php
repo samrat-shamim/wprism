@@ -6,9 +6,9 @@
  * provider, and regenerator byte projection that a repository pin and a
  * compiled artifact bind. This suite names its historical 21-subject baseline as
  * literals: it does not retain a prior-product transition or silently compare
- * two fresh derivations. A change to a baseline package must re-pin the exact
- * affected digest, compatible-world manifest hashes, registry address, and
- * frozen-policy snapshots deliberately.
+ * two fresh derivations. The retained historical library supplies every input
+ * byte; a current capsule edit has its own identity evidence and does not
+ * rewrite this historical product image.
  */
 declare(strict_types=1);
 
@@ -21,6 +21,7 @@ if (!function_exists('is_multisite')) {
 }
 
 require_once __DIR__ . '/../../lib/check.php';
+require_once __DIR__ . '/../../lib/historical_identity_library.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
@@ -29,7 +30,6 @@ require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterRegistry.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/ArtifactPolicyIdentity.php';
 
-use WPrism\AdapterLibrary;
 use WPrism\ArtifactPolicyIdentity;
 use WPrism\Canon;
 use WPrism\ManifestDispositions;
@@ -47,7 +47,7 @@ const YOAST_WORLD_SNAPSHOT_SHA256 = 'dfaee496b3d281cc8dc8ac3db623af932b2537952d2
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';
-$adapterLibrary = AdapterLibrary::fromSourceTree($repo);
+$adapterLibrary = WPrismHistoricalIdentityLibrary::materialize();
 
 wprism_check(is_file($fixturePath), 'the WPrism greenfield identity baseline is tracked');
 wprism_check_same(
@@ -75,7 +75,7 @@ if (!is_array($rankPins) || !is_array($yoastPins)) {
 $baselineNames = array_keys((array) ($baseline['adapter_digests'] ?? []));
 $actualNames = array_map(static fn(\WPrism\AdapterPackage $package): string => $package->name(), $adapterLibrary->packages());
 sort($actualNames, SORT_STRING);
-wprism_check_same([], array_values(array_diff($baselineNames, $actualNames)), 'every historical identity fixture subject still exists in the live library');
+wprism_check_same($baselineNames, $actualNames, 'the retained historical library contains exactly its original identity subjects');
 wprism_check_same(array_values(array_diff($baselineNames, ['change-wp-admin-login', 'yoast'])), $rankPins, 'the Rank-compatible world is the original subject set except Yoast');
 wprism_check_same(array_values(array_diff($baselineNames, ['change-wp-admin-login', 'rank-math'])), $yoastPins, 'the Yoast-compatible world is the original subject set except Rank Math');
 wprism_check_same(19, count($rankPins), 'the Rank-compatible maximal world contains 19 adapters');
@@ -86,9 +86,8 @@ wprism_check_same($baselineNames, $worldUnion, 'the compatible worlds jointly co
 wprism_check_same(['rank-math'], array_values(array_diff($rankPins, $yoastPins)), 'only Rank Math distinguishes the Rank-compatible world');
 wprism_check_same(['yoast'], array_values(array_diff($yoastPins, $rankPins)), 'only Yoast distinguishes the Yoast-compatible world');
 
-// Whole-registry addressing still sees every new capsule (WP-4.5). The
-// historical fixture records only its original cohort; validate its registry
-// through the frozen registry reader before comparing the literal hashes.
+// Validate the retained historical registry through the ordinary frozen
+// reader. Today's library inventory does not participate in these literals.
 $liveRegistry = ManifestDispositions::load_library($adapterLibrary);
 $fixtureData = $liveRegistry->data();
 $fixtureData['manifests'] = array_intersect_key($fixtureData['manifests'], array_flip($baselineNames));
@@ -100,17 +99,6 @@ $fixtureSnapshot = static function (Policy $policy) use ($fixtureRegistry): arra
     ManifestDispositions::from_snapshot($snapshot['dispositions'], $snapshot['manifests']);
     return $snapshot;
 };
-if (count($actualNames) > count($baselineNames)) {
-    wprism_check($liveRegistry->sha256() !== $fixtureRegistry->sha256(), 'a capsule addition still changes the actual whole-registry address');
-}
-foreach (array_diff($actualNames, $baselineNames) as $name) {
-    $current = Policy::load(null, ['core', $name], adapterLibrary: $adapterLibrary)->export_snapshot();
-    // The inspection-only load override is not site intent. A frozen site
-    // explicitly names its pins (Policy::from_snapshot's count invariant).
-    $current['site']['manifests'] = ['core', $name];
-    wprism_check_same($liveRegistry->data(), $current['dispositions'], "$name receives the complete current registry");
-    wprism_check_same($current, Policy::from_snapshot($current, $adapterLibrary)->export_snapshot(), "$name survives the complete current frozen policy reader");
-}
 
 echo "\nPART 1 — exact adapter identity map\n";
 $worldPolicies = [
@@ -278,5 +266,29 @@ wprism_check_same(
     [$restored['agent_version'] ?? null, $restored['spec_version'] ?? null],
     'the unmodified WPrism platform boundary loads, proving the two refusals are mutation-specific'
 );
+
+echo "\nPART 5 — retained input materialization needs no repository scratch\n";
+$cleanRoot = sys_get_temp_dir() . '/wprism-identity-clean-root-' . bin2hex(random_bytes(12));
+if (!mkdir($cleanRoot . '/sandbox/tests/lib', 0700, true)) {
+    throw new RuntimeException('cannot allocate clean-root identity control');
+}
+register_shutdown_function(static fn() => $removeTree($cleanRoot));
+foreach (['historical_identity_library.php', 'ShellProbe.php', 'check.php'] as $file) {
+    if (!copy($repo . '/sandbox/tests/lib/' . $file, $cleanRoot . '/sandbox/tests/lib/' . $file)) {
+        throw new RuntimeException('cannot copy clean-root identity test dependency');
+    }
+}
+if (!symlink($repo . '/agent', $cleanRoot . '/agent')
+    || !symlink($repo . '/sandbox/tests/fixtures', $cleanRoot . '/sandbox/tests/fixtures')) {
+    throw new RuntimeException('cannot bind clean-root read-only identity dependencies');
+}
+wprism_check(!file_exists($cleanRoot . '/sandbox/tmp'), 'the clean-root control begins without ignored repository scratch');
+[$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(
+    'exec php -r \'require $argv[1] . "/sandbox/tests/lib/historical_identity_library.php"; echo count(WPrismHistoricalIdentityLibrary::materialize()->packages()), "\\n";\' "$1"',
+    [$cleanRoot], $cleanRoot
+);
+wprism_check_same([0, "21\n", ''], [$status, $stdout, $stderr],
+    'the actual historical helper admits every byte-pinned subject in a fresh root without diagnostics');
+wprism_check(!file_exists($cleanRoot . '/sandbox/tmp'), 'historical extraction has no repository setup side effect');
 
 wprism_check_summary('spec v3 digest neutrality');

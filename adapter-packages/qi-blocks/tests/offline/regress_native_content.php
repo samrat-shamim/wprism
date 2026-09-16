@@ -36,6 +36,14 @@ $site['policy']['post_types'] = ['post', 'page', 'attachment', 'product', 'wpcf7
 $site['policy']['taxonomies'] = [];
 $policy = FrozenPolicy::policy([$core, $manifest], $site);
 $originalValues = $blockValues;
+require_once $fixture . '/native-schema/roster.php';
+$schema = Canon::decode(Canon::read_file($fixture . '/native-schema/roster.json'));
+foreach (QiNativeSchemaRoster::expand($schema['added_groups']) as $block => $attributes) {
+    foreach ($attributes as $attribute => $_type) unset($originalValues[$block][$attribute]);
+    // These are WordPress global controls, not changes to the original Qi
+    // artifact-derived 7,497 field rules retained by the independent hash.
+    unset($originalValues[$block]['lock'], $originalValues[$block]['metadata']);
+}
 foreach (['image-gallery', 'image-gallery-pinterest', 'image-slider'] as $name) {
     wprism_check_same(['container' => 'list', 'fields' => ['id', 'url', 'alt', 'caption']],
         $originalValues['qi-blocks/' . $name]['gallery']['record_fields'], 'only the three native full-response gallery controls declare record projection');
@@ -44,7 +52,7 @@ foreach (['image-gallery', 'image-gallery-pinterest', 'image-slider'] as $name) 
 wprism_check_same('5672b59ca5db32ed09c1a1c1798a08cf341b6d93bb3ab2650e10118134eafd27',
     hash('sha256', Canon::encode($originalValues)), 'compact Qi declarations preserve every reviewed attribute rule apart from the three intentional gallery projections');
 $inventory = Canon::decode(Canon::read_file($fixture . '/authoring-inventory.json'));
-$declarations = $inventory['declaration_groups'];
+$declarations = $inventory['closed_attribute_roster'];
 $groups = $manifest['block_values']['groups'];
 $productGroups = array_values(array_filter($groups, static fn(array $group): bool => isset($group['attribute_bases'])));
 wprism_check_same($declarations['groups'], count($groups), 'native inventory pins the complete exact declaration group count');
@@ -59,12 +67,12 @@ wprism_check_same($declarations['attribute_product_names'], array_sum(array_map(
 )), 'native inventory pins the exact expanded product-name count');
 wprism_check_same($declarations['expanded_attributes'], array_sum(array_map('count', $blockValues)),
     'native inventory pins the complete expanded field count');
-wprism_check_same($declarations['manifest_bytes_with_name_products'], strlen($manifestBytes),
+wprism_check_same($declarations['manifest_bytes'], strlen($manifestBytes),
     'native inventory pins the compact manifest byte count');
-wprism_check_same($declarations['manifest_lines_with_name_products'], substr_count($manifestBytes, "\n"),
+wprism_check_same($declarations['manifest_lines'], substr_count($manifestBytes, "\n"),
     'native inventory pins the compact manifest line count');
-wprism_check(strlen($manifestBytes) < $declarations['manifest_bytes_before_name_products'],
-    'exact name products materially reduce the authored manifest');
+wprism_check(strlen($manifestBytes) < 2 * $inventory['declaration_groups']['manifest_bytes_with_name_products'],
+    'complete scalar declarations grow the compact manifest by less than two times while field coverage grows nearly three times');
 $uuid = static fn(int $id): string => '11111111-1111-4111-8111-' . sprintf('%012d', $id);
 $database = static function (int $offset) use ($uuid): FakeWpdb {
     $rows = [];

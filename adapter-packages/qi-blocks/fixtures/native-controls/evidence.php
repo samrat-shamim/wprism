@@ -6,27 +6,7 @@ require_once __DIR__ . '/corpus.php';
 
 final class QiNativeControlsEvidence {
     public static function native(array $source, array $target, array $before, array $seed, string $saved): void {
-        foreach ([$source, $target, $before] as $record) QiNativeApplyEvidence::check(($record['format'] ?? null) === 'wprism-qi-native-apply/v1', 'native gallery record format');
-        QiNativeApplyEvidence::check($source['home'] === $seed['home'] && $target['home'] === $before['home']
-            && $source['home'] !== $target['home'], 'native gallery home bindings changed');
-        QiNativeApplyEvidence::check($source['ids'] === $seed['ids'] && $target['ids'] === $before['ids']
-            && $source['uuids'] === $target['uuids'] && $target['uuids'] === $before['uuids'], 'gallery update changed native or durable identities');
-        foreach ([$source, $target] as $native) {
-            $image = str_replace($seed['home'], $native['home'], $seed['image_url']);
-            $expected = $native === $source ? QiConformanceCorpus::body($saved, $native['ids'], $native['home'], $image)
-                : QiConformanceCorpus::applied_body($saved, $native['ids'], $native['home'], $image);
-            QiNativeApplyEvidence::check($native['page_body'] === $expected, 'complete gallery body differs from independent native fixture expectation');
-            $rows = array_column($native['posts'], null, 'ID');
-            QiNativeApplyEvidence::check(($rows[$native['ids']['page']]['post_content'] ?? null) === $native['page_body'], 'gallery body differs from its complete stored native row');
-        }
-        foreach (['home', 'options', 'styles', 'featured', 'attachment', 'uploads'] as $field) {
-            QiNativeApplyEvidence::check($target[$field] === $before[$field], 'gallery-only update changed complete native ' . $field);
-        }
-        $posts = array_column($target['posts'], null, 'ID');
-        QiNativeApplyEvidence::check(count($posts) === count($before['posts']), 'gallery-only update created or deleted native posts');
-        foreach ($before['posts'] as $post) if ((int) $post['ID'] !== $before['ids']['page']) {
-            QiNativeApplyEvidence::check(($posts[$post['ID']] ?? null) === $post, 'gallery-only update changed an unrelated complete native row');
-        }
+        QiNativeApplyEvidence::content_native($source, $target, $before, $seed, $saved);
         QiNativeApplyEvidence::check(substr_count($source['page_body'], 'fixture-edit-nonce') === 3
             && !str_contains($target['page_body'], 'nonces') && !str_contains($target['page_body'], 'editLink'),
             'native source must contain three response caches and target must contain none');
@@ -47,6 +27,14 @@ final class QiNativeControlsEvidence {
                 QiNativeApplyEvidence::check($images->length === 1 && $images->item(0)->getAttribute('src') === $native['attachment']['url'],
                     'frontend gallery does not render its selected original attachment');
             }
+            $signatures = $xpath->query('//*[contains(concat(" ", normalize-space(@class), " "), " wp-block-qi-blocks-author-info ")]//*[contains(concat(" ", normalize-space(@class), " "), " qodef-m-signature ")]/img');
+            QiNativeApplyEvidence::check($signatures->length === 1 && $signatures->item(0)->getAttribute('src') === $native['attachment']['url'],
+                'frontend author signature does not render its selected original attachment');
+            foreach (['horizontal', 'vertical'] as $direction) {
+                $patterns = $xpath->query('//*[contains(concat(" ", normalize-space(@class), " "), " wp-block-qi-blocks-progress-bar-' . $direction . ' ")]//*[@data-pattern]');
+                QiNativeApplyEvidence::check($patterns->length === 1 && $patterns->item(0)->getAttribute('data-pattern') === $native['attachment']['url'],
+                    'frontend progress pattern does not select its original attachment');
+            }
         } finally {
             libxml_clear_errors();
             libxml_use_internal_errors($previous);
@@ -55,7 +43,10 @@ final class QiNativeControlsEvidence {
 }
 
 if (($argv[1] ?? null) === '--admit-controls') {
-    $root = dirname(__DIR__, 4); $capsule = dirname(__DIR__, 2); $sink = $argv[2]; $pair = $argv[3];
+    $root = dirname(__DIR__, 4);
+    $capsule = dirname(__DIR__, 2);
+    $sink = $argv[2];
+    $pair = $argv[3];
     require_once $root . '/sandbox/tests/lib/agent_version.php';
     require_once $root . '/sandbox/tests/lib/RepositoryConvergence.php';
     require_once $root . '/sandbox/tests/lib/wp_stubs.php';
@@ -63,7 +54,8 @@ if (($argv[1] ?? null) === '--admit-controls') {
     require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
     wprism_test_define_agent_versions();
     $read = static fn(string $name, string $verb = ''): array => QiNativeApplyEvidence::object($sink . '/' . $name, $pair, $root, $verb);
-    $source = $read('controls-source'); $target = $read('controls-target');
+    $source = $read('controls-source');
+    $target = $read('controls-target');
     $saved = QiNativeControlsCorpus::saved(file_get_contents($capsule . '/fixtures/native-blocks.html'), file_get_contents(__DIR__ . '/blocks.html'));
     QiNativeControlsEvidence::native($source, $target, $read('target2'), $read('seed1'), $saved);
     QiNativeApplyEvidence::content_update($read('controls-apply', 'apply'), $read('controls-repeat', 'apply'));
@@ -90,6 +82,6 @@ if (($argv[1] ?? null) === '--admit-controls') {
         if ($side !== 'controls-source') WPrismTest\RepositoryConvergence::assertSame($compiled['controls-source'], $compiled[$side]);
     }
     echo json_encode(['format' => 'wprism-qi-native-gallery-admission/v1', 'result' => 'pass', 'galleries' => 3,
-        'compiled_entities' => 7, 'applied' => 1, 'repeat_applied' => 0,
-        'scope' => 'Three real picker gallery fixtures through native REST Save, cross-ID Apply, full recapture, HTTP images/CSS and native-state preservation. Browser interaction and other media controls are separate.'], JSON_THROW_ON_ERROR), "\n";
+        'simple_media_controls' => 3, 'compiled_entities' => 7, 'applied' => 1, 'repeat_applied' => 0,
+        'scope' => 'All six retained picker fixtures through native REST Save, cross-ID Apply, full recapture, HTTP images/CSS, signature/pattern selection and native-state preservation. Browser interaction is separate.'], JSON_THROW_ON_ERROR), "\n";
 }

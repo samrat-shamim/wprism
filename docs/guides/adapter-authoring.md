@@ -115,7 +115,11 @@ PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 ```
 
-Put path normalization and other setup after this preamble. Create the ignored
+Keep this preamble in each live entry point when extracting setup into a
+sourced fixture. The fixture may validate the caller's capsule authority, but
+must not replace it: `regress_fetch_artifact.sh` checks the caller's first three
+statements independently of the fixture's execution. Put path normalization and
+other setup after this preamble. Create the ignored
 `sandbox/tmp` parent before allocating evidence below it; a fresh worktree does
 not contain that directory. Source shared helpers through the reviewed paths
 and capsule hooks through their `BASH_SOURCE`-relative paths, as enforced by
@@ -522,6 +526,16 @@ error envelopes even when the process exits zero. Decode a downloaded QR
 independently before claiming its encoded destination; a preview label alone
 proves neither the downloaded bytes nor their content.
 
+Page DOM visibility and focus do not establish that native browser input is
+available. Qi's disposable `admin/admin` login triggered Chrome's Password
+Manager notice outside the page DOM: links, toolbar controls and keyboard
+activation appeared inert while the page reported visible and focused. The
+same empty bare WordPress editor opened List View after that informational
+notice was acknowledged. Inspect the native browser surface and verify a
+simple control's actual postcondition before attributing an input failure to
+an adapter. Keep the incomplete attempt and the isolated premise correction;
+handling a test-environment notice grants no native Save/reopen evidence.
+
 Disabling WP-Cron does not quiesce every native shutdown callback. Trace any
 operational transition to its source, bind its exact phase, row identity and
 clock window, and prove no work was dispatched before permitting its measured
@@ -623,6 +637,83 @@ contact, checked PostMaterializer SQL with different IDs/URLs, rollback after
 an earlier write, retry, repeat and complete recapture. Include widget content
 when the same block can be stored there. `regress-block-attribute-values` is
 the engine pin; native plugin render and editor validation remain capsule work.
+
+### Closing a native block attribute roster
+
+Before treating a complete native block inventory as a closed contract,
+negotiate `block-attribute-closure/v1` alongside `block-attribute-values/v1`
+and declare its exact owned blocks:
+
+```json
+"block_attribute_closure": ["example/card", "example/gallery"]
+```
+
+The list is sorted, unique and bounded to 4,096 exact names of at most 128
+bytes. Each name must have a `block_values` map owned by this manifest. Its
+normalized value names plus disjoint legacy `block_attrs` paths form the
+complete allowed roster. Unknown attributes refuse by presence across Capture,
+immutable post/widget compilation, lint and Apply, including empty values.
+The diagnostic displays no unknown field name or value. Site policy cannot
+replace the roster; this feature refines the existing block-values capability.
+
+Before opting in, reconcile the complete exact-artifact schema with native
+Save outputs in every claimed content context. Numeric and boolean defaults
+need explicit rules too; WordPress can inject supported attributes beyond the
+plugin's own registration. An extension may introduce a valid native field
+whose meaning the adapter has not reviewed; declare its correct transport or
+keep that extension unsupported. Qualification of editor controls remains a
+separate native-behavior obligation; a schema roster is not that evidence.
+Do not use a generic plain-data catch-all or infer reference semantics from
+field spelling. Qi's unknown nested `extension.entity` reproduced successful
+Capture, empty lint findings and immutable compilation with a raw source ID.
+The shared closure regression pins this boundary and preserves existing open
+declarations. Nested fields still need their own value contract.
+
+Closed rosters also validate original comment bytes through the pure block
+attribute reader before WordPress parses them. Its parser can silently discard
+malformed JSON. Capture and Apply must refuse that input instead; parser-free
+post/widget Lint exercises the same boundary while retaining existing parser
+deferrals for other reference findings.
+
+### Literal flags, closed objects and strict scalar fields
+
+Some native attributes alternate between a literal flag and a closed object.
+WordPress 7.1 visibility controls save `metadata.blockVisibility:false` for an
+omitted block and a nonempty viewport object for responsive hiding. Its rename
+control writes a string name and removes the metadata object when the final
+member is cleared. The exact Qi native saves are retained in
+`adapter-packages/qi-blocks/fixtures/native-global-controls/`; an empty-container
+exception is not needed for those resets.
+
+Negotiate `block-value-shapes/v1` alongside the block value and contract
+features. An authored `one_of` contains exactly an `enum` rule and an
+`object_fields` rule. For example:
+
+```json
+{"class":"authored", "one_of":[
+  {"class":"authored", "enum":[false]},
+  {"class":"authored", "object_fields":{
+    "viewport":{"class":"authored", "object_fields":{
+      "mobile":{"class":"authored", "enum":[false]}
+    }}
+  }}
+]}
+```
+
+Selection follows JSON shape; invalid active values refuse without trying the
+other rule. Both alternatives receive complete recursive validation and count
+toward the existing contract budget. Alternative order grants no precedence.
+An authored `plain_data:true` rule may also declare `scalar_type` as `string`,
+`number` or `boolean`, admitting that exact JSON type without coercion. Use this
+for a reviewed text field such as the native block name instead of allowing an
+arbitrary object to occupy its string coordinate. Unknown object members still
+refuse, absence stays absent, and privacy clearance is unchanged.
+
+Original shape-bearing comment bytes and public post/widget Lint share pure
+validation of every present value contract on the selected owner, including
+ordinary enum/object siblings, even without WordPress parsing. Native Save/reopen, frontend
+visibility and other injected metadata remain separate evidence obligations;
+do not use these contracts to admit unreviewed bindings, notes or pattern IDs.
 
 ### Objects that mix selectors, flags and query text
 
@@ -772,6 +863,17 @@ those outcomes. Qi Blocks motivated this mechanism, but its native adapter
 qualification remains pending.
 
 ### Keep repeated block declarations reviewable
+
+Keep current identity evidence with its owner. A capsule's digest changes when
+its declaration or named executable bytes change; pin that intentional
+transition in the capsule's regression. Shared identity-mechanism tests use
+controlled declarations. A historical product-image proof must retain the
+actual historical package/platform input bytes, verify their complete file
+hashes, and load the ordinary library and policy readers against those inputs.
+Do not rebuild a historical digest or snapshot fixture from today's capsules:
+Qi's closed-roster edit exposed fourteen unrelated disposition-split failures
+from exactly that coupling. Do not add each later adapter edit to a global
+overlay of historical digests.
 
 A native block schema is authoring evidence, not a reason to copy an identical
 value rule thousands of times into a manifest. Qi's first draft expanded
@@ -4044,11 +4146,16 @@ library.
    production special cases to make a read-only assertion pass.
 
    For observations spanning conformance child hooks and Apply, set
-   `entry.disable_target_cron` to `true`. The shared runner establishes the
-   same owned target guard after pair bootstrap and removes it on success,
-   failure or signal; child hooks need no independent transport or cleanup.
+   `entry.disable_target_cron` or `entry.disable_source_cron` to `true` for each
+   observed site. The shared runner establishes independently owned guards
+   after pair bootstrap and removes them on success, failure or signal; child
+   hooks need no independent transport or cleanup. Qi's Visual Portfolio
+   combination exposed a source `_transient_doing_cron` timestamp change while
+   its complete canonical state stayed identical. Declare the source window
+   too when complete native source rows span repeated Capture.
    Omission or `false` preserves ordinary fixture cron behavior. The entry
-   accepts only a JSON boolean and is validated before pair mutation. This
+   accepts only JSON booleans and is validated before pair mutation. A cleanup
+   failure on one site must still release the other owned guard. This
    controls new fixture cron launches, not existing workers or other writers;
    complete-row comparisons must still retain cron rows. A version-matrix
    parent opens its own window for observations after the conformance child

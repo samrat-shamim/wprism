@@ -1,0 +1,310 @@
+{
+  "format": "wprism-historical-identity-library/v1",
+  "source_commit": "ff83547cfb808fc73b8fe953ebd517570ae8cc94",
+  "archive_sha256": "066cee07a7fe5c619d137352c714418e1ff1cd1a6d534bf1f4f8e3e9819ba9e7",
+  "subjects": [
+    "acf",
+    "advanced-editor-tools",
+    "change-wp-admin-login",
+    "classic-editor",
+    "code-snippets",
+    "contact-form-7",
+    "core",
+    "elementor",
+    "ninja-forms",
+    "paid-memberships-pro",
+    "polylang",
+    "qi-blocks",
+    "rank-math",
+    "redirection",
+    "the-events-calendar",
+    "woocommerce",
+    "wpforms-lite",
+    "wprism-agency-cpt",
+    "wps-hide-login",
+    "yoast",
+    "yoast-duplicate-post"
+  ],
+  "files": {
+    "adapter-packages/acf/package/disposition.json": {
+      "bytes": 4266,
+      "sha256": "85c4fd4547a397e570cf7342311eb62e0f0e702f481c3ebc0d7d6a79b4cd0e87"
+    },
+    "adapter-packages/acf/package/manifest.json": {
+      "bytes": 1868,
+      "sha256": "8776e7e64922c0aa70b348832a193869554b5faee4a4741a911daedf3080faca"
+    },
+    "adapter-packages/acf/package/runtime/interpreters/acf.php": {
+      "bytes": 27090,
+      "sha256": "bb59d5ce09030a0cbcbaaabfe3630bd2cd1f56823e9a4bd9817ee5849496ef85"
+    },
+    "adapter-packages/advanced-editor-tools/package/disposition.json": {
+      "bytes": 1619,
+      "sha256": "97121df41925d5f2a48cd0077e2a4a4d9be995f3f05b7491ad1e15df2ba171cc"
+    },
+    "adapter-packages/advanced-editor-tools/package/manifest.json": {
+      "bytes": 1939,
+      "sha256": "047d6d21b86301a52c8681d9623a0588f1f6e458a58a01b0b8b1735e84942f03"
+    },
+    "adapter-packages/change-wp-admin-login/package/disposition.json": {
+      "bytes": 2354,
+      "sha256": "19b24a3d37e253dfd39829525b00180a865609cd9d74a900c14779a50393c55b"
+    },
+    "adapter-packages/change-wp-admin-login/package/manifest.json": {
+      "bytes": 16280,
+      "sha256": "dc1bea5571e1783f4957f9d7558014a1d3a52b5b37a100b5e54f51221925abd5"
+    },
+    "adapter-packages/change-wp-admin-login/package/runtime/interpreters/change-wp-admin-login.php": {
+      "bytes": 2882,
+      "sha256": "609cb763332b97f0acdb3b7226e308aa1370fd7260287c2b707308a49d87c940"
+    },
+    "adapter-packages/classic-editor/package/disposition.json": {
+      "bytes": 1530,
+      "sha256": "7551879260bd0fa49b05255bec31c2f33a0527e6abdb1d29d1a9a17a3cd8f091"
+    },
+    "adapter-packages/classic-editor/package/manifest.json": {
+      "bytes": 1381,
+      "sha256": "ffad6256c34fd74538c4beba7f29299cd7fe3312d4b551795668bfeab8bb475b"
+    },
+    "adapter-packages/code-snippets/package/disposition.json": {
+      "bytes": 2577,
+      "sha256": "e2026fc7f6182e810f6c73addcadf146585dca5f56ec4885dab9cf7a75673a84"
+    },
+    "adapter-packages/code-snippets/package/manifest.json": {
+      "bytes": 5331,
+      "sha256": "8011eeffb6e4e246dac3ceb5128677be7debca08102101a9a39d336b9c62fd46"
+    },
+    "adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php": {
+      "bytes": 16055,
+      "sha256": "226d6b7e70541cfdc2854590717f6ea0742b000ca32acb5dd02b26276429dc10"
+    },
+    "adapter-packages/contact-form-7/package/disposition.json": {
+      "bytes": 4289,
+      "sha256": "d045bd81ee4bcdc8e242ef515ea8c02279de629789f05e72da0669fef089977e"
+    },
+    "adapter-packages/contact-form-7/package/manifest.json": {
+      "bytes": 7876,
+      "sha256": "a12d1223bf400f923ad2f68b74e8958a760a4aade7c3c398159e4ec43456d6bc"
+    },
+    "adapter-packages/contact-form-7/package/runtime/interpreters/contact-form-7.php": {
+      "bytes": 11816,
+      "sha256": "afe1a09b7b5d20ee31b65ca7b73eca2b54d4525efeec2068d784bf9222991353"
+    },
+    "adapter-packages/contact-form-7/package/runtime/providers/contact-form-7-form-content.php": {
+      "bytes": 12070,
+      "sha256": "c2a7f49884adafe56956ae45729ae6c4b2a29bbc35b21b73c5f4e130f8989ad3"
+    },
+    "adapter-packages/elementor/package/disposition.json": {
+      "bytes": 3725,
+      "sha256": "0d9b97bf0ca017026a63c05f002172d9bb5b72818c2151cbbfd121acb09821b9"
+    },
+    "adapter-packages/elementor/package/manifest.json": {
+      "bytes": 9128,
+      "sha256": "e8968ca8c55f41cbabd6a5672ab6084d45631312bb8a44605cfe169b086c258c"
+    },
+    "adapter-packages/elementor/package/runtime/providers/elementor-css.php": {
+      "bytes": 17892,
+      "sha256": "ede9dc943b95bbd03c1313d7cf251654d0abdf57c6bd3b422f730a6640dcd788"
+    },
+    "adapter-packages/ninja-forms/package/disposition.json": {
+      "bytes": 4129,
+      "sha256": "63be6da8f8e828d1bdb320ba966d65f4433b3ba0cd1a44f6446c5e9dac18088f"
+    },
+    "adapter-packages/ninja-forms/package/manifest.json": {
+      "bytes": 22181,
+      "sha256": "7127febed3e8b907cd05d30b62ba5788a5c9157c8163e766d4453557c7e3d017"
+    },
+    "adapter-packages/ninja-forms/package/runtime/interpreters/ninja-forms.php": {
+      "bytes": 10122,
+      "sha256": "5204f875f193b5bb120643588f559b94f8635e93018663084c2f23d667ae988c"
+    },
+    "adapter-packages/ninja-forms/package/runtime/providers/ninja-forms-form-cache.php": {
+      "bytes": 24126,
+      "sha256": "7af7ece751c68503d4efb9b9ba7ce3a9a138860b83b5d80dcf7187ffc2717988"
+    },
+    "adapter-packages/paid-memberships-pro/package/disposition.json": {
+      "bytes": 5659,
+      "sha256": "fd50d18dcd2d6258d3a7651533f2a9fd81b079d289c81f129c33a7f1bef8ad39"
+    },
+    "adapter-packages/paid-memberships-pro/package/manifest.json": {
+      "bytes": 36060,
+      "sha256": "b5674ba2258dfc6e764608d06305fdad785f8b3812bc6e5894ef5954cc84f717"
+    },
+    "adapter-packages/polylang/package/disposition.json": {
+      "bytes": 2194,
+      "sha256": "cad9756a2157a3e09d85362e2c809bd6722d96161796b8c3f862e14435cc1429"
+    },
+    "adapter-packages/polylang/package/manifest.json": {
+      "bytes": 40931,
+      "sha256": "db46e81440533fe9f6a5ff1e05e83b1cd4d1707b346cd6724ab2f974488d2e7f"
+    },
+    "adapter-packages/polylang/package/runtime/interpreters/polylang.php": {
+      "bytes": 72854,
+      "sha256": "c4cf3b44cfea41040e18a14356c2c57b97c9c37d6f86595f7d34f19cfb87dcdd"
+    },
+    "adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php": {
+      "bytes": 20122,
+      "sha256": "af578dfc9a6b39b67af664c2980f00bd305cb7c127cc325c56e671dc693ad6dc"
+    },
+    "adapter-packages/qi-blocks/package/disposition.json": {
+      "bytes": 1993,
+      "sha256": "974d3864e17963f3ba5be9aecce62ee07fa4d1c77b1dcde211cc534c1c10e575"
+    },
+    "adapter-packages/qi-blocks/package/manifest.json": {
+      "bytes": 93299,
+      "sha256": "9f1fafb56d5ab575c470e23928ec7f8d8b4784d5da2bf82cee6c80fa9767d76a"
+    },
+    "adapter-packages/rank-math/package/disposition.json": {
+      "bytes": 5060,
+      "sha256": "2722826fee665b17846e0c739f9c0d2df786b982137036ef71fd1501e08b8047"
+    },
+    "adapter-packages/rank-math/package/manifest.json": {
+      "bytes": 36264,
+      "sha256": "4b867607269aa09cb9e1e7cbe3aeef793d6eccf5b86a999a4c4fb2764e4a3b82"
+    },
+    "adapter-packages/rank-math/package/runtime/providers/rank-math-state.php": {
+      "bytes": 84625,
+      "sha256": "e3973f267f8caec0db7a8d33a2bfead2479a8a2c172388551261f56a2ef5daa6"
+    },
+    "adapter-packages/redirection/package/disposition.json": {
+      "bytes": 2500,
+      "sha256": "62cb8de107b12dd4d21444109a934f40c6ce4278fe4a9682ca4dbaa4c46cec3c"
+    },
+    "adapter-packages/redirection/package/manifest.json": {
+      "bytes": 11204,
+      "sha256": "e1979af988710e99decbcf9efb8c778352deedcb7cd59f488056d07a7733bf50"
+    },
+    "adapter-packages/redirection/package/runtime/providers/redirection-state.php": {
+      "bytes": 10790,
+      "sha256": "02b3e6bd93267bb3f3e20ece8bbf181cca0ba918f58b17397b15548fc01765ed"
+    },
+    "adapter-packages/the-events-calendar/package/disposition.json": {
+      "bytes": 4630,
+      "sha256": "86657f2a6310bead082c7d251fc1fd96e8e586868bfd0ddd5d8ab5c6c509ef2c"
+    },
+    "adapter-packages/the-events-calendar/package/manifest.json": {
+      "bytes": 56829,
+      "sha256": "78c7276098aae85d4f96ce354fe3cada8da519260525aaba5075b85826017291"
+    },
+    "adapter-packages/the-events-calendar/package/runtime/interpreters/the-events-calendar.php": {
+      "bytes": 137820,
+      "sha256": "9bafc102d0722bd08859331dbdbeb168ab523d0b81cf1928198a1c0e04f4be17"
+    },
+    "adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php": {
+      "bytes": 51982,
+      "sha256": "b83db0f38cbf46aa6506649c7037f1283de36bed7e2b7e115baf03a75a759c42"
+    },
+    "adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php": {
+      "bytes": 109660,
+      "sha256": "29b145ffaa7006d9daf9e50425153d479207724ede67f36d8ced99dbcd30047a"
+    },
+    "adapter-packages/woocommerce/package/disposition.json": {
+      "bytes": 7228,
+      "sha256": "959262140df8539c643e2f0b8dee20e0e9a94ce9e9365f213ddea7f92b3c3763"
+    },
+    "adapter-packages/woocommerce/package/manifest.json": {
+      "bytes": 222593,
+      "sha256": "a7f891a6f863d5ab96d898de4622d5452c8d865214cd99c740172b31e1a501c6"
+    },
+    "adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php": {
+      "bytes": 157008,
+      "sha256": "e7dee5ff26df583da5790a0bcca9fd367fee97b948a801ac2d4fb6ac5d3b9157"
+    },
+    "adapter-packages/woocommerce/package/runtime/providers/woocommerce-cache.php": {
+      "bytes": 5745,
+      "sha256": "230b1f425727336cc65ff39af67485f0b1ba14f7bf1f42442252da32431a8a3b"
+    },
+    "adapter-packages/woocommerce/package/runtime/providers/woocommerce-fulfillment-prerequisites.php": {
+      "bytes": 27241,
+      "sha256": "f4b51d0d9ccd20df863d9877c18970b4880094b4946df82fd5539087e5fd6033"
+    },
+    "adapter-packages/woocommerce/package/runtime/providers/woocommerce-hierarchy-lookups.php": {
+      "bytes": 59344,
+      "sha256": "0e41fd276142b48bca0275e96936096ec21d167ea10f5061e328c51b7c3c67ff"
+    },
+    "adapter-packages/woocommerce/package/runtime/providers/woocommerce-lifecycle-migrations.php": {
+      "bytes": 14486,
+      "sha256": "99c6bace83508f5a2c2ac89a03391dfa47695b62bf764dd0b65c2286a4237ab6"
+    },
+    "adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php": {
+      "bytes": 248775,
+      "sha256": "c60571ddc48f4358665b085001573afc78dff2ef30bb49d9f9acd6e76775ec6c"
+    },
+    "adapter-packages/woocommerce/package/runtime/providers/woocommerce-scheduler-settings.php": {
+      "bytes": 216307,
+      "sha256": "a64b08d7b7ea192ce2e80705ee5eab860824800251254a5e6d70aaaf3c19efdb"
+    },
+    "adapter-packages/wpforms-lite/package/disposition.json": {
+      "bytes": 2969,
+      "sha256": "63ec2abc6b4bc0399f24f02aab728e9d3d8c9674ea1b46f163fefc8937283ea1"
+    },
+    "adapter-packages/wpforms-lite/package/manifest.json": {
+      "bytes": 12343,
+      "sha256": "af4e29c2a24ae22056e9eb85385629b6b5b172f53915352f158c16761ab7f95f"
+    },
+    "adapter-packages/wpforms-lite/package/runtime/providers/wpforms-form-locations.php": {
+      "bytes": 25662,
+      "sha256": "1a960b90619bb1d0bb9edc549aa0201053acfc86d67c695b2d2458ca8a03badb"
+    },
+    "adapter-packages/wprism-agency-cpt/package/disposition.json": {
+      "bytes": 854,
+      "sha256": "4af74867ec78573d361c2f8a00bb702920c825ebc3263802f93c10c156bb2f21"
+    },
+    "adapter-packages/wprism-agency-cpt/package/manifest.json": {
+      "bytes": 3042,
+      "sha256": "015eca9b986cf7a15e87455ac0ed71a4dfe1d49a16bd68590a188191fee306cf"
+    },
+    "adapter-packages/wps-hide-login/package/disposition.json": {
+      "bytes": 1888,
+      "sha256": "1a0ac587529604140434d28a4733c7cb0ea7b3e8e09ef0fb27c324cd4a890214"
+    },
+    "adapter-packages/wps-hide-login/package/manifest.json": {
+      "bytes": 2328,
+      "sha256": "7c06d55543f0395408bd00a3ec89705e1d626fc21d211561be61426fa84004f5"
+    },
+    "adapter-packages/yoast-duplicate-post/package/disposition.json": {
+      "bytes": 3951,
+      "sha256": "d7ffc8b43ad3be152242d46439aed918eb08cc1b2d99287657017782e1a93f68"
+    },
+    "adapter-packages/yoast-duplicate-post/package/manifest.json": {
+      "bytes": 6192,
+      "sha256": "2625354a9618130a704a53f62779e8852e270b0aecafd0823e4bac86ec6372ca"
+    },
+    "adapter-packages/yoast-duplicate-post/package/runtime/providers/yoast-duplicate-post-role-capabilities.php": {
+      "bytes": 6690,
+      "sha256": "143aa26928715fce862f016333a7c417bf42f677652f60ae7f2bc6d86d03bd44"
+    },
+    "adapter-packages/yoast/package/disposition.json": {
+      "bytes": 3156,
+      "sha256": "278272dfe758f32f51e156f224304de4c59fa35f025e5f29bd49b3d215e4282f"
+    },
+    "adapter-packages/yoast/package/manifest.json": {
+      "bytes": 23681,
+      "sha256": "e319300014e96b089e456ebf68d32098b4bde13691c712c206876d3ae9a0c852"
+    },
+    "adapter-packages/yoast/package/runtime/providers/yoast-index.php": {
+      "bytes": 14878,
+      "sha256": "f69d754f39ab8b14a6d38e159e1f46bea7ed11da8acfb27dedc3110b88fb9417"
+    },
+    "platform/adapter-library/capabilities/adapter-authorities.json": {
+      "bytes": 66,
+      "sha256": "d7a4c7d7eb83c4292b49df83441d0d14ad64c296ae97d62a099bf84bf65c1ab6"
+    },
+    "platform/adapter-library/capabilities/platform.json": {
+      "bytes": 11244,
+      "sha256": "9e5b0db4dbe6d105ff4958e3b6809e1d699dd31a373f9c3d5a317865d73afc9d"
+    },
+    "platform/adapter-library/core/disposition.json": {
+      "bytes": 2483,
+      "sha256": "359cba42729b896017bdc0d8761dfb093e0433a539e11d117b81d16f1e7ab5e6"
+    },
+    "platform/adapter-library/core/manifest.json": {
+      "bytes": 51858,
+      "sha256": "76dc95aa88bc7861301c28b5647607ea6c3722475f5ae76d3993b330b105baa4"
+    },
+    "platform/adapter-library/profiles.json": {
+      "bytes": 912,
+      "sha256": "d54bef9ac6b749f74d6d9b67e36a468b10763eed27282b1587bd2785484a4f45"
+    }
+  }
+}

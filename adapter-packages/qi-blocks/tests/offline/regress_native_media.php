@@ -117,5 +117,5 @@ $write($mutate(static function (array &$attrs): void {
     $attrs['mainImageCustomHeightTablet'] = 129;
 }));
 wprism_check_same($recipes, RepositoryCompiler::compile($scratch, $policy)->media_derivatives(),
-    'unused responsive schema placeholders cannot grant image-generation work');
+    'declared unused responsive schema placeholders cannot grant image-generation work');
 if (wprism_check_failed() > 0) exit(1);

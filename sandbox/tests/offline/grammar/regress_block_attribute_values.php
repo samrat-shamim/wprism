@@ -96,7 +96,7 @@ foreach (['feature', 'object-null', 'object-list', 'object-empty', 'object-extra
     'nested-kind', 'nested-class', 'depth', 'fields', 'enum-empty', 'enum-duplicate', 'enum-object',
     'enum-prose', 'enum-user-token', 'enum-limit', 'enum-codec', 'missing-policy', 'missing-plain'] as $fault) {
     $bad = $manifest;
-    $query =& $bad['block_values']['fixture/media']['query'];
+    $query = & $bad['block_values']['fixture/media']['query'];
     if ($fault === 'feature') $bad['engine_features'] = [BlockValueGrammar::FEATURE, RecordFields::FEATURE, 'spec-window/v1'];
     if ($fault === 'object-null') $query['object_fields'] = null;
     if ($fault === 'object-list') $query['object_fields'] = [$values['formID']];
@@ -167,7 +167,7 @@ foreach (['v2', 'feature', 'class', 'field', 'csv', 'ambiguous', 'derived', 'pat
 foreach (['feature', 'null', 'extra', 'container', 'empty', 'duplicate', 'wildcard', 'field-type', 'field-length',
     'field-limit', 'scalar-ref', 'discarded-ref', 'wild-ref', 'recursive-ref', 'root-key-ref', 'discarded-key-ref'] as $fault) {
     $bad = $manifest;
-    $rule =& $bad['block_values']['fixture/media']['gallery'];
+    $rule = & $bad['block_values']['fixture/media']['gallery'];
     if ($fault === 'feature') $bad['engine_features'] = [BlockValueGrammar::FEATURE, 'spec-window/v1'];
     if ($fault === 'null') $rule['record_fields'] = null;
     if ($fault === 'extra') $rule['record_fields']['unknown'] = true;
@@ -178,7 +178,8 @@ foreach (['feature', 'null', 'extra', 'container', 'empty', 'duplicate', 'wildca
     if ($fault === 'field-type') $rule['record_fields']['fields'][] = 3;
     if ($fault === 'field-length') $rule['record_fields']['fields'][] = str_repeat('x', 129);
     if ($fault === 'field-limit') $rule['record_fields']['fields'] = array_map(static fn(int $i): string => 'field' . $i, range(0, RecordFields::MAX_FIELDS));
-    if ($fault === 'scalar-ref') { unset($rule['json_refs']); $rule['ref'] = 'post'; }
+    if ($fault === 'scalar-ref') { unset($rule['json_refs']);
+    $rule['ref'] = 'post'; }
     if ($fault === 'discarded-ref') $rule['json_refs'][0]['path'] = '$.author';
     if ($fault === 'wild-ref') $rule['json_refs'][0]['path'] = '$.*';
     if ($fault === 'recursive-ref') $rule['json_refs'][0]['path'] = '$..id';
@@ -478,10 +479,33 @@ foreach (['postIds' => '', 'selected' => [], 'image' => ['id' => 0], 'formID' =>
         "unset $key round trips without spurious dangling references");
 }
 
+// The closure suite reuses the actual compiler, SQL rollback and widget paths
+// below. The previously unruled counter becomes an explicit authored scalar.
+if (($argv[1] ?? '') === '--closed-attributes') {
+    $manifest['engine_features'][] = BlockValueGrammar::CLOSURE_FEATURE;
+    sort($manifest['engine_features'], SORT_STRING);
+    $manifest[BlockValueGrammar::CLOSURE_FIELD] = ['fixture/media'];
+    $manifest['block_values']['fixture/media']['localCounter'] = ['class' => 'authored', 'plain_data' => true];
+    $policy = FrozenPolicy::policy([$manifest], $site);
+}
+// Reuse immutable post/widget compilation and the real SQL/fault/recapture
+// sequence with a disjoint literal/object rule and strict scalar leaves.
+if (($argv[1] ?? '') === '--value-shapes') {
+    $manifest['engine_features'][] = WPrism\ValueShapeContract::FEATURE;
+    sort($manifest['engine_features'], SORT_STRING);
+    $string = ['class' => 'authored', 'plain_data' => true, 'scalar_type' => 'string'];
+    $number = ['class' => 'authored', 'plain_data' => true, 'scalar_type' => 'number'];
+    $manifest['block_values']['fixture/media']['styles'] = ['class' => 'authored', 'one_of' => [
+        ['class' => 'authored', 'enum' => [false]],
+        ['class' => 'authored', 'object_fields' => ['background' => $string, 'width' => $number, 'value' => $string]],
+    ]];
+    $policy = FrozenPolicy::policy([$manifest], $site);
+}
 $scratch = sys_get_temp_dir() . '/wprism-block-values-' . bin2hex(random_bytes(8));
 mkdir($scratch . '/state/posts/page', 0700, true);
 $remove = static function (string $path) use (&$remove): void {
-    if (!is_dir($path) || is_link($path)) { if (file_exists($path) || is_link($path)) unlink($path); return; }
+    if (!is_dir($path) || is_link($path)) { if (file_exists($path) || is_link($path)) unlink($path);
+    return; }
     foreach (new FilesystemIterator($path, FilesystemIterator::SKIP_DOTS) as $entry) $remove($entry->getPathname());
     rmdir($path);
 };

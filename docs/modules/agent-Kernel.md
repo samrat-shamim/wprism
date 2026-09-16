@@ -8,7 +8,7 @@ Neither class loads adapter executables or chooses transaction policy.
 
 **Purpose.** Dependency-free primitives — canonical JSON, database access, reference codecs, durable filesystem, side-effect guards, identifiers, secrets and PII redaction — that everything else is built on.
 
-**Directory** `agent/src/Kernel/` &middot; **layer** `kernel` &middot; **files** 85 &middot; **status** populated
+**Directory** `agent/src/Kernel/` &middot; **layer** `kernel` &middot; **files** 100 &middot; **status** populated
 
 **Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Canon`, `Db`, `OptionState`, `CommandRefusal`, `SiteTopology`, `Secrets`, `PlainData`, `StructuredValue`, `Uuid`, `ReferenceRules`, `DurableFilesystem`, `ReferenceScopeClassifier`, `PathSafety`, `UserMetaState`, `OrderPreserved`, `PersonalData`, `PostPasswordBinding`, `JsonRefs`, `KeyBoundStrings`, `ReferenceKindGrammar`, `ReferenceShapeGrammar`, `TableGraph`, `TableSchema`, `IdentityTokenCodec`, `ProcessFence`, `ReferenceKeyspaceGrammar`, `StructuredReferenceCodec`, `TextTokenizer`, `TransientDbException`, `UrlQueryReferenceCodec`, `MetaRows`, `MediaPayloadAuthority`, `WpCliChildProcess`, `Canary`.
 
@@ -47,3 +47,9 @@ and expansion bounds; existing text/reference and privacy owners consume its
 decoded strings. `BlockAttributeReader::clearance_value()` exposes native
 JSON-escaped attributes alongside original body bytes to those same privacy
 owners, without depending on WordPress or a database.
+
+`ValueShapeContract` is the pure entry point for strict scalar predicates and
+disjoint literal/object selection. It depends on no policy, plugin or native
+runtime. `ValueContractGrammar` proves both declared branches within the existing
+recursive budget; Grammar and Review consume the selected existing codec without
+trying alternatives after a refusal. Negotiation remains the policy owner's job.

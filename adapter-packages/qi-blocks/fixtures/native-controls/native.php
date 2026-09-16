@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/corpus.php';
 if (!defined('QI_BLOCKS_VERSION') || QI_BLOCKS_VERSION !== '1.5.2' || !current_user_can('manage_options')) {
-    throw new RuntimeException('Native gallery evidence requires locked Qi and an administrator');
+    throw new RuntimeException('Native picker evidence requires locked Qi and an administrator');
 }
 $receipt = json_decode(file_get_contents(dirname(__DIR__) . '/receipt.json'), true, 32, JSON_THROW_ON_ERROR);
 $page = $receipt['ids']['page']; $attachment = $receipt['ids']['image'];

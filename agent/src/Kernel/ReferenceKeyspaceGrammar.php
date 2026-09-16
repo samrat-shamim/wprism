@@ -149,6 +149,9 @@ final class ReferenceKeyspaceGrammar {
         foreach (($rule['object_fields'] ?? []) as $name => $child) {
             self::assert_reference_rule_keyspaces($child, $allowed, "$where.object_fields.$name");
         }
+        foreach (($rule['one_of'] ?? []) as $index => $child) {
+            self::assert_reference_rule_keyspaces($child, $allowed, "$where.one_of.$index");
+        }
         foreach (($rule['sub_keys'] ?? []) as $name => $subRule) {
             if (is_array($subRule) && !array_is_list($subRule)) {
                 self::assert_reference_rule_keyspaces($subRule, $allowed, "$where.sub_keys.$name");

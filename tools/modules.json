@@ -66,6 +66,7 @@
           "BlockContentGrammar",
           "BlockValueGrammar",
           "ValueContractGrammar",
+          "ValueShapeContract",
           "ColumnValueCases",
           "FieldLabelMap",
           "FieldTemplateMap",
@@ -179,7 +180,7 @@
             ]
           }
         ],
-        "file_count": 99,
+        "file_count": 100,
         "files": [
           "BlockMediaDerivativeGrammar.php",
           "MediaDerivativeRecipe.php",
@@ -188,6 +189,7 @@
           "BlockContentGrammar.php",
           "BlockValueGrammar.php",
           "ValueContractGrammar.php",
+          "ValueShapeContract.php",
           "ColumnValueCases.php",
           "FieldLabelMap.php",
           "FieldTemplateMap.php",

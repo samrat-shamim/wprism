@@ -388,6 +388,7 @@ return [
     'WPrism\\UserMetaState' => 'src/Kernel/UserMetaState.php',
     'WPrism\\Uuid' => 'src/Kernel/Uuid.php',
     'WPrism\\ValueContractGrammar' => 'src/Kernel/ValueContractGrammar.php',
+    'WPrism\\ValueShapeContract' => 'src/Kernel/ValueShapeContract.php',
     'WPrism\\VerifiedPromotionAuthority' => 'src/Promotion/VerifiedPromotionAuthority.php',
     'WPrism\\VersionEvidenceGrammar' => 'src/Policy/VersionEvidenceGrammar.php',
     'WPrism\\WidgetTypeResolver' => 'src/Grammar/WidgetTypeResolver.php',

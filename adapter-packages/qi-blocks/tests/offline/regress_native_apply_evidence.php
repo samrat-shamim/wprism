@@ -1,7 +1,8 @@
 <?php
 declare(strict_types=1);
 
-$root = dirname(__DIR__, 4); $capsule = dirname(__DIR__, 2);
+$root = dirname(__DIR__, 4);
+$capsule = dirname(__DIR__, 2);
 foreach (['check.php', 'wp_stubs.php', 'FakeWpdb.php', 'agent_version.php', 'frozen_policy.php'] as $file) require_once "$root/sandbox/tests/lib/$file";
 require_once "$root/sandbox/tests/support/wp-block-parser-stub.php";
 require_once "$root/sandbox/tests/support/wp-shortcode-stub.php";
@@ -36,7 +37,8 @@ $before = ['format' => 'wprism-qi-native-apply/v1', 'home' => 'https://target.ex
 $sourceBody = QiConformanceCorpus::body($saved, $sourceIds, $seed['home'], $seed['image_url']);
 $manifests = [Canon::decode(file_get_contents($root . '/platform/adapter-library/core/manifest.json')), Canon::decode(file_get_contents($capsule . '/package/manifest.json'))];
 $site = FrozenPolicy::site($manifests, WPRISM_SPEC_VERSION);
-$site['policy']['post_types'] = ['post', 'page', 'attachment']; $site['policy']['taxonomies'] = [];
+$site['policy']['post_types'] = ['post', 'page', 'attachment'];
+$site['policy']['taxonomies'] = [];
 $policy = FrozenPolicy::policy($manifests, $site);
 $database = static function (array $ids) use ($uuids): void {
     $rows = [];
@@ -58,8 +60,11 @@ foreach (['source' => $sourceIds, 'target' => $targetIds] as $side => $ids) {
     $posts = $side === 'target' ? $trash : [];
     foreach (['image' => ['attachment', 'qi-conformance-image'], 'first' => ['post', 'qi-first-source-post'],
         'second' => ['post', 'qi-second-source-post'], 'page' => ['page', 'qi-native-corpus']] as $role => [$type, $slug]) $posts[] = $row($ids[$role], $type, $slug, $role === 'page' ? $body : '');
-    $options = $beforeOptions; $options[2]['option_value'] = $styles;
-    $file = '2026/09/tmp-qi-image.png'; $files = []; $sizes = [];
+    $options = $beforeOptions;
+    $options[2]['option_value'] = $styles;
+    $file = '2026/09/tmp-qi-image.png';
+    $files = [];
+    $sizes = [];
     foreach ([[1200, 800], [1024, 683], [1200, 650], [150, 150], [300, 200], [650, 650], [650, 800], [768, 512]] as $index => [$width, $height]) {
         $path = $index === 0 ? $file : '2026/09/tmp-qi-image-' . $width . 'x' . $height . '.png';
         $files[$path] = ['sha256' => hash('sha256', $path), 'bytes' => 100 + $index, 'width' => $width, 'height' => $height, 'mime' => 'image/png'];
@@ -79,7 +84,8 @@ $faults = [
     'same target identity' => static function (array &$r): void { $r['ids']['image'] = 8; },
     'changed durable identity' => static function (array &$r): void { $r['uuids']['page'] = $r['uuids']['image']; },
     'altered physical body' => static function (array &$r): void { $r['posts'][11]['post_content'] .= 'changed'; },
-    'missing block content' => static function (array &$r): void { $r['page_body'] = ''; $r['posts'][11]['post_content'] = ''; },
+    'missing block content' => static function (array &$r): void { $r['page_body'] = '';
+    $r['posts'][11]['post_content'] = ''; },
     'modified local trash' => static function (array &$r): void { $r['posts'][0]['post_content'] .= 'changed'; },
     'extra physical row' => static function (array &$r): void { $r['posts'][] = $r['posts'][0]; },
     'missing physical row' => static function (array &$r): void { array_pop($r['posts']); },
@@ -89,7 +95,8 @@ $faults = [
     'extra Qi option' => static function (array &$r): void { $r['options'][] = ['option_name' => 'qi_blocks_new_state', 'option_value' => 'unproved', 'autoload' => 'auto']; },
     'lost CSS container roots' => static function (array &$r): void {
         $styles = WPrism\PhpContainerValue::restore(WPrism\PhpContainerValue::capture_raw($r['styles'], 'test'), 'test');
-        unset($styles['widgets']); $r['styles'] = serialize($styles);
+        unset($styles['widgets']);
+        $r['styles'] = serialize($styles);
     },
     'wrong CSS page frames' => static function (array &$r): void { $r['styles'] = str_replace('-113', '-999', $r['styles']); },
     'original attachment URL' => static function (array &$r): void { $r['attachment']['url'] = str_replace('target', 'source', $r['attachment']['url']); },
@@ -100,10 +107,12 @@ $faults = [
     'copied unselected crop' => static function (array &$r) use ($records): void { $r['uploads']['2026/09/tmp-qi-image-333x211.png'] = $records['source']['uploads']['2026/09/tmp-qi-image-333x211.png']; },
 ];
 foreach ($faults as $label => $mutate) {
-    $target = $records['target']; $mutate($target);
+    $target = $records['target'];
+    $mutate($target);
     wprism_check_throws(static fn() => $admit($records['source'], $target), RuntimeException::class, 'native evidence rejects ' . $label);
 }
-$initial = $before; array_pop($initial['posts']);
+$initial = $before;
+array_pop($initial['posts']);
 wprism_check_throws(static fn() => $admit($records['source'], $records['target'], $initial), RuntimeException::class, 'evidence refuses an incomplete target preimage');
 
 $plan = ['create' => array_map(static fn(string $uuid): array => ['uuid' => $uuid], array_values($uuids)), 'update' => [[], []],
@@ -131,14 +140,16 @@ foreach ([
     'missing media capture' => static function (array &$r): void { $r[3][2]['media'] = 0; },
     'missing capture stage' => static function (array &$r): void { array_pop($r[3]); },
 ] as $label => $mutate) {
-    $bad = $productInputs; $mutate($bad);
+    $bad = $productInputs;
+    $mutate($bad);
     wprism_check_throws(static fn() => $product($bad), RuntimeException::class, 'product receipt rejects ' . $label);
 }
 
 $html = static fn(int $id, string $home): string => '<html><head><style id="qi-blocks-main-inline-css">'
     . str_repeat('body[class*="-' . $id . '"] .qodef-block{background-image:url(' . $home . '/image.png);color:red}', 204)
     . '</style></head><body class="page page-id-' . $id . '"></body></html>';
-$sourceHtml = $html(13, $seed['home']); $targetHtml = $html(113, $before['home']);
+$sourceHtml = $html(13, $seed['home']);
+$targetHtml = $html(113, $before['home']);
 $css = static fn(string $target) => QiNativeApplyEvidence::css($sourceHtml, $target, $records['source'], $records['target']);
 $css($targetHtml);
 wprism_check(true, 'HTTP admission compares all frames and the full independently rebound stylesheet');
@@ -154,7 +165,8 @@ foreach (['wrong page' => $html(13, $before['home']), 'missing CSS' => '<html><b
 $scratch = sys_get_temp_dir() . '/wprism-qi-apply-evidence-' . bin2hex(random_bytes(8));
 mkdir($scratch, 0700);
 $remove = static function (string $path) use (&$remove): void {
-    if (!is_dir($path) || is_link($path)) { unlink($path); return; }
+    if (!is_dir($path) || is_link($path)) { unlink($path);
+    return; }
     foreach (new FilesystemIterator($path, FilesystemIterator::SKIP_DOTS) as $entry) $remove($entry->getPathname());
     rmdir($path);
 };
@@ -167,8 +179,10 @@ $write = static function (string $name, mixed $value) use ($scratch): string {
 $runAdmission = static function (array $arguments): array {
     $process = proc_open($arguments, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
     if (!is_resource($process)) throw new RuntimeException('cannot execute Qi roundtrip admission');
-    $stdout = stream_get_contents($pipes[1]); fclose($pipes[1]);
-    $stderr = stream_get_contents($pipes[2]); fclose($pipes[2]);
+    $stdout = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[2]);
     return [proc_close($process), $stdout, $stderr];
 };
 $evidenceCli = $capsule . '/fixtures/native-apply/evidence.php';
@@ -184,7 +198,8 @@ wprism_check($exit === 0 && $diagnostics === '' && json_decode($output, true, fl
     'shared conformance fixed-point admission accepts repeat Apply, native stability and complete HTTP CSS');
 $streams = static function (string $stdout, string $stderr = '', string $exit = "0\n") use ($scratch): void {
     foreach (['stdout' => $stdout, 'stderr' => $stderr, 'exit' => $exit] as $suffix => $value) {
-        file_put_contents($scratch . '/native.' . $suffix, $value); chmod($scratch . '/native.' . $suffix, 0600);
+        file_put_contents($scratch . '/native.' . $suffix, $value);
+        chmod($scratch . '/native.' . $suffix, 0600);
     }
 };
 $read = static fn(): array => QiNativeApplyEvidence::object($scratch . '/native', 'qitest', $root, 'capture');
@@ -198,10 +213,12 @@ foreach ([['{"result":"ok"}', 'unexpected diagnostic'], ['{"result":"ok"}', '', 
 
 // Execute the runner's actual snapshot body with distinct per-site catalogs.
 // This pin fails if a target snapshot accidentally copies source/media again.
-$runner = file_get_contents($capsule . '/tests/live/regress_native_apply.sh');
+$runner = file_get_contents($capsule . '/fixtures/native-apply/setup.sh') . "\n"
+    . file_get_contents($capsule . '/tests/live/regress_native_apply.sh');
 wprism_check_same(1, preg_match('/snapshot\(\) \{\n.*?\n\}/s', $runner, $match), 'live runner has one testable snapshot operation');
 foreach (['source', 'target'] as $side) {
-    mkdir("$scratch/$side/state", 0700, true); mkdir("$scratch/$side/media", 0700);
+    mkdir("$scratch/$side/state", 0700, true);
+    mkdir("$scratch/$side/media", 0700);
     file_put_contents("$scratch/$side/site.wprism.json", $side . ' policy');
     file_put_contents("$scratch/$side/state/native.json", $side . ' state');
     file_put_contents("$scratch/$side/media/native.png", $side . ' media');
@@ -211,7 +228,9 @@ $script = "set -euo pipefail\npair_live_ownership_repo_host() { :; }\n" . $match
     . "\nsink=\"\$1/sink\"\nR1=\"\$1/source\"\nsnapshot target \"\$1/target\" \"\$1/target/state\"\n";
 $process = proc_open(['bash', '-c', $script, 'qi-snapshot-test', $scratch], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes);
 if (!is_resource($process)) throw new RuntimeException('cannot exercise native snapshot');
-fclose($pipes[0]); $output = stream_get_contents($pipes[1]); fclose($pipes[1]);
+fclose($pipes[0]);
+$output = stream_get_contents($pipes[1]);
+fclose($pipes[1]);
 wprism_check_same(0, proc_close($process), 'live snapshot operation succeeds');
 wprism_check_same('', $output, 'live snapshot operation emits no diagnostics');
 foreach (['site.wprism.json' => 'target policy', 'state/native.json' => 'target state', 'media/native.png' => 'target media'] as $path => $expected) {
@@ -239,7 +258,8 @@ wprism_check_same($mediaRecords['target']['page_body'], Blocks::apply_rewrite($p
 $http = [];
 foreach ($mediaRecords as $side => &$record) {
     $http[$side] = ['format' => 'wprism-qi-native-media-pixels/v1', 'home' => $record['home'],
-        'page' => $record['ids']['page'], 'attachment' => $record['ids']['image'], 'images' => []];
+        'page' => $record['ids']['page'], 'attachment' => $record['ids']['image'],
+        'original_samples' => [[0, 0, 0, 0], [255, 0, 0, 0], [0, 255, 173, 0], [255, 255, 173, 0], [127, 127, 0, 0]], 'images' => []];
     foreach (QiNativeMediaCorpus::DIMENSIONS as $i => [$width, $height]) {
         $path = '2026/09/tmp-qi-image-' . $width . 'x' . $height . '.png';
         $file = ['sha256' => hash('sha256', $path), 'bytes' => 90 + $i, 'width' => $width, 'height' => $height, 'mime' => 'image/png'];
@@ -260,30 +280,37 @@ foreach ([
     'missing nested file' => static function (array &$r): void { unset($r['uploads']['2026/09/tmp-qi-image-293x181.png']); },
     'wrong record format' => static function (array &$r): void { $r['format'] = 'unproved'; },
     'wrong target home' => static function (array &$r): void { $r['home'] = 'https://elsewhere.example.test'; },
-    'wrong crop metadata' => static function (array &$r): void { $key = array_key_last($r['attachment']['metadata']['sizes']); $r['attachment']['metadata']['sizes'][$key]['width'] = 1; },
-    'unowned metadata' => static function (array &$r): void { $key = array_key_last($r['attachment']['metadata']['sizes']); $r['attachment']['metadata']['sizes']['unowned'] = $r['attachment']['metadata']['sizes'][$key]; unset($r['attachment']['metadata']['sizes'][$key]); },
+    'wrong crop metadata' => static function (array &$r): void { $key = array_key_last($r['attachment']['metadata']['sizes']);
+    $r['attachment']['metadata']['sizes'][$key]['width'] = 1; },
+    'unowned metadata' => static function (array &$r): void { $key = array_key_last($r['attachment']['metadata']['sizes']);
+    $r['attachment']['metadata']['sizes']['unowned'] = $r['attachment']['metadata']['sizes'][$key];
+    unset($r['attachment']['metadata']['sizes'][$key]); },
     'changed runtime' => static function (array &$r): void { $r['options'][0]['option_value'] = 'changed'; },
     'changed trash' => static function (array &$r): void { $r['posts'][0]['post_content'] = 'changed'; },
     'changed page row only' => static function (array &$r): void { $r['posts'][array_key_last($r['posts'])]['post_content'] = 'changed'; },
     'missing body selection' => static function (array &$r): void { $r['page_body'] = str_replace('293x181', 'original', $r['page_body']); },
 ] as $label => $edit) {
-    $bad = $mediaRecords['target']; $edit($bad);
+    $bad = $mediaRecords['target'];
+    $edit($bad);
     wprism_check_throws(static fn() => $nativeMedia($bad), RuntimeException::class, 'crop admission rejects ' . $label);
 }
 $httpMedia = static fn(array $target) => QiNativeMediaEvidence::http($http['source'], $target, $mediaRecords['source'], $mediaRecords['target']);
 $httpMedia($http['target']);
 wprism_check(true, 'all four HTTP images bind native owners, URLs, dimensions and decoded pixels independently of PNG encoding');
-foreach (['missing image', 'wrong pixels', '404', 'wrong dimensions', 'wrong home', 'missing digest'] as $fault) {
+foreach (['missing image', 'wrong pixels', '404', 'wrong dimensions', 'wrong home', 'missing digest', 'uniform original', 'missing original premise'] as $fault) {
     $bad = $http['target'];
     if ($fault === 'missing image') array_pop($bad['images']);
     if ($fault === 'wrong pixels') $bad['images'][1]['pixels_sha256'] = str_repeat('f', 64);
+    if ($fault === 'uniform original') $bad['original_samples'] = array_fill(0, 5, [43, 108, 132, 0]);
+    if ($fault === 'missing original premise') unset($bad['original_samples']);
     if ($fault === '404') $bad['images'][1]['status'] = 404;
     if ($fault === 'wrong dimensions') $bad['images'][1]['width'] = 295;
     if ($fault === 'wrong home') $bad['home'] = $seed['home'];
     if ($fault === 'missing digest') $bad['images'][1]['bytes_sha256'] = '';
     wprism_check_throws(static fn() => $httpMedia($bad), RuntimeException::class, 'crop HTTP admission rejects ' . $fault);
 }
-$servedImage = $http['target']['images'][0]; unset($servedImage['status']);
+$servedImage = $http['target']['images'][0];
+unset($servedImage['status']);
 $servedImage['bytes_sha256'] = hash('sha256', 'native png bytes');
 $servedHtml = '<img src="' . $servedImage['url'] . '">';
 wprism_check_same($servedImage + ['status' => 200], QiNativeMediaEvidence::served($servedImage, ['status' => 200], 'native png bytes', $servedHtml),
@@ -297,7 +324,8 @@ $cropApply = array_replace($apply, ['applied' => 1, 'warnings' => []]);
 QiNativeApplyEvidence::content_update($cropApply, $repeat);
 wprism_check(true, 'content-only crop Apply and zero-write repeat require the actual full product verifier');
 foreach (['warning', 'partial verifier', 'repeat write'] as $fault) {
-    $badApply = $cropApply; $badRepeat = $repeat;
+    $badApply = $cropApply;
+    $badRepeat = $repeat;
     if ($fault === 'warning') $badApply['warnings'][] = 'unproved';
     if ($fault === 'partial verifier') $badApply['verification']['live_entities'] = 6;
     if ($fault === 'repeat write') $badRepeat['applied'] = 1;
@@ -305,7 +333,8 @@ foreach (['warning', 'partial verifier', 'repeat write'] as $fault) {
 }
 require_once "$capsule/fixtures/native-controls/evidence.php";
 $gallerySaved = QiNativeControlsCorpus::saved($saved, file_get_contents($capsule . '/fixtures/native-controls/blocks.html'));
-$gallerySource = $records['source']; $galleryTarget = $records['target'];
+$gallerySource = $records['source'];
+$galleryTarget = $records['target'];
 $gallerySource['page_body'] = QiConformanceCorpus::body($gallerySaved, $sourceIds, $seed['home'], $seed['image_url']);
 $database($sourceIds);
 $galleryCanonical = Blocks::capture_rewrite($gallerySource['page_body'], $policy, new Tokens($seed['home'], $seed['home'] . '/wp-content/uploads'));
@@ -331,14 +360,105 @@ foreach (['body', 'cache', 'row', 'upload', 'option', 'identity', 'format'] as $
     wprism_check_throws(static fn() => $galleryAdmission($gallerySource, $bad), RuntimeException::class, 'gallery native admission rejects ' . $fault);
 }
 $galleryHtml = '';
-foreach (QiNativeControlsCorpus::GALLERIES as $name) {
-    $galleryHtml .= '<div class="wp-block-' . str_replace('/', '-', $name) . '"><img src="' . $galleryTarget['attachment']['url'] . '" /></div>';
-}
+foreach (parse_blocks($galleryTarget['page_body']) as $block) if (in_array($block['blockName'],
+    [...QiNativeControlsCorpus::GALLERIES, ...QiNativeControlsCorpus::SIMPLE], true)) $galleryHtml .= $block['innerHTML'];
 QiNativeControlsEvidence::images($galleryHtml, $galleryTarget);
-wprism_check(true, 'gallery frontend admission requires all three native owners and their selected image');
+wprism_check(true, 'picker frontend admission requires galleries, signature and both progress patterns');
 foreach (['', $galleryHtml . $galleryHtml, str_replace('tmp-qi-image.png', 'wrong.png', $galleryHtml)] as $badHtml) {
     wprism_check_throws(static fn() => QiNativeControlsEvidence::images($badHtml, $galleryTarget), RuntimeException::class,
         'gallery frontend admission rejects absent, duplicated or incorrectly selected images');
+}
+foreach (['signature' => 'qodef-m-signature', 'horizontal pattern' => 'data-pattern=', 'vertical pattern' => 'data-pattern='] as $label => $marker) {
+    $badHtml = $label === 'vertical pattern'
+        ? substr_replace($galleryHtml, 'data-unproved=', strrpos($galleryHtml, $marker), strlen($marker))
+        : preg_replace('/' . preg_quote($marker, '/') . '/', 'unproved=', $galleryHtml, 1);
+    wprism_check_throws(static fn() => QiNativeControlsEvidence::images($badHtml, $galleryTarget), RuntimeException::class,
+        'picker frontend admission rejects a lost ' . $label);
+}
+$controls = file_get_contents($capsule . '/fixtures/native-controls/blocks.html');
+$pickerBlocks = array_values(array_filter(parse_blocks($controls), static fn(array $block): bool => $block['blockName'] !== null));
+foreach ($pickerBlocks as $index => $picker) {
+    $incomplete = $pickerBlocks;
+    unset($incomplete[$index]);
+    wprism_check_throws(static fn() => QiNativeControlsCorpus::saved($saved, serialize_blocks(array_values($incomplete))), RuntimeException::class,
+        'picker corpus rejects a missing retained writer ' . $picker['blockName']);
+    wprism_check_throws(static fn() => QiNativeControlsCorpus::saved($saved, serialize_blocks([...$pickerBlocks, $picker])), RuntimeException::class,
+        'picker corpus rejects an ambiguous retained writer ' . $picker['blockName']);
+}
+wprism_check_throws(static fn() => QiNativeControlsCorpus::saved($saved, $controls . '<!-- wp:qi-blocks/unreviewed /-->'), RuntimeException::class,
+    'picker corpus rejects an unreviewed native writer');
+require_once $capsule . '/fixtures/native-global-controls/evidence.php';
+$globalBytes = file_get_contents($capsule . '/fixtures/native-global-controls/observations.json');
+foreach (QiNativeGlobalControlsCorpus::cases($globalBytes) as $name => $case) {
+    $globalSaved = QiNativeGlobalControlsCorpus::saved($saved, $globalBytes, $name);
+    $globalSource = $records['source'];
+    $globalTarget = $records['target'];
+    $globalSource['page_body'] = QiConformanceCorpus::body($globalSaved, $sourceIds, $seed['home'], $seed['image_url']);
+    $database($sourceIds);
+    $globalCanonical = Blocks::capture_rewrite($globalSource['page_body'], $policy, new Tokens($seed['home'], $seed['home'] . '/wp-content/uploads'));
+    $database($targetIds);
+    $globalTarget['page_body'] = Blocks::apply_rewrite($globalCanonical, $policy, new Tokens($before['home'], $before['home'] . '/wp-content/uploads'));
+    wprism_check_same(QiConformanceCorpus::applied_body($globalSaved, $targetIds, $before['home'], $globalTarget['attachment']['url']), $globalTarget['page_body'], 'complete native global replay equals independent cross-ID Apply expectation: ' . $name);
+    wprism_check_same($globalCanonical, Blocks::capture_rewrite($globalTarget['page_body'], $policy, new Tokens($before['home'], $before['home'] . '/wp-content/uploads')), 'complete native global replay recaptures canonically: ' . $name);
+    foreach ([&$globalSource, &$globalTarget] as &$native) {
+        foreach ($native['posts'] as &$post) if ((int) $post['ID'] === $native['ids']['page']) $post['post_content'] = $native['page_body'];
+        unset($post);
+    }
+    unset($native);
+    QiNativeApplyEvidence::content_native($globalSource, $globalTarget, $records['target'], $seed, $globalSaved);
+    wprism_check(true, 'shared native content admission preserves complete global postimage and target-local state: ' . $name);
+    $hidden = ($case['metadata']['blockVisibility'] ?? null) === false;
+    $element = static function (array $native): string {
+        $candidates = [$native['attachment']['url'] . ' 1200w'];
+        foreach ($native['attachment']['metadata']['sizes'] as $size) if (in_array($size['width'], [300, 768, 1024], true)) {
+            $candidates[] = $native['home'] . '/wp-content/uploads/' . dirname($native['attachment']['file']) . '/' . $size['file'] . ' ' . $size['width'] . 'w';
+        }
+        return '<div class="qodef-block-915bb80f"><img class="wp-image-' . $native['ids']['image'] . '" src="' . $native['attachment']['url']
+            . '" width="1200" height="800" srcset="' . implode(', ', $candidates) . '" alt=""></div>';
+    };
+    $globalSourceHtml = str_replace('</body>', ($hidden ? '' : $element($globalSource)) . '</body>', $sourceHtml);
+    $globalTargetHtml = str_replace('</body>', ($hidden ? '' : $element($globalTarget)) . '</body>', $targetHtml);
+    $frontend = static fn(string $html) => QiNativeGlobalControlsEvidence::frontend($globalSourceHtml, $html, $globalSource, $globalTarget, $case);
+    $frontend($globalTargetHtml);
+    wprism_check(true, 'global frontend admission requires native owner visibility, complete subtree and all CSS frames: ' . $name);
+    foreach ([$hidden ? str_replace('</body>', $element($globalTarget) . '</body>', $globalTargetHtml) : str_replace($element($globalTarget), '', $globalTargetHtml),
+        str_replace('</body>', $element($globalTarget) . $element($globalTarget) . '</body>', $globalTargetHtml)] as $badHtml) {
+        wprism_check_throws(static fn() => $frontend($badHtml), RuntimeException::class, 'global frontend admission rejects missing/visible or duplicate native owners');
+    }
+    if (!$hidden) foreach ([str_replace('alt=""', 'alt="unreviewed"', $globalTargetHtml), str_replace($globalTarget['attachment']['url'], 'https://wrong.example.test/image.png', $globalTargetHtml)] as $badHtml) {
+        wprism_check_throws(static fn() => $frontend($badHtml), RuntimeException::class, 'global frontend admission rejects altered complete native element or image coordinate');
+    }
+    if (!$hidden) {
+        // Equal source/target subtrees cannot prove that either retained its
+        // image. These mutations exercise the real frontend admission on both
+        // sides, including the srcset discrepancy found in the first live run.
+        foreach ([
+            'missing selected image' => static fn(string $html): string => preg_replace('/<img\b[^>]*>/', '', $html),
+            'wrong selected class' => static fn(string $html): string => preg_replace('/wp-image-[0-9]+/', 'wp-image-999', $html),
+            'wrong selected URL' => static fn(string $html): string => preg_replace('/src="[^"]*"/', 'src="https://wrong.example.test/image.png"', $html),
+            'duplicate selected image' => static fn(string $html): string => preg_replace('/(<img\b[^>]*>)/', '$1$1', $html),
+            'wrong selected dimensions' => static fn(string $html): string => str_replace('width="1200"', 'width="999"', $html),
+            'missing responsive candidates' => static fn(string $html): string => preg_replace('/ srcset="[^"]*"/', '', $html),
+            'invented responsive URL' => static fn(string $html): string => str_replace('tmp-qi-image-300x200.png', 'invented-300x200.png', $html),
+            'wrong responsive width' => static fn(string $html): string => str_replace(' 300w', ' 301w', $html),
+            'lost responsive width' => static fn(string $html): string => preg_replace('/, [^,\"]+ 300w/', '', $html),
+        ] as $label => $mutateHtml) {
+            wprism_check_throws(static fn() => QiNativeGlobalControlsEvidence::frontend($mutateHtml($globalSourceHtml), $mutateHtml($globalTargetHtml), $globalSource, $globalTarget, $case),
+                RuntimeException::class, 'global frontend admission rejects symmetric ' . $label . ': ' . $name);
+        }
+        $badHtml = str_replace('tmp-qi-image-300x200.png', 'invented-300x200.png', $globalTargetHtml);
+        wprism_check_throws(static fn() => $frontend($badHtml), RuntimeException::class, 'global frontend admission independently binds target responsive image URLs');
+        $badNative = $globalTarget;
+        unset($badNative['uploads']['2026/09/tmp-qi-image-300x200.png']);
+        wprism_check_throws(static fn() => QiNativeGlobalControlsEvidence::frontend($globalSourceHtml, $globalTargetHtml, $globalSource, $badNative, $case), RuntimeException::class,
+            'global frontend admission refuses a responsive URL with no native upload owner');
+    }
+    $bad = $globalTarget;
+    $bad['options'][1]['option_value'] = 'changed-runtime-state';
+    wprism_check_throws(static fn() => QiNativeApplyEvidence::content_native($globalSource, $bad, $records['target'], $seed, $globalSaved), RuntimeException::class, 'global content admission rejects a complete native runtime option change');
+    $bad = $globalTarget;
+    $bad['page_body'] = $targetBody;
+    wprism_check_throws(static fn() => QiNativeApplyEvidence::content_native($globalSource, $bad, $records['target'], $seed, $globalSaved), RuntimeException::class, 'global content admission rejects losing the independently saved global controls');
 }
 if (wprism_check_failed() > 0) exit(1);
 echo 'PASS: Qi native Apply evidence (' . wprism_check_stats()['passed'] . " assertions)\n";

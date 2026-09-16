@@ -164,11 +164,11 @@ $end = strpos($runner, 'wprism_host_registry_create "$WPRISM_HOST_REGISTRY"', $s
 if ($start === false || $end === false) throw new RuntimeException('conformance cron ownership block is missing');
 $ownership = substr($runner, $start, $end - $start);
 $conformanceBody = <<<'SH'
-conformance_target_cron_begin
+conformance_cron_begin
 touch "$scratch/body"
 [ "$mutation" != body-fail ] || exit 7
 [ "$mutation" != body-signal ] || sh -c 'kill -TERM "$PPID"'
-conformance_target_cron_end
+conformance_cron_end
 touch "$scratch/terminal"
 )
 status=$?
@@ -197,6 +197,7 @@ foreach (['ready' => [0, 0, 1], 'disabled' => [0, 0, 1], 'body-fail' => [7, 0, 1
 WPRISM_HOST_REGISTRY="$scratch/registry"
 touch "$WPRISM_HOST_REGISTRY"
 DISABLE_TARGET_CRON=true
+DISABLE_SOURCE_CRON=false
 [ "$mutation" != disabled ] || DISABLE_TARGET_CRON=false
 wp_conf2() { wp_runner "$@"; }
 set +e
@@ -212,6 +213,92 @@ SH;
         wprism_check($status === 0 && str_contains($stdout, "RESULT status=$expected present=$present body=$body"),
             "actual conformance parent owns target guard and registry across $shell/$mutation");
         if ($status !== 0) fwrite(STDERR, substr($stdout . $stderr, 0, 2048) . "\n");
+    }
+}
+// Execute the actual conformance owner over two distinct MU roots. Partial
+// acquisition and foreign replacement must not strand the other site's guard.
+$twoSiteProbe = <<<'SH'
+set -euo pipefail
+root="$1" mutation="$2"
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/wprism-cron-two-sites.XXXXXX")
+trap 'find "$scratch" -depth -delete' EXIT
+mkdir "$scratch/cli1" "$scratch/cli2"
+COMPOSE='cron_fixture_compose -p fixture'
+WPRISM_HOST_REGISTRY="$scratch/registry"
+touch "$WPRISM_HOST_REGISTRY"
+DISABLE_SOURCE_CRON=true DISABLE_TARGET_CRON=true
+[ "$mutation" != disabled ] || { DISABLE_SOURCE_CRON=false; DISABLE_TARGET_CRON=false; }
+[ "$mutation" != source-only ] || DISABLE_TARGET_CRON=false
+[ "$mutation" != target-only ] || DISABLE_SOURCE_CRON=false
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+. "$root/sandbox/conformance/asserts.sh"
+cron_fixture_compose() {
+  local service operation
+  while [ "$1" != sh ]; do shift; done
+  shift; service="$1"; shift
+  [ "$service" = cli1 ] || [ "$service" = cli2 ] || return 77
+  [ "$#" = 4 ] && [ "$1" = -s ] && [ "$2" = -- ] || return 78
+  operation="$3"
+  printf '%s:%s\n' "$service" "$operation" >> "$scratch/transport"
+  [ "$mutation:$service:$operation" != target-prepare-fail:cli2:prepare ] || return 71
+  [ "$mutation:$service:$operation" != target-release-fail:cli2:release ] || return 72
+  [ "$mutation:$service:$operation" != source-release-fail:cli1:release ] || return 73
+  (cd "$scratch/$service" && sh "$@")
+}
+wp_site() {
+  local service="$1"; shift
+  printf '%s:native\n' "$service" >> "$scratch/transport"
+  [ "$mutation:$service" != target-native-fail:cli2 ] || return 74
+  [ "$mutation:$service" != source-native-fail:cli1 ] || return 75
+  php -r 'require $argv[1]; eval($argv[2]);' "$scratch/$service/wprism-native-read-window.php" "$2"
+}
+wp_conf1() { wp_site cli1 "$@"; }
+wp_conf2() { wp_site cli2 "$@"; }
+set +e
+(
+set -e
+cd "$root/sandbox"
+SH;
+$twoSiteBody = <<<'SH'
+conformance_cron_begin
+[ "$mutation" != duplicate ] || wordpress_cron_window_begin wp_conf1 conformance_source_cron_transport source
+touch "$scratch/body"
+[ "$mutation" != body-fail ] || exit 7
+[ "$mutation" != body-signal ] || sh -c 'kill -TERM "$PPID"'
+if [ "$mutation" = source-replacement ]; then printf 'foreign replacement\n' > "$scratch/cli1/wprism-native-read-window.php"; fi
+conformance_cron_end
+touch "$scratch/terminal"
+)
+status=$?
+set -e
+[ ! -e "$WPRISM_HOST_REGISTRY" ] || exit 79
+source=0 target=0 body=0
+[ ! -e "$scratch/cli1/wprism-native-read-window.php" ] || source=1
+[ ! -e "$scratch/cli2/wprism-native-read-window.php" ] || target=1
+[ ! -e "$scratch/body" ] || body=1
+printf 'RESULT status=%s source=%s target=%s body=%s\n' "$status" "$source" "$target" "$body"
+if [ "$status" = 0 ]; then [ -e "$scratch/terminal" ]; else [ ! -e "$scratch/terminal" ]; fi
+if [ "$mutation" = source-replacement ]; then [ "$(cat "$scratch/cli1/wprism-native-read-window.php")" = 'foreign replacement' ]; fi
+if [ "$mutation" = disabled ]; then [ ! -e "$scratch/transport" ]; fi
+if [ "$mutation" = source-only ]; then ! grep -q cli2 "$scratch/transport"; fi
+if [ "$mutation" = target-only ]; then ! grep -q cli1 "$scratch/transport"; fi
+SH;
+foreach (['ready' => [0, 0, 0, 1], 'disabled' => [0, 0, 0, 1], 'source-only' => [0, 0, 0, 1],
+    'target-only' => [0, 0, 0, 1], 'duplicate' => [1, 0, 0, 0], 'body-fail' => [7, 0, 0, 1],
+    'body-signal' => [130, 0, 0, 1], 'target-prepare-fail' => [1, 0, 0, 0],
+    'target-native-fail' => [1, 0, 0, 0], 'source-native-fail' => [1, 0, 0, 0],
+    'target-release-fail' => [1, 0, 1, 1], 'source-release-fail' => [1, 1, 0, 1],
+    'source-replacement' => [1, 1, 0, 1]] as $mutation => [$expected, $source, $target, $body]) {
+    $script = $twoSiteProbe . "\n" . $ownership . $twoSiteBody;
+    foreach (['path', 'system'] as $shell) {
+        [$status, $stdout, $stderr] = $shell === 'path'
+            ? ShellProbe::run($script, [$root, $mutation], $root)
+            : ShellProbe::run('exec /bin/bash -c "$1" shell-probe "${@:2}"', [$script, $root, $mutation], $root);
+        wprism_check($status === 0 && str_contains($stdout, "RESULT status=$expected source=$source target=$target body=$body"),
+            "actual two-site conformance ownership classifies $shell/$mutation and releases every other owned guard");
+        if ($status !== 0 || !str_contains($stdout, "RESULT status=$expected source=$source target=$target body=$body")) {
+            fwrite(STDERR, substr($stdout . $stderr, 0, 2048) . "\n");
+        }
     }
 }
 wprism_check_summary('WordPress cron window');

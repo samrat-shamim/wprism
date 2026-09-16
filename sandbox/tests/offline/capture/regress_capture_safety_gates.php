@@ -121,6 +121,27 @@ $gates->guardPersonalData('options', 'woocommerce_default_customer_address', 'ba
 $gates->guardPersonalData('options', 'rank-math-options-general', ['content_ai_country' => 'all'], []);
 check(true, 'boolean and enum controls borrowing contact-field nouns do not false-positive as personal data');
 
+foreach ([false, true] as $visibility) {
+    $gates->guardPersonalData('options', 'editor_metadata', ['blockVisibility' => ['viewport' => ['mobile' => $visibility]]], []);
+    check(true, 'a strict boolean under the immediate viewport subject is a screen visibility flag');
+}
+foreach ([
+    ['viewport' => ['mobile' => 'false']], ['viewport' => ['mobile' => 0]],
+    ['viewport' => ['mobile' => '+14155552671']], ['viewport' => ['mobile' => 14155552671]],
+    ['viewport' => ['mobile' => ['value' => false]]], ['billing' => ['mobile' => false]],
+    ['viewport' => ['contact' => ['mobile' => false]]],
+] as $contact) {
+    $failure = refusal(static fn() => $gates->guardPersonalData('options', 'editor_metadata', $contact, []));
+    check(($failure->diagnostics[0]['personal_data_shape'] ?? null) === 'phone number',
+        'viewport role handling does not clear wrong types, containers, contacts or remote descendants');
+}
+$screenEmail = refusal(static fn() => $gates->guardPersonalData('options', 'editor_metadata',
+    ['viewport' => ['mobile' => false, 'caption' => 'person@example.test']], []));
+check(($screenEmail->diagnostics[0]['personal_data_shape'] ?? null) === 'email address', 'screen visibility does not clear neighboring personal text');
+$screenSecret = refusal(static fn() => $gates->guardSecret('options', 'editor_metadata',
+    ['viewport' => ['mobile' => false, 'token' => 'sk_live_DIRECTBOUNDARY123456']], []));
+check($screenSecret->reasonCode === 'secret_state_refused', 'screen visibility never clears independent secret checks');
+
 $concreteCountry = refusal(static fn() => $gates->guardPersonalData(
     'options',
     'rank-math-options-general',

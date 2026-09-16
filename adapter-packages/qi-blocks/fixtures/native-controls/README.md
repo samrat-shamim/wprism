@@ -78,3 +78,12 @@ all eight page/style request/response bodies and per-site repositories. The
 [progress record](../../evidence/authoring-progress.json) identifies their hashes
 and scope. Qi remains experimental: multi-image gallery behavior, other target
 media controls, widgets/templates and broader readiness require their own evidence.
+
+The complete committed native Apply runner passes on
+`a6ccdf54ae15c5f585df024c6f5353fffadf0a58` with all six retained picker fragments.
+The reader requires one signature image and one pattern-bearing node inside
+each exact progress owner, in addition to every gallery image. Missing or
+duplicate writers and an unknown replacement owner refuse offline. This run
+adds divergent-ID transport, native frontend and zero-write-repeat evidence for
+the signature and progress patterns; their target picker Save/reopen flows and
+multi-image galleries remain separate obligations.

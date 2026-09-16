@@ -539,14 +539,17 @@ assert_wprism_apply_ready() { # <what> <JSON apply capture>
 
 # Fixture adoption is declared by the entry, before any pair mutation. It is
 # explicit operator intent for the test target, never adapter runtime policy.
-conformance_disable_target_cron() { # <one entry JSON object>
-  jq -rs '
+conformance_disable_cron() { # <one entry JSON object> <source|target>
+  case "$2" in source|target) ;; *) return 1 ;; esac
+  jq -rs --arg field "disable_${2}_cron" '
     if length == 1 and (.[0] | type == "object") then
-      .[0] | (if has("disable_target_cron") then .disable_target_cron else false end) |
-      if type == "boolean" then tostring else error("disable_target_cron must be boolean") end
+      .[0] | (if has($field) then .[$field] else false end) |
+      if type == "boolean" then tostring else error($field + " must be boolean") end
     else error("one conformance entry object is required") end
   ' <<<"$1"
 }
+conformance_disable_target_cron() { conformance_disable_cron "$1" target; }
+conformance_disable_source_cron() { conformance_disable_cron "$1" source; }
 
 conformance_adopt_by_slug() { # <one entry JSON object>
   jq -ers '

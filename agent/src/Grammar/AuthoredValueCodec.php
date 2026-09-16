@@ -12,6 +12,7 @@ require_once __DIR__ . '/../Kernel/ValueContractGrammar.php';
 require_once __DIR__ . '/../Kernel/FieldLabelMap.php';
 require_once __DIR__ . '/../Kernel/FieldTemplateMap.php';
 require_once __DIR__ . '/../Kernel/InputFileBinding.php';
+require_once __DIR__ . '/../Kernel/ValueShapeContract.php';
 
 /**
  * Shared authored value transformations. Callers supply the token capability
@@ -28,6 +29,9 @@ final class AuthoredValueCodec {
     }
 
     private static function capture_at(mixed $value, array $rule, object $tokens, callable $unmapped, string $where): mixed {
+        if (isset($rule[ValueShapeContract::ALTERNATIVES_FIELD])) {
+            return self::capture_at($value, ValueShapeContract::select($value, $rule, $where), $tokens, $unmapped, $where);
+        }
         if (isset($rule[InputFileBinding::FIELD])) {
             return InputFileBinding::capture($value, $rule[InputFileBinding::FIELD]);
         }
@@ -73,6 +77,9 @@ final class AuthoredValueCodec {
     }
 
     private static function apply_at(mixed $value, array $rule, object $tokens, string $where, ?callable $inputFile, array $path): mixed {
+        if (isset($rule[ValueShapeContract::ALTERNATIVES_FIELD])) {
+            return self::apply_at($value, ValueShapeContract::select($value, $rule, $where), $tokens, $where, $inputFile, $path);
+        }
         if (isset($rule[InputFileBinding::FIELD])) {
             if ($value === '') return '';
             if ($inputFile === null) throw new \RuntimeException('wprism: column input file requires an explicit target binding capability');
@@ -118,6 +125,11 @@ final class AuthoredValueCodec {
         }
         $nodes = 0;
         self::assert_json($value, 0, $nodes, $where);
+        if (isset($rule[ValueShapeContract::ALTERNATIVES_FIELD])) {
+            self::assert_value_at($value, ValueShapeContract::select($value, $rule, $where), $canonical, $fragments, $where);
+            return;
+        }
+        ValueShapeContract::assert_scalar_value($value, $rule, $where);
         if (isset($rule[InputFileBinding::FIELD])) {
             InputFileBinding::assert_value($value, $canonical, $where);
             return;
@@ -222,6 +234,9 @@ final class AuthoredValueCodec {
 
     /** @return array{present:bool,value:mixed} */
     private static function project(mixed $value, array $rule, bool $canonical, string $where, string $purpose): array {
+        if (isset($rule[ValueShapeContract::ALTERNATIVES_FIELD])) {
+            return self::project($value, ValueShapeContract::select($value, $rule, $where), $canonical, $where, $purpose);
+        }
         if (isset($rule[InputFileBinding::FIELD])) return ['present' => false, 'value' => null];
         if ($purpose === 'pii' && isset($rule['ref'])) return ['present' => false, 'value' => null];
         if ($purpose === 'pii' && isset($rule[FieldLabelMap::FIELD])) {
@@ -253,6 +268,7 @@ final class AuthoredValueCodec {
     private static function has_projected_values(array $rule): bool {
         if (isset($rule[FieldTemplateMap::FIELD]) || isset($rule[InputFileBinding::FIELD])) return true;
         foreach ($rule['object_fields'] ?? [] as $child) if (self::has_projected_values($child)) return true;
+        foreach ($rule[ValueShapeContract::ALTERNATIVES_FIELD] ?? [] as $child) if (self::has_projected_values($child)) return true;
         return false;
     }
 

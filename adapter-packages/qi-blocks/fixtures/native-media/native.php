@@ -33,6 +33,7 @@ if ($phase === 'seed') {
 $check($phase === 'pixels', 'declared native media phase');
 $html = get_post_field('post_content', $page, 'raw');
 $original = get_attached_file($attachment);
+$originalSamples = QiConformanceCorpus::image_samples(file_get_contents($original));
 $rows = [];
 foreach (QiNativeMediaCorpus::DIMENSIONS as [$width, $height]) {
     $url = substr($imageUrl, 0, -4) . '-' . $width . 'x' . $height . '.png';
@@ -56,4 +57,5 @@ foreach (QiNativeMediaCorpus::DIMENSIONS as [$width, $height]) {
     $rows[] = ['width' => $width, 'height' => $height, 'url' => $url,
         'bytes_sha256' => hash('sha256', $bytes), 'pixels_sha256' => hash_final($hash)];
 }
-echo wp_json_encode(['format' => 'wprism-qi-native-media-pixels/v1', 'home' => home_url(), 'page' => $page, 'attachment' => $attachment, 'images' => $rows]);
+echo wp_json_encode(['format' => 'wprism-qi-native-media-pixels/v1', 'home' => home_url(), 'page' => $page, 'attachment' => $attachment,
+    'original_samples' => $originalSamples, 'images' => $rows]);

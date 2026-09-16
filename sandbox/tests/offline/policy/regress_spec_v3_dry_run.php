@@ -837,6 +837,7 @@ wprism_check_same(
 wprism_check_same(
     [
         'attr-id-codecs/v1',
+        'block-attribute-closure/v1',
         'block-attribute-groups/v1',
         'block-attribute-name-products/v1',
         'block-attribute-values/v1',
@@ -844,6 +845,7 @@ wprism_check_same(
         'block-media-derivatives/v1',
         'block-record-fields/v1',
         'block-value-contracts/v1',
+        'block-value-shapes/v1',
         'body-pii-paths/v1',
         'body-ref-preserve-type/v1',
         'body-url-rebinding/v1',
@@ -944,7 +946,7 @@ wprism_check_same(
 
 echo "\nRULE V3-ARM: every feature-claimed key carries a reviewed certificate arm\n";
 
-// The ROWS, pinned whole. Every one of these eight is a permanent decision the
+// The ROWS, pinned whole. Every one of these eleven is a permanent decision the
 // register records (R-31): the arm reaches `claim_from_disposition()`, which
 // builds the `surfaces` list inside a signed statement, so moving a key between
 // arms invalidates every certificate already issued over an adapter declaring
@@ -952,6 +954,7 @@ echo "\nRULE V3-ARM: every feature-claimed key carries a reviewed certificate ar
 wprism_check_same(
     [
         'attr_id_codecs' => 'field',
+        'block_attribute_closure' => 'non_surface',
         'block_content' => 'field',
         'block_media_derivatives' => 'field',
         'block_values' => 'field',
@@ -963,8 +966,8 @@ wprism_check_same(
         'storage_prerequisites' => 'non_surface',
     ],
     AdapterContractGrammar::feature_key_arms(),
-    'V3-ARM: the roster classifies ten keys — six value grammar sections as '
-        . '`field`, and the claim channel, evidence records, incompatibility list, and storage prerequisites as `non_surface`'
+    'V3-ARM: the roster classifies eleven keys — six value grammar sections as '
+        . '`field`, and the claim channel, evidence records, incompatibility list, storage prerequisites and block closure as `non_surface`'
 );
 $report('feature-claimed key arms: ' . json_encode(AdapterContractGrammar::feature_key_arms(), JSON_UNESCAPED_SLASHES));
 

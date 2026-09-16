@@ -71,7 +71,7 @@
     "conformance_corpus": {
       "script": "tests/offline/regress_conformance_corpus.php",
       "exit": 0,
-      "assertions": 103,
+      "assertions": 107,
       "native_block_types": 47,
       "native_instances": 50,
       "native_selector_frames": 84,
@@ -86,7 +86,7 @@
     "native_apply_evidence": {
       "script": "tests/offline/regress_native_apply_evidence.php",
       "exit": 0,
-      "assertions": 93,
+      "assertions": 111,
       "scope": "Complete product block materialization plus hostile native, HTTP, command-receipt and transport admission. Both shared-conformance CLI admissions execute with the block parser and validate the native postimage and fixed point."
     },
     "native_media": {
@@ -106,6 +106,28 @@
       "exit": 0,
       "assertions": 91,
       "scope": "Complete native six-widget family and three native widget/page/template style values through SidebarState Capture, immutable compilation and checked widget/option materialization. All six widget IDs diverge, native storage types remain exact, late style failure rolls back widget allocation and writes, and retry/repeat/recapture pass. Template body has content-only compiler coverage; native template discovery and rendering remain separate obligations."
+    },
+    "native_schema": {
+      "script": "tests/offline/regress_native_schema.php",
+      "exit": 0,
+      "assertions": 360,
+      "scope": "Exact artifact-derived schema reconciliation, original 7497-rule preservation, every added scalar field and every closed owner, Capture/Apply/public parser-free Lint and target-free compiler refusals. Native type predicates and unobserved native controls remain unqualified.",
+      "closed_blocks": 49,
+      "expanded_rules": 21505,
+      "added_rules": 14008
+    },
+    "block_attribute_closure": {
+      "script": "sandbox/tests/offline/grammar/regress_block_attribute_closure.php",
+      "exit": 0,
+      "assertions": 102,
+      "reused_product_assertions": 328,
+      "scope": "Negotiation, identity/ownership, presence refusal, malformed raw comments, parser-free post/widget Lint, immutable compiler, actual SQL rollback/retry and exact native recapture. Existing open declarations keep their effective rows and behavior."
+    },
+    "native_identity": {
+      "script": "tests/offline/regress_native_identity.php",
+      "exit": 0,
+      "assertions": 8,
+      "scope": "Capsule-local current shipped identity, independently retained predecessor identity, closure-sensitive digest and manifest hash, and exact frozen policy roundtrip. Recompile and re-pin are required; no live neighboring adapter identity is pinned."
     }
   },
   "quality_gates": {
@@ -132,7 +154,7 @@
     "This is an experimental draft, not a production qualification. Twelve readiness families remain open.",
     "The shared standalone agent roundtrip covers public target activation, native page Apply, divergent identities, zero-write repeat, complete recapture and HTTP CSS. Selected crops, gallery editing, widget and FSE contexts have separate scoped evidence; their combination, broader lifecycle, version-matrix and hostile families remain incomplete.",
     "Signature, progress-bar images and all three galleries have actual source picker Save/reopen fixtures. Three gallery response caches are now projected by the shared engine; corrected target Apply, real Edit Gallery/Select/Save, reopen and recapture pass. Signature/progress target editing remains outside that result. Crop controls expose no responsive image selection; registration-only placeholders do not authorize file work.",
-    "The crop fixture has uniform PNG pixels. Native multi-format/asymmetric crop, removal, collision, recovery, scope and co-install cases remain outside this capsule result."
+    "Deterministic asymmetric PNG transport now passes for all four native crops. Native multi-format crops, removal, collision, recovery, scope and broader co-install cases remain outside that result."
   ],
   "source_engine_base_commit": "202d7f85a90587af16fa194b3025f0b5b1580c34",
   "source_engine_state": "Shared native agent roundtrip, four native crop consumers, three native gallery editor round trips, widget contexts and scoped core-profile FSE template transfer pass on their named commits. Qi remains experimental; complete production qualification is pending.",
@@ -632,5 +654,741 @@
       "Repeat Apply reports all 26 entities unchanged with zero create, update, adoption, action, warning or write. The complete Visual Portfolio native observation stays byte-identical, its gallery/archive/download/storage consumers pass again, and the complete Qi postimage remains stable."
     ],
     "scope": "Exact free Qi Blocks 1.5.2 plus Visual Portfolio 3.8.1 on WordPress 7.1 through the shared agent-apply-roundtrip. No production authorization, other version, recovery fault, premium code or other participant combination is claimed."
+  },
+  "native_all_picker_asymmetric_apply": {
+    "source_engine_commit": "a6ccdf54ae15c5f585df024c6f5353fffadf0a58",
+    "pair": "qicomplete916a",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2"
+    },
+    "driver": "tests/live/regress_native_apply.sh",
+    "driver_exit": 0,
+    "log_sha256": "95976c7fdad34b02b0bdc7b5537482b22b65871340cd52f72cebe93f900d9b89",
+    "checks": [
+      "All six retained native picker fragments are required exactly once; three galleries, Author Info signature and both progress patterns render target-local image URLs.",
+      "Four native Qi source crop writers use a deterministic spatial 1200x800 PNG with five required exact original samples; all decoded target crop RGBA pixels and dimensions match.",
+      "Initial seven-entity Apply, each content-only update and repeat preserve complete native state, canonical recapture and media ownership; repeat writes nothing."
+    ],
+    "teardown": "Sole final REGRESS_QI_NATIVE_APPLY PASSED; owned pair, lease, both databases, volumes and site repositories removed.",
+    "scope": "Run predates block-attribute-closure/v1. Retained native REST Save and frontend transport; no new target browser Save/reopen, multi-image, lifecycle, host or version qualification."
+  },
+  "native_closed_roster_apply": {
+    "source_engine_commit": "43db61d9c7767384c80117d95ed0e0cbb0213fc0",
+    "pair": "qiclosure916a",
+    "driver": "tests/live/regress_native_apply.sh",
+    "driver_exit": 0,
+    "log_sha256": "0fafc50b25cd2cb9a9c131bd1543ba40cc8db689965136ce5c4579a86c8784df",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2"
+    },
+    "adapter_digest": "2dfe718549fff7d2aaadb7289cac7ce03e01420b25da5117b672d8f5ec1cadd1",
+    "checks": [
+      "Complete 47-type, 50-instance native standalone corpus passes under the closed attribute roster.",
+      "All six retained media picker controls and four deterministic asymmetric crops preserve complete native target observations, divergent identities, HTTP consumers and canonical recapture.",
+      "Repeat Apply writes zero; complete target trash, Qi runtime options and per-site media catalogs remain qualified by the unchanged strict readers."
+    ],
+    "teardown": "Sole final REGRESS_QI_NATIVE_APPLY PASSED; owned pair, lease, site repositories, databases and volumes removed.",
+    "scope": "Content-only transport and native HTTP rendering; browser Save/reopen, additional global attributes, lifecycle, host and version qualification remain separate."
+  },
+  "native_global_controls": {
+    "source_engine_commit": "43db61d9c7767384c80117d95ed0e0cbb0213fc0",
+    "pair": "qiglobals916a",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2"
+    },
+    "fixture": "fixtures/native-global-controls/observations.json",
+    "fixture_sha256": "3e1104098f4412cf43fc5977fdf6704f5d011ca36e1aa3b2163e8aec580d48c2",
+    "writer": "Actual List View Lock, Rename and Visibility dialogs, followed by native post Save.",
+    "native_saves": 7,
+    "lock_states": 4,
+    "observed": [
+      "Native lock stores both move/remove boolean members in all four states, including explicit false/false after unlock.",
+      "Rename stores metadata.name; clearing the final name omits metadata.",
+      "Mobile visibility stores metadata.blockVisibility.viewport.mobile=false; omission uses blockVisibility=false; reset removes blockVisibility."
+    ],
+    "offline": {
+      "script": "tests/offline/regress_native_global_controls.php",
+      "exit": 0,
+      "assertions": 45
+    },
+    "teardown": "Final native editor reopens the reset block with unchecked lock controls and no pending Save; browser tab, owned pair, lease, databases, volumes and repositories removed.",
+    "scope": "Source writer observations only. At the recorded 43db61d9 commit the closed Qi roster refused these then-undeclared globals. Later declaration and offline admission are recorded separately; this observation supplies no target-native Apply, global-control editing or readiness qualification."
+  },
+  "latest_quality_gate_attempt": {
+    "source_engine_commit": "43db61d9c7767384c80117d95ed0e0cbb0213fc0",
+    "composer check": {
+      "exit": 0,
+      "phpunit_tests": 1404,
+      "phpunit_assertions": 39740
+    },
+    "release-gate": {
+      "exit": 0,
+      "shared_suites": 407
+    },
+    "regress-offline-all": {
+      "exit": 2,
+      "failure": "Historical disposition identity suite compared its frozen 21-subject product image with the live edited Qi package, producing 14 failed identity assertions.",
+      "remedy": "Retain and independently hash-check the complete historical identity input bytes; use the ordinary product readers without changing historical digest, manifest, registry or snapshot literals. Current Qi identity is owned by its capsule."
+    },
+    "scope": "Exact recorded commit. A new unconditional full gate is required after test isolation and cron-window changes."
+  },
+  "native_visual_portfolio_combination_closed_roster_attempt": {
+    "source_engine_commit": "43db61d9c7767384c80117d95ed0e0cbb0213fc0",
+    "pair": "qivpclosure916a",
+    "driver_exit": 1,
+    "log_sha256": "a3d2480a7f8bcfe6fcb671036a1dcd1427eee5ab8f7c45f5c47b354eb595302c",
+    "failure": "Complete Visual Portfolio native repeat observation differs only in the source _transient_doing_cron lock timestamp; canonical repositories remain identical.",
+    "remedy": "Declare independently owned source and target cron windows in shared conformance infrastructure. Keep complete native option comparisons without filtering or deleting transient rows.",
+    "teardown": "Owned pair, lease, databases, volumes and site repositories removed after failure.",
+    "scope": "Failed attempt. A clean exact-source rerun of the edited shared harness is required."
+  },
+  "native_visual_portfolio_combination_owned_windows": {
+    "source_engine_commit": "92dd44997e9b5a353ac582fd629837613c8b0529",
+    "pair": "qivpwindow916a",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2",
+      "visual-portfolio": "3.8.1"
+    },
+    "driver_exit": 0,
+    "log_sha256": "fde82691d2e3a0c47a9fd9a99171bb78eaea9b3853b6cffd3e81038998437e90",
+    "checks": [
+      "Full initial Apply, complete native observations, canonical recapture and both packages HTTP consumers pass under the closed Qi roster.",
+      "Repeat writes zero; independently owned source and target cron windows preserve complete native option comparisons without filtering transient rows."
+    ],
+    "teardown": "Sole final PASS; owned pair, lease, databases, volumes and both site repositories removed.",
+    "scope": "Exact free artifacts and WordPress 7.1. This run predates global-value admission; it does not qualify globals, other combinations, lifecycle, recovery or host promotion."
+  },
+  "closed_roster_full_local_gate": {
+    "source_engine_commit": "18ccc8cdc21b7dd665de9d98aba661126e6d85d1",
+    "regress-offline-all": {
+      "exit": 0,
+      "shared_suites": 407,
+      "packages": 29,
+      "package_tests": 147,
+      "offline_scenario_gates": 12,
+      "integration_scenarios": 7,
+      "log_sha256": "3e92121750b826207c2a93947eb8b7d92b483ffd118b12acaad44e82e1e25d92"
+    },
+    "reviewed_contract_updates": [
+      "block_attribute_closure has minimum wire version 3.",
+      "The closure key emits the non_surface CLI declaration arm."
+    ],
+    "scope": "Unconditional canonical gate after historical identity isolation and owned cron windows. Later global value-shape changes require a new full gate."
+  },
+  "native_global_value_admission": {
+    "status": "declared-and-offline-exercised-target-native-pending",
+    "adapter_digest": "9a55de4ff86712cc87118261445f21efb737332186e20d0c0d71d569be3c5782",
+    "expanded_field_rules": 21603,
+    "added_wordpress_global_rules": 98,
+    "fixtures": [
+      "fixtures/native-global-controls/observations.json"
+    ],
+    "offline": {
+      "script": "tests/offline/regress_native_global_controls.php",
+      "exit": 0,
+      "assertions": 426,
+      "scope": "Seven complete independent saved fragments: divergent IDs/URLs, exact lock/metadata states and absence, canonical fixed points, post/widget immutable compilation and parser-free/native Lint. Hostile wrong types, unknown nested metadata and malformed comments refuse before any DB contact."
+    },
+    "engine": {
+      "feature": "block-value-shapes/v1",
+      "shape_assertions": 215,
+      "reused_product_assertions": 328,
+      "scope": "Strict scalar and literal/object shape dispatch; selected-owner pure review includes ordinary enum/object siblings with no fallback or new plugin executable."
+    },
+    "privacy": "Only strict boolean mobile under the immediate viewport subject is a screen flag; wrong types, containers, contact contexts, remote descendants and neighboring private text retain the independent privacy/secret gates.",
+    "scope": "The retained source observations were authored before admission. Target native Apply, HTTP/global visibility and target browser Save/reopen remain unqualified. Twelve readiness families remain unready; recompile and re-pin required."
+  },
+  "native_global_controls_full_apply": {
+    "source_engine_commit": "af41f1080248889ff364a2b93f60a56c2200383d",
+    "pair": "qiglobalapply916b",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2"
+    },
+    "adapter_digest": "9a55de4ff86712cc87118261445f21efb737332186e20d0c0d71d569be3c5782",
+    "driver": "tests/live/regress_native_apply.sh",
+    "driver_exit": 0,
+    "log_sha256": "03694114ed46f27819397a9b9387d0e2faf364c9622505cab9698b066921b2e4",
+    "native_global_saves": 7,
+    "native_picker_shapes": 6,
+    "native_custom_crops": 4,
+    "checks": [
+      "Seven independently retained complete fragments pass real REST Save, divergent-ID Apply, exact lock/metadata presence and absence, canonical recapture and zero-write repeat.",
+      "Visible global owners retain exactly one native image; all four responsive widths bind native metadata/uploads on each site. Complete HTML and CSS remain exact after only independently proven image coordinates rebind.",
+      "All six picker shapes and four asymmetric selected crop dimensions/pixels pass the same fresh run. Complete native target-local rows/options/media and every compiled entity remain preserved."
+    ],
+    "review": "Luna, Terra and Sol cleared the seven-case loop. Sol found symmetric image loss in the frontend oracle; af41f108 closes it with 219 admission assertions and independent re-review.",
+    "prior_attempt": {
+      "source_engine_commit": "d14059a9c20caf3bb5f9521fc1361038fa2bf0d7",
+      "driver_exit": 255,
+      "failure": "First global HTML comparison omitted WordPress responsive derivative URL rebinding. Complete retained source/target HTML differs only in those proven srcset coordinates; the corrected reader admits the original unfiltered HTML.",
+      "scope": "Failed attempt; its owned pair was destroyed. No pass inferred."
+    },
+    "teardown": "Sole final REGRESS_QI_NATIVE_APPLY PASSED; owned pair, lease, site repositories, databases and volumes removed.",
+    "scope": "Exact free artifact and WordPress 7.1. Target browser Save/reopen, computed viewport visibility, broader media contexts, lifecycle, version, recovery and host promotion remain separate qualifications."
+  },
+  "native_global_lane_full_local_gate": {
+    "source_engine_commit": "d87fa956b2df0856ce5b2060968452cdb57b01a6",
+    "regress-offline-all": {
+      "exit": 0,
+      "shared_suites": 408,
+      "packages": 29,
+      "package_tests": 147,
+      "offline_scenario_gates": 12,
+      "integration_scenarios": 7,
+      "log_sha256": "eaa3392b3a61353e9071cb1d3b0af0009ccd6afcec67d31ad3b40ef7f020c69a"
+    },
+    "composer check": {
+      "exit": 0,
+      "phpunit_tests": 1405,
+      "phpunit_assertions": 39811,
+      "log_sha256": "42a87038e8f7ec8457949111a15a9aa2b49ae2a35ba9059d2e53e51824b63edd"
+    },
+    "release-gate": {
+      "exit": 0,
+      "shared_suites": 408,
+      "log_sha256": "902db615b892f16ba6884e09707ba1fd0c3c1b74953efa2a372574595417fcc1"
+    },
+    "scope": "Unconditional canonical gate after native global replay and image admission hardening. Later authoring changes require their own final full gate."
+  },
+  "native_target_global_browser_roundtrip": {
+    "source_engine_commit": "af41f1080248889ff364a2b93f60a56c2200383d",
+    "pair": "qiglobaleditor916a",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2"
+    },
+    "adapter_digest": "9a55de4ff86712cc87118261445f21efb737332186e20d0c0d71d569be3c5782",
+    "observations": "fixtures/native-global-controls/target-observations.json",
+    "observations_sha256": "24633ceb15ad04ec48e1b4894f366cfbda1acf5f17f019d0dcfdc84cb5f649e2",
+    "first_save_body": "fixtures/native-global-controls/target-first-save.html",
+    "first_save_body_sha256": "227e9797f6f2d6c71e97714cf14f3920f2618cc39862d92f153c081e560de961",
+    "actual_native_target_saves": 12,
+    "complete_rest_response_windows": 7,
+    "computed_frontend_observations": 21,
+    "compiled_entities_per_complete_target_capture": 7,
+    "checks": [
+      "All four lock states, rename/reset, literal omission, individual mobile/tablet/desktop settings, all three viewport settings together and final reset use actual target editor controls and Save.",
+      "Complete observed content.raw response hashes match independent native readback for the first seven states; later truncated network windows are excluded from HTTP response claims.",
+      "Every whole native body matches the frozen complete first writer with only the independently observed selected Single Image owner replaced. First Save retains an explicit four-LF authoring delta, never a runtime normalization.",
+      "Two complete target captures compile and converge per state; corresponding captured global controls also match native readback. Complete unselected native posts except edited page/revisions, Qi options/styles, identities/featured relations and all selected media/upload state stay unchanged.",
+      "Actual loaded WordPress tablet CSS spans 481–782px. Measurements at 375/600/1440px prove individual and combined viewport behavior; omission removes markup and reset restores it. Earlier 820px measurements remain desktop observations."
+    ],
+    "offline": {
+      "suite": "tests/offline/regress_native_global_controls.php",
+      "assertions": 736,
+      "result": "pass",
+      "scope": "Original source seven-state portability/refusals plus complete target first-writer/body reconstruction, twelve source/target native fragments, complete four-identity corpus fixed points, public post/widget compilation/Lint and computed viewport observations."
+    },
+    "diagnostics": {
+      "editor_errors": [],
+      "editor_warnings": [],
+      "network": "Seven initial writer responses retained by full body/request/response hashes; later truncated windows excluded.",
+      "first_save": "Full first-Save diff contains only two deletions of two LF bytes outside the changed Single Image owner. This is explicit native authoring evidence, never runtime normalization.",
+      "all_viewports": "Initial scratch expectation guessed viewport member order; retained native writer and complete captures preserve desktop/tablet/mobile order. Initial failure retained; no adapter bytes changed."
+    },
+    "teardown": "Parent owned authoring session exited zero after QI_TARGET_GLOBAL_EDITOR_AUTHORING_CLEANUP_PASSED; pair list confirms no live or stopped owned pairs.",
+    "scope": "Experimental native authoring/Apply evidence only. Remaining editor/media contexts, removal/failure/lifecycle/version/platform/host promotion and recovery remain unqualified; the single Qi plugin PR stays draft."
+  },
+  "native_target_global_browser_full_local_gate": {
+    "source_engine_commit": "f239191c697c00a45da140b7771f681d235831bd",
+    "reviewers": {
+      "luna": "CLEAR, 736 focused assertions",
+      "terra": "CLEAR, 736 focused assertions",
+      "sol": "CLEAR, 736 focused assertions"
+    },
+    "regress-offline-all": {
+      "exit": 0,
+      "shared_suites": 408,
+      "packages": 29,
+      "package_tests": 147,
+      "offline_scenario_gates": 12,
+      "integration_scenarios": 7,
+      "log_sha256": "c51c2c3f25f2d24935e4e00426f037590fe3ec21dd3360279737837c95a3df5c"
+    },
+    "composer check": {
+      "exit": 0,
+      "phpunit_tests": 1405,
+      "phpunit_assertions": 39821,
+      "log_sha256": "ab2a06294dd1f3ab0dbe76e4c3c12310972097e7184904dd758c21b3f958570c"
+    },
+    "release-gate": {
+      "exit": 0,
+      "shared_suites": 408,
+      "log_sha256": "902db615b892f16ba6884e09707ba1fd0c3c1b74953efa2a372574595417fcc1"
+    },
+    "scope": "Complete unconditional final local gate for target native global editor milestone. Later tracked edits need their own final gate. Retain and append this historical result in the next authoring-progress edit."
+  },
+  "native_dependency_refusals_and_restoration": {
+    "source_engine_commit": "8f6ee5541e7663b348c9f182c685c538a4712ca7",
+    "script": "tests/live/regress_native_dependencies.sh",
+    "pair": "qidependencies916b",
+    "exit": 0,
+    "result": "REGRESS_QI_NATIVE_DEPENDENCIES PASSED",
+    "native_archive_sha256": "6168357231ad0d39e41bcf71b1a0d4ad0fa08a5cc4263cc708dfe198b1f1f887",
+    "prior_archive_sha256": "9a9971ae6328cbcbdecb4beaabc90c61de6df5e7ba16bc523ee1dd20a1176ca2",
+    "full_log_sha256": "65dffef0e9e5323f2c10bab8af3cda7c3e04bcc92ddb5846731b926cf7e7fb13",
+    "native_refusal_images": {
+      "inactive": {
+        "premise": {
+          "version": "1.5.2",
+          "active": false,
+          "loaded": false,
+          "wrong_version": null,
+          "wrong_active": false,
+          "entry_sha256": "1e7c3ec1b77eb8d1663aaf177cfd8533a3794d96015d08236796872f25b77e5e",
+          "wrong_sha256": null,
+          "backup_sha256": null
+        },
+        "public_refusal_sha256": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
+        "images": {
+          "tables": {
+            "before_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "after_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "bytes": 387
+          },
+          "database": {
+            "before_sha256": "21fbe467819055866703c1281049fab026a5c4f0dc1b0ed01979f81852473c34",
+            "after_sha256": "21fbe467819055866703c1281049fab026a5c4f0dc1b0ed01979f81852473c34",
+            "bytes": 233226
+          },
+          "repository": {
+            "before_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "after_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "bytes": 654289
+          },
+          "files": {
+            "before_sha256": "6b1b943d302e00cf0a7543531f4a215b1fb258614b4552c8a33d382b90103916",
+            "after_sha256": "6b1b943d302e00cf0a7543531f4a215b1fb258614b4552c8a33d382b90103916",
+            "bytes": 100795
+          },
+          "code": {
+            "before_sha256": "2fb4123a3e8a7a7af96fad1438e2af8ede0c57cad3bcd1e53fac70a7e13cc9ed",
+            "after_sha256": "2fb4123a3e8a7a7af96fad1438e2af8ede0c57cad3bcd1e53fac70a7e13cc9ed",
+            "bytes": 215
+          }
+        }
+      },
+      "missing": {
+        "premise": {
+          "version": null,
+          "active": false,
+          "loaded": false,
+          "wrong_version": null,
+          "wrong_active": false,
+          "entry_sha256": null,
+          "wrong_sha256": null,
+          "backup_sha256": null
+        },
+        "public_refusal_sha256": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
+        "images": {
+          "tables": {
+            "before_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "after_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "bytes": 387
+          },
+          "database": {
+            "before_sha256": "c26ae85068e94532b18fe383a0ef905d8173553d979b2bcbce3b3576f1bb1e1b",
+            "after_sha256": "c26ae85068e94532b18fe383a0ef905d8173553d979b2bcbce3b3576f1bb1e1b",
+            "bytes": 233226
+          },
+          "repository": {
+            "before_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "after_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "bytes": 654289
+          },
+          "files": {
+            "before_sha256": "147dde0672a0df9fc514a1c822dd649076f4b418ed9b85eec68617d05e970e43",
+            "after_sha256": "147dde0672a0df9fc514a1c822dd649076f4b418ed9b85eec68617d05e970e43",
+            "bytes": 8889
+          },
+          "code": {
+            "before_sha256": "fc6468a4c1ad2442eb427fe0ec3fcd1997804b7a37a09a114793f9a8311195cd",
+            "after_sha256": "fc6468a4c1ad2442eb427fe0ec3fcd1997804b7a37a09a114793f9a8311195cd",
+            "bytes": 150
+          }
+        }
+      },
+      "prior": {
+        "premise": {
+          "version": "1.5.1",
+          "active": true,
+          "loaded": false,
+          "wrong_version": null,
+          "wrong_active": false,
+          "entry_sha256": "05f51dda085ed0365922cf771ff80d0c5dfa4f6b2220dfc2b986ee87dd7b0f96",
+          "wrong_sha256": null,
+          "backup_sha256": null
+        },
+        "public_refusal_sha256": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
+        "images": {
+          "tables": {
+            "before_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "after_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "bytes": 387
+          },
+          "database": {
+            "before_sha256": "70b6db230d234c2182330f291645af2510f8753a8927ceee32ab285ab34ef0d5",
+            "after_sha256": "70b6db230d234c2182330f291645af2510f8753a8927ceee32ab285ab34ef0d5",
+            "bytes": 233269
+          },
+          "repository": {
+            "before_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "after_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "bytes": 654289
+          },
+          "files": {
+            "before_sha256": "dbbdc9de24a968847cc27bee34c7eeecd248c140e5438a90af4239364752cfa9",
+            "after_sha256": "dbbdc9de24a968847cc27bee34c7eeecd248c140e5438a90af4239364752cfa9",
+            "bytes": 100795
+          },
+          "code": {
+            "before_sha256": "1604c3d9564108cd1fc197fc35c2dffe638e1e91b5ad8775ec9fa30e316ccb42",
+            "after_sha256": "1604c3d9564108cd1fc197fc35c2dffe638e1e91b5ad8775ec9fa30e316ccb42",
+            "bytes": 214
+          }
+        }
+      },
+      "maximum": {
+        "premise": {
+          "version": "1.5.3",
+          "active": true,
+          "loaded": false,
+          "wrong_version": null,
+          "wrong_active": false,
+          "entry_sha256": "1a8fbd2d49992ee21a9ed03f0bb20b9a5d8e5f052f7d69c0677ed82711b9c682",
+          "wrong_sha256": null,
+          "backup_sha256": "1e7c3ec1b77eb8d1663aaf177cfd8533a3794d96015d08236796872f25b77e5e"
+        },
+        "public_refusal_sha256": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
+        "images": {
+          "tables": {
+            "before_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "after_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "bytes": 387
+          },
+          "database": {
+            "before_sha256": "0b094fce97486eeb11ff3dfcd414145c81793c06f76e3fbf573364806b9eb809",
+            "after_sha256": "0b094fce97486eeb11ff3dfcd414145c81793c06f76e3fbf573364806b9eb809",
+            "bytes": 233269
+          },
+          "repository": {
+            "before_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "after_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "bytes": 654289
+          },
+          "files": {
+            "before_sha256": "31debc2c80e7198e81df38b49df085b22f0f6e15ea5cdf753e1ecb027bd19999",
+            "after_sha256": "31debc2c80e7198e81df38b49df085b22f0f6e15ea5cdf753e1ecb027bd19999",
+            "bytes": 100962
+          },
+          "code": {
+            "before_sha256": "9b29bc52830d44788165139eb513309ce11e6026ac91382ca40bec2dea5046bd",
+            "after_sha256": "9b29bc52830d44788165139eb513309ce11e6026ac91382ca40bec2dea5046bd",
+            "bytes": 276
+          }
+        }
+      },
+      "unreadable": {
+        "premise": {
+          "version": null,
+          "active": true,
+          "loaded": false,
+          "wrong_version": null,
+          "wrong_active": false,
+          "entry_sha256": "cc75e6c76917a276d48c28980fb0d43246c6df14f93b01cf46521c17b736360e",
+          "wrong_sha256": null,
+          "backup_sha256": "1e7c3ec1b77eb8d1663aaf177cfd8533a3794d96015d08236796872f25b77e5e"
+        },
+        "public_refusal_sha256": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
+        "images": {
+          "tables": {
+            "before_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "after_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "bytes": 387
+          },
+          "database": {
+            "before_sha256": "0b094fce97486eeb11ff3dfcd414145c81793c06f76e3fbf573364806b9eb809",
+            "after_sha256": "0b094fce97486eeb11ff3dfcd414145c81793c06f76e3fbf573364806b9eb809",
+            "bytes": 233269
+          },
+          "repository": {
+            "before_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "after_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "bytes": 654289
+          },
+          "files": {
+            "before_sha256": "3c112438c2978209c2696cf238e6051f8b4199f95a1559e57ebcbc88dd0bc6d5",
+            "after_sha256": "3c112438c2978209c2696cf238e6051f8b4199f95a1559e57ebcbc88dd0bc6d5",
+            "bytes": 100962
+          },
+          "code": {
+            "before_sha256": "2a844efb9ee9714b5511a67882ec1bee2ef70dda5de5da207a20633dd9879616",
+            "after_sha256": "2a844efb9ee9714b5511a67882ec1bee2ef70dda5de5da207a20633dd9879616",
+            "bytes": 273
+          }
+        }
+      },
+      "wrong-basename": {
+        "premise": {
+          "version": null,
+          "active": false,
+          "loaded": false,
+          "wrong_version": "1.5.2",
+          "wrong_active": true,
+          "entry_sha256": null,
+          "wrong_sha256": "1e7c3ec1b77eb8d1663aaf177cfd8533a3794d96015d08236796872f25b77e5e",
+          "backup_sha256": "1e7c3ec1b77eb8d1663aaf177cfd8533a3794d96015d08236796872f25b77e5e"
+        },
+        "public_refusal_sha256": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
+        "images": {
+          "tables": {
+            "before_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "after_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "bytes": 387
+          },
+          "database": {
+            "before_sha256": "f184762752029a4d8a8e0f24dc1959d3125637aeb974becb6d47c81b5202c1dc",
+            "after_sha256": "f184762752029a4d8a8e0f24dc1959d3125637aeb974becb6d47c81b5202c1dc",
+            "bytes": 233270
+          },
+          "repository": {
+            "before_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "after_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "bytes": 654289
+          },
+          "files": {
+            "before_sha256": "9751c71ae7b5e44f8100590aadfc9c3f1fcf3e895bb16c2384c0109db8d17d8e",
+            "after_sha256": "9751c71ae7b5e44f8100590aadfc9c3f1fcf3e895bb16c2384c0109db8d17d8e",
+            "bytes": 100963
+          },
+          "code": {
+            "before_sha256": "cb83836fe91c4f06d58c8304595f1bd1f1e75993b5d7e1b31e7c83a97d3e0c3a",
+            "after_sha256": "cb83836fe91c4f06d58c8304595f1bd1f1e75993b5d7e1b31e7c83a97d3e0c3a",
+            "bytes": 276
+          }
+        }
+      }
+    },
+    "source_ids": {
+      "image": 1,
+      "first": 2,
+      "second": 3,
+      "page": 4
+    },
+    "restored_target_ids": {
+      "image": 9,
+      "first": 10,
+      "second": 11,
+      "page": 12
+    },
+    "complete_target_native_sha256": "bab384fa951d1e22a9c2d9f9b35e4ee7dce701606174d63cc7bc3bca730df88b",
+    "restored_capture_sha256": "fbfb95ab0e1db903a6ef132e3c4b049b08a50e28077883db975de1d70685e451",
+    "compiled_entities": 7,
+    "verified_zero_write_retries": [
+      "reactivated-apply",
+      "reinstalled-apply",
+      "restored-apply",
+      "restored-repeat"
+    ],
+    "full_database_and_repository_bytes_preserved_on_each_refusal": true,
+    "complete_plugin_and_upload_hash_inventories_preserved_on_each_refusal": true,
+    "fresh_private_causes_verified": 6,
+    "owned_teardown": "destroyed; pair list has no live or stopped pairs",
+    "offline": {
+      "native_dependencies_assertions": 51,
+      "native_apply_admission_assertions": 219,
+      "shared_private_tree_assertions": 167
+    },
+    "reviewers": {
+      "luna": "CLEAR at exact 8f6ee554",
+      "terra": "CLEAR at exact 8f6ee554",
+      "sol": "CLEAR at exact 8f6ee554"
+    },
+    "prior_attempt": {
+      "source_engine_commit": "690dccba37ba882c5852dc4caaa901ee4900f780",
+      "pair": "qidependencies916a",
+      "exit": 255,
+      "full_log_sha256": "8ece04dee6a3a3427f627b574531d65173b16c6700167c6bc152f755b8aa354c",
+      "failure": "WP-CLI reinstall --force --activate emitted an already-active warning; strict native admission stopped. Corrected command replaces code without redundant activation and independently observes exact active state. No success claim for this attempt. Owned pair destroyed."
+    },
+    "evidence_reader_prior_defect": {
+      "prior_reader_commit": "690dccba37ba882c5852dc4caaa901ee4900f780",
+      "hardened_reader_commit": "8f6ee5541e7663b348c9f182c685c538a4712ca7",
+      "proof": "Both readers received the same complete native refusal image with one plugin SHA replaced by invalid. Prior reader admitted it; hardened shared inventory validation refused it. Positive/negative reproduction exits were zero and emitted the declared distinct outcomes.",
+      "prior_stdout_sha256": "ddad23f68dc84b82aaf5c24966dd35f6f4511290bf2b32acff87f7605f026de1",
+      "hardened_stdout_sha256": "530399b396fd765f0ee9a8cebc76a1fd89238b1758b0d6c94f8541ebc84bfae0"
+    },
+    "composer_check": {
+      "source_engine_commit": "8f6ee5541e7663b348c9f182c685c538a4712ca7",
+      "exit": 0,
+      "tests": 1405,
+      "assertions": 39855,
+      "log_sha256": "4e2e7ad1796f633695f960602c63051a859e843982ed29627f0cc1c8e36c4464"
+    },
+    "scope": "Public content-only agent Apply dependency gate and native inactive/missing/prior/header/basename restoration; whole database/repository bytes and native plugin/upload hash inventories, exact target-native corpus, HTTP/CSS and source/target full compiler convergence. No host certification or source-code payload transport claim.",
+    "pending": [
+      "declared runtime/platform boundaries and file-permission faults",
+      "source payload version/identity transport",
+      "canonical retirement and host lifecycle/promotion/recovery",
+      "remaining native editor/media and participant combination qualification"
+    ]
+  },
+  "native_dependency_caller_authority_hardening": {
+    "source_engine_commit": "77a3b8ca098db8b3dca9e314e38658c4a527685a",
+    "prior_full_gate": {
+      "source_engine_commit": "a4d199ab267d525a55d51961fe73c9529e16a58a",
+      "exit": 2,
+      "failed_suite": "regress-fetch-artifact",
+      "cause": "Extracted live callers omitted the mandatory canonical first-three-active-statement package authority preamble. The sourced baseline was not a substitute for caller authority.",
+      "log_sha256": "89156646dbde05a0eb9b7f530c7caa9f73f1335aeb8e58ec44e29a9af43a0756",
+      "adapter_aggregate": "29 packages, 148 package tests and 12 offline scenario gates across seven scenarios passed; the failed shared leaf prevents a green full gate."
+    },
+    "fix": "Both callers retain canonical first-three-statement authority. The shared capsule fixture validates caller root and artifact scope before requiring any pair input, and never replaces authority. Existing authoring requirement is clarified for fixture extraction.",
+    "focused_checks": {
+      "regress-fetch-artifact": {
+        "exit": 0,
+        "log_sha256": "e2c7d7006eb677fd6c9154a66432c2a10ce9a1ecebb30c8ae4fb9ed20539aa7c"
+      },
+      "native_dependencies": {
+        "exit": 0,
+        "assertions": 56,
+        "log_sha256": "a4b1e8d313a026841e740a27a76d4b873ec0172e110765305a812c26d3263a70"
+      }
+    },
+    "native_evidence_scope": "All native operational suffixes of setup, complete Apply extension and dependency driver are byte-identical to the independently reviewed and passed 8f6ee554 native run. Changed ownership prefixes execute deterministically offline, including canonical ownership and wrong-root/wrong-scope refusal before pair mutation. No new live sweep; the source-bound native claim remains 8f6ee554."
+  },
+  "native_dependency_final_local_gates": {
+    "source_engine_commit": "81eb7b449f607fa17c6f2ae928830f6227246a84",
+    "host_php": "8.3.33",
+    "checks": {
+      "offline": {
+        "command": "make -j8 -k regress-offline-all",
+        "exit": 0,
+        "log_sha256": "2738b67b8a3807417671983f17bedf50861c107fe24fa568e7e44db5f67b8825",
+        "tail": [
+          "✔ integration-scenarios/rank-math-commerce-multilingual: integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_source_native_premise.php",
+          "✔ integration-scenarios/rank-math-yoast-incompatibility: integration-scenarios/rank-math-yoast-incompatibility/tests/offline/regress_rank_math_yoast_incompatibility.php",
+          "✔ integration-scenarios/woocommerce-rewrite-coinstall: integration-scenarios/woocommerce-rewrite-coinstall/tests/offline/regress_woocommerce_hierarchy_lookups.php",
+          "✔ REGRESS_ADAPTER_PACKAGES PASSED: 29 packages, 148 package tests, 12 offline scenario gates, 7 integration scenarios",
+          "regress-offline-corpus: 408 offline suites green",
+          "regress-offline-all: 408 offline suites green"
+        ]
+      },
+      "composer": {
+        "command": "composer check",
+        "exit": 0,
+        "log_sha256": "59c73cf321e9869d386c19d3bc44febd68f3f3d23174bb20c6c800a376369d36",
+        "tail": [
+          "............................................................. 1403 / 1405 ( 99%)",
+          "..                                                            1405 / 1405 (100%)",
+          "",
+          "Time: 03:16.270, Memory: 76.02 MB",
+          "",
+          "OK (1405 tests, 39855 assertions)"
+        ]
+      },
+      "release": {
+        "command": "make release-gate",
+        "exit": 0,
+        "log_sha256": "902db615b892f16ba6884e09707ba1fd0c3c1b74953efa2a372574595417fcc1",
+        "tail": [
+          "php tools/offline-corpus.php --check",
+          "offline-corpus: tools/offline-corpus.mk matches the tree (408 offline suites)",
+          "php tools/adapter-kit.php --check",
+          "adapter-kit: tools/adapter-kit.json matches the tree (11 live files packaged)",
+          "php tools/adapter-grade.php --check",
+          "adapter grade check: package-owned evidence and computed grade inputs agree"
+        ]
+      }
+    },
+    "independent_reviews": {
+      "luna": "CLEAR exact source, no P1/P2; focused 56 + fetch artifact",
+      "terra": "CLEAR exact source, no P1/P2; focused 56 + fetch artifact",
+      "sol": "CLEAR exact source, no P1/P2; focused 56 + fetch artifact"
+    },
+    "scope": "Full final local gates and three independent reviews at exact 81eb7b44. Native dependency qualification remains bound to exact 8f6ee554; no current-source native dependency result is inferred."
+  },
+  "native_target_picker_input_premise": {
+    "source_engine_commit": "81eb7b449f607fa17c6f2ae928830f6227246a84",
+    "incomplete_attempt": {
+      "pair": "qipicker916a",
+      "parent_exit": 130,
+      "result": "incomplete-ui-probe",
+      "log_sha256": "1722a1de37fabf31553bfd6484e811286cfdc54dd7a38d53425e5a783c9ccd2f",
+      "capture_a_sha256": "ad10aeff2e83788e4a315aff972ac533b5f1ea5190e1c57edad06f7011baee27",
+      "capture_b_sha256": "f4395aee3b80ddaec1769500d22ff40c0675c0573a99b3b82ba4270f6cb5a487",
+      "preservation_admission_sha256": "d5d2e61ba7855e13c5da72c156cd212eaebda34a1d03a64dd003ab092aa999e9",
+      "preservation": {
+        "result": "pass",
+        "source_commit": "81eb7b449f607fa17c6f2ae928830f6227246a84",
+        "compiled_entities": 7,
+        "body_sha256": "bf3647db340a0706c09a2bf5658f4131c76f6b63dae9592822a1f97e67c0fc97",
+        "native_before_sha256": "ddcca427796fc651d74744a04dbc1dda1f561e666a543245870407f28b0bebe8",
+        "native_after_sha256": "7ca9144ef502e476709b6d318ac77e158415f67ec6e82302f453a730f987f640",
+        "unchanged_native_fields": [
+          "home",
+          "ids",
+          "uuids",
+          "featured",
+          "attachment",
+          "page_body",
+          "options",
+          "styles",
+          "uploads"
+        ],
+        "before_posts": 12,
+        "after_posts": 15,
+        "new_post_types": {
+          "wp_global_styles": 1,
+          "post": 1,
+          "revision": 1
+        },
+        "scope": "Incomplete browser probe, no picker or Save/reopen qualification. All prior non-revision posts and complete observed Qi/body/media fields preserved; two full Capture results and complete compiler/media fixed points remain equal to the passing native baseline. No complete database equality after browser opening is claimed."
+      },
+      "native_scope": "Complete seven-entity divergent-ID Apply/repeat/native/HTTP/recapture admission passes. All six retained media-control transport consumers also pass, with one content update and zero-write repeat. These are partial native admission records, not a terminal full suite result.",
+      "ui_scope": "No actual target picker action or editor Save/reopen is qualified. No terminal native suite PASS was published. Chrome also reports its observed WordPress iframe stylesheet warning and extension transport errors; no clean-console claim."
+    },
+    "isolated_diagnostic": {
+      "pair": "qievent916a",
+      "ports": [
+        9524,
+        9525
+      ],
+      "log_sha256": "8ae00540f55490b7795aa7aeff44d05a854adbdc331d469da69d66003f8d1551",
+      "parent_exit": 0,
+      "verdict": "Native editor diagnostic cleanup passed; independent pair list showed no owned live/stopped pair.",
+      "premise": "Exact locked Qi source corpus on one side; native Qi deactivated and an empty native draft on the other. Bare WordPress reproduced inert input. Native Chrome surface exposed the Password Manager data-breach notice following the disposable admin/admin login. Acknowledging its informational OK restored native Document Overview activation and visible List View. No credentials or browser protections changed.",
+      "layer": "Browser test environment and authoring guidance. No adapter or engine runtime change.",
+      "scope": "Input-premise isolation only; no native picker Save/reopen, Apply, lifecycle, or platform graduation claim."
+    },
+    "pending": [
+      "Actual target signature and both progress pattern picker Saves/reopens",
+      "Distinct multi-image native gallery Saves/reopens and divergent-ID transport",
+      "Origin and effect of observed ephemeral data-qi-editor-link-bound DOM marker before qualifying that browser consumer"
+    ]
+  },
+  "owner_requested_pause": {
+    "date": "2026-09-16",
+    "instruction": "Merge the current PR and pause; no more tests; stop all running processes.",
+    "last_native_attempt": {
+      "pair": "qipicker916b",
+      "source_engine_commit": "81eb7b449f607fa17c6f2ae928830f6227246a84",
+      "parent_exit": 130,
+      "log_sha256": "54b808a0ce9282f3fd4bf3b0a5f49367370b49a7f328dd0528e8c3b996a0d551",
+      "scope": "Complete seven-entity native baseline admission passed; the six-control extension was interrupted after controls-seed. No target picker browser action, terminal suite pass, or additional qualification is claimed. Owned pair destroyed."
+    },
+    "last_offline_addition": {
+      "script": "tests/offline/regress_native_controls.php",
+      "assertions": 45,
+      "exit": 0,
+      "scope": "Previously completed focused run, including synthetic two-distinct-selection transport in both orders for three galleries. No native multi-image Save/reopen claim."
+    },
+    "validation_boundary": "Full local gates and independent reviews remain bound to exact 81eb7b44. Final test/documentation/evidence additions have not received another full gate or reviewer pass; no additional tests were run after the owner requested stopping.",
+    "readiness": "Experimental and production-unready. Pending qualification listed above remains incomplete; merging this work does not graduate the adapter."
   }
 }

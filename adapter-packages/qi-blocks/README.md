@@ -3,14 +3,24 @@
 Experimental authoring capsule for the exact free Qi Blocks 1.5.2 artifact.
 Production qualification is incomplete. The package contains declarations only;
 block values, PHP containers and media effects use shared engine machinery.
-Its 177 exact declaration groups expand to 7,497 field rules across 49 blocks.
-Ninety-eight groups use the shared exact-name product grammar to spell 1,455
-responsive attributes as 485 bases times the explicit empty, Mobile and Tablet
-suffixes. The native inventory pins the pre-compaction expansion digest, and
-the content regression proves that neither grouping nor name products change
-ownership or value rules. Three
+Its 198 exact declaration groups expand to 21,603 field rules across 49 blocks.
+The 109 groups using shared exact-name products spell 5,502 responsive names as
+1,834 bases times the explicit empty, Mobile and Tablet suffixes. The complete
+[artifact schema roster](fixtures/native-schema/README.md) closes 14,008 numeric
+and boolean fields omitted from the old inventory. The content regression
+preserves the original 7,497 rules. Negotiated `block-attribute-closure/v1`
+refuses unknown top-level attributes and malformed original comment bytes
+through Capture, compilation, parser-free Lint and Apply. The roster does not
+impose blanket scalar predicates or qualify unobserved editor controls. Three
 gallery rules additionally declare the four fields consumed by the native saver;
 shared `block-record-fields/v1` excludes their attachment-response caches.
+
+WordPress global `lock` and `metadata` use exact object contracts. Rename is a
+strict string; visibility admits the native false literal or the exact viewport
+flag object through `block-value-shapes/v1`. Unknown bindings, notes and pattern
+IDs refuse. Seven independently retained native Save fragments pass divergent-ID
+transport, post/widget compilation and pure review; target editor and HTTP
+qualification of these global controls is still pending.
 
 The native fixtures retain saved content and raw options from WordPress 7.1
 with Qi Blocks 1.5.2, Contact Form 7 6.1.7 and WooCommerce 11.0.0. The authoring
@@ -49,6 +59,9 @@ php adapter-packages/qi-blocks/tests/offline/regress_native_apply_evidence.php
 php adapter-packages/qi-blocks/tests/offline/regress_native_media.php
 php adapter-packages/qi-blocks/tests/offline/regress_native_controls.php
 php adapter-packages/qi-blocks/tests/offline/regress_native_contexts.php
+php adapter-packages/qi-blocks/tests/offline/regress_native_schema.php
+php adapter-packages/qi-blocks/tests/offline/regress_native_identity.php
+php adapter-packages/qi-blocks/tests/offline/regress_native_global_controls.php
 ```
 
 Manifest grammar and structural package validation pass. The artifact lock
@@ -101,6 +114,24 @@ The initial template renders at 32px with complete matching CSS. Later native
 keep the frontend at 32px on both the source and target. This upstream behavior
 remains a qualification limit; no plugin executable or storage workaround was
 added. Broader widget/template media controls remain separate obligations.
+
+The complete native Apply lane passes again on `43db61d9` with the new closed
+roster contract. It replays all six retained picker controls, compares the signature
+and both progress patterns as well as the three galleries, and exercises all
+four crops using a deterministic spatial PNG. Five exact original pixel samples
+exclude the historical uniform-image premise; native Qi source crops and target
+crops match in decoded dimensions and every RGBA pixel. Repeat Apply writes
+nothing and the owned pair is removed. This run qualifies transport/render of
+the retained controls; it does not add target browser Save/reopen evidence.
+
+The [native global-control observations](fixtures/native-global-controls/README.md)
+record seven actual editor saves for lock, rename and visibility. WordPress adds
+these global attributes beyond Qi's own schema. All four movement/removal lock
+states, a saved name, mobile hiding, omission and resets have exact native saved
+fragments. The observations predate admission; exact shared value contracts now
+admit these two globals. The 458-assertion regression exercises divergent-ID
+Capture/Apply, immutable post/widget compilation and pure review. These source
+observations and offline checks do not qualify target-native transfer or editing.
 
 Broader editor, inline template, widget/template media, crop failure/removal,
 retirement/reactivation, version and combination qualification remain

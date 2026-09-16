@@ -18,6 +18,15 @@ use WPrism\{Blocks, Canon, Tokens};
 use WPrismTest\{FakeWpdb, FrozenPolicy};
 
 $ids = ['image' => 108, 'first' => 109, 'second' => 110, 'page' => 113];
+$png = QiConformanceCorpus::image_png();
+wprism_check_same([[0, 0, 0, 0], [255, 0, 0, 0], [0, 255, 173, 0], [255, 255, 173, 0], [127, 127, 0, 0]],
+    QiConformanceCorpus::image_samples($png), 'fresh native image carries an independently pinned asymmetric crop signal');
+wprism_check_same($png, QiConformanceCorpus::image_png(), 'asymmetric raster generation is deterministic');
+wprism_check_throws(static fn() => QiConformanceCorpus::image_samples(file_get_contents($capsule . '/fixtures/native-media/original.png')),
+    RuntimeException::class, 'historical uniform original cannot qualify crop-origin correctness');
+$nativeSource = file_get_contents($capsule . '/fixtures/conformance/native.php');
+wprism_check(str_contains($nativeSource, '$png = QiConformanceCorpus::image_png();')
+    && str_contains($nativeSource, 'QiConformanceCorpus::image_samples($png);'), 'native upload writer exercises and observes the asymmetric premise before publication');
 $tokens = []; $rows = [];
 foreach ($ids as $name => $id) {
     $uuid = '11111111-1111-4111-8111-' . sprintf('%012d', $id);

@@ -51,6 +51,15 @@ final class FilesystemTreeEvidence {
 
     /** Validate retained bytes after the source tree has been destroyed. */
     public static function assertRecord(mixed $tree, string $relativeRoot, string $profile = EvidenceSizeProfile::COMPACT): void {
+        self::assertTree($tree, $relativeRoot, $profile, true);
+    }
+
+    /** Validate a complete hash inventory, without claiming retained file bytes. */
+    public static function assertInventory(mixed $tree, string $relativeRoot): void {
+        self::assertTree($tree, $relativeRoot, EvidenceSizeProfile::COMPACT, false);
+    }
+
+    private static function assertTree(mixed $tree, string $relativeRoot, string $profile, bool $retained): void {
         $limits = EvidenceSizeProfile::limits($profile);
         if (!is_array($tree) || self::keys($tree) !== ['directories', 'files', 'root']
             || $tree['root'] !== $relativeRoot || !is_array($tree['directories']) || !array_is_list($tree['directories'])
@@ -58,7 +67,7 @@ final class FilesystemTreeEvidence {
             || count($tree['directories']) + count($tree['files']) > self::MAX_ENTRIES) {
             throw new \RuntimeException('private tree evidence record is malformed');
         }
-        if (strlen(json_encode($tree, JSON_THROW_ON_ERROR)) > $limits['tree_record_bytes']) {
+        if (strlen(json_encode($tree, JSON_THROW_ON_ERROR)) > ($retained ? $limits['tree_record_bytes'] : self::MAX_BYTES)) {
             throw new \RuntimeException('private tree evidence exceeds its encoded record bound');
         }
         $directories = [];
@@ -70,22 +79,27 @@ final class FilesystemTreeEvidence {
         }
         $paths = [];
         $bytes = 0;
+        $byteLimit = $retained ? $limits['tree_bytes'] : \WPrism\FilesystemTreeSnapshot::MAX_TREE_BYTES;
         foreach ($tree['files'] as $file) {
-            if (!is_array($file) || self::keys($file) !== ['bytes', 'contents_base64', 'mtime', 'path', 'sha256']
+            if (!is_array($file) || self::keys($file) !== ($retained ? ['bytes', 'contents_base64', 'mtime', 'path', 'sha256'] : ['bytes', 'mtime', 'path', 'sha256'])
                 || !is_string($file['path']) || !self::relativePath($file['path'])
                 || isset($paths['/' . $file['path']]) || isset($directories['/' . $file['path']])
                 || !is_int($file['bytes']) || $file['bytes'] < 0 || !is_int($file['mtime'])
                 || !is_string($file['sha256']) || preg_match('/^[a-f0-9]{64}$/D', $file['sha256']) !== 1
-                || !is_string($file['contents_base64']) || $bytes > $limits['tree_bytes'] - $file['bytes']) {
+                || ($retained && !is_string($file['contents_base64']))
+                || (!$retained && $file['bytes'] > \WPrism\FilesystemTreeSnapshot::MAX_FILE_BYTES)
+                || $bytes > $byteLimit - $file['bytes']) {
                 throw new \RuntimeException('private tree evidence file roster is malformed');
             }
-            $content = base64_decode($file['contents_base64'], true);
-            if (!is_string($content) || base64_encode($content) !== $file['contents_base64']
-                || strlen($content) !== $file['bytes'] || hash('sha256', $content) !== $file['sha256']) {
-                throw new \RuntimeException('private tree evidence bytes do not match their identity');
+            if ($retained) {
+                $content = base64_decode($file['contents_base64'], true);
+                if (!is_string($content) || base64_encode($content) !== $file['contents_base64']
+                    || strlen($content) !== $file['bytes'] || hash('sha256', $content) !== $file['sha256']) {
+                    throw new \RuntimeException('private tree evidence bytes do not match their identity');
+                }
             }
             $paths['/' . $file['path']] = true;
-            $bytes += strlen($content);
+            $bytes += $file['bytes'];
         }
         $fileNames = array_column($tree['files'], 'path');
         $directoryNames = $tree['directories'];
@@ -109,8 +123,10 @@ final class FilesystemTreeEvidence {
             }
         }
         $metadata = $tree;
-        foreach ($metadata['files'] as &$file) unset($file['contents_base64']);
-        unset($file);
+        if ($retained) {
+            foreach ($metadata['files'] as &$file) unset($file['contents_base64']);
+            unset($file);
+        }
         if (strlen(json_encode($metadata, JSON_THROW_ON_ERROR)) > self::MAX_BYTES) {
             throw new \RuntimeException('private tree evidence exceeds its metadata bound');
         }

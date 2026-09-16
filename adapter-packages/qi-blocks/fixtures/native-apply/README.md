@@ -7,6 +7,10 @@ runner remains the extension fixture for selected gallery controls and four
 native crop recipes.
 
 `tests/live/regress_native_apply.sh` uses one fresh, exact-source leased pair.
+Its `setup.sh` baseline is capsule-owned and reused by the
+[native dependency and restoration suite](../native-dependencies/README.md).
+Each entry point runs the complete baseline admission before its own selected
+consumer; neither copies a source media catalog into a target observation.
 Both sides install the locked free Qi Blocks 1.5.2 archive. The repository never
 declares managed code. WordPress REST writes the retained 47 standalone block
 types and 50 instances, and Qi's REST writer saves their styles. The two

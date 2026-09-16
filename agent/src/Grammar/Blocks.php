@@ -8,6 +8,7 @@ require_once __DIR__ . '/Shortcodes.php';
 require_once __DIR__ . '/AuthoredValueCodec.php';
 require_once __DIR__ . '/Tokens.php';
 require_once __DIR__ . '/../Kernel/BlockContentGrammar.php';
+require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
 
 /**
  * Structure-aware content rewriting via the official block parser:
@@ -220,8 +221,9 @@ final class Blocks {
         if ($content === '') {
             return '';
         }
-        $blocks = parse_blocks($content);
         $rules = $policy->block_attr_rules();
+        BlockValueGrammar::assert_closed_document($content, $rules);
+        $blocks = parse_blocks($content);
         // WP-6.1: resolved once beside $rules, never per block, because the two
         // are one declaration about one block's attribute grammar (see
         // AttrIdCodecGrammar::rules()) and a per-block lookup would re-walk the
@@ -251,8 +253,9 @@ final class Blocks {
         if ($content === '') {
             return '';
         }
-        $blocks = parse_blocks($content);
         $rules = $policy->block_attr_rules();
+        BlockValueGrammar::assert_closed_document($content, $rules);
+        $blocks = parse_blocks($content);
         $idCodecs = $policy->attr_id_codec_rules();
         $blocks = array_map(
             fn($b) => self::walk($b, $rules, $tokens, false, $policy, false, '', $idCodecs),
@@ -293,6 +296,7 @@ final class Blocks {
         $lookup = is_string($name) ? $name : '';
         $blockIdCodecs = $idCodecs[$lookup] ?? [];
         $declaredRules = $rules[$lookup] ?? [];
+        BlockValueGrammar::assert_closed_attributes($lookup, (array) ($block['attrs'] ?? []), $declaredRules);
         // #561's whole-block codec: a block whose every rule names one codec
         // is captured/applied by that interpreter as a unit; mixing whole-block
         // and per-attribute rules refuses. A null-name freeform block has no

@@ -146,6 +146,9 @@ final class AttributeGrammar {
         if (array_key_exists('value', $rule)) {
             throw new \RuntimeException("wprism: $where cannot carry value rules; declare them in block_values");
         }
+        if (array_key_exists('closed_attributes', $rule)) {
+            throw new \RuntimeException("wprism: $where cannot carry internal block closure metadata");
+        }
         $hasPathKey = array_key_exists('path', $rule);
         $hasPath = is_string($rule['path'] ?? null) && $rule['path'] !== '';
         $hasPosition = array_key_exists('position', $rule);

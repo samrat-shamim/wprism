@@ -6,6 +6,41 @@ final class QiConformanceCorpus {
     public const EXTERNAL_BLOCKS = ['qi-blocks/contact-form-7', 'qi-blocks/product-list'];
     public const SOURCE_HOME = 'http://localhost:9164';
 
+    /** A spatial signal makes wrong crop origins observable; the historical uniform PNG could not. */
+    public static function image_png(): string {
+        $image = imagecreatetruecolor(1200, 800);
+        if ($image === false) throw new RuntimeException('Native Qi fixture cannot allocate its asymmetric raster');
+        try {
+            for ($y = 0; $y < 800; $y++) for ($x = 0; $x < 1200; $x++) {
+                $red = intdiv($x * 255, 1199); $green = intdiv($y * 255, 799);
+                $blue = ((intdiv($x, 97) + 3 * intdiv($y, 61)) % 2) * 173;
+                if (!imagesetpixel($image, $x, $y, ($red << 16) | ($green << 8) | $blue)) throw new RuntimeException('Native Qi fixture cannot draw its asymmetric raster');
+            }
+            ob_start();
+            try {
+                if (!imagepng($image)) throw new RuntimeException('Native Qi fixture cannot encode its asymmetric raster');
+                return ob_get_contents();
+            } finally { ob_end_clean(); }
+        } finally { imagedestroy($image); }
+    }
+
+    /** Independently fixed corner/center values establish the live input premise, before crop comparison. */
+    public static function image_samples(string $bytes): array {
+        $size = getimagesizefromstring($bytes);
+        if (!is_array($size) || [$size[0], $size[1], $size['mime']] !== [1200, 800, 'image/png']) throw new RuntimeException('Native Qi asymmetric original has wrong dimensions or MIME');
+        $image = imagecreatefromstring($bytes);
+        if ($image === false) throw new RuntimeException('Native Qi asymmetric original cannot decode');
+        try {
+            $samples = [];
+            foreach ([[0, 0], [1199, 0], [0, 799], [1199, 799], [600, 400]] as [$x, $y]) {
+                $color = imagecolorsforindex($image, imagecolorat($image, $x, $y));
+                $samples[] = [$color['red'], $color['green'], $color['blue'], $color['alpha']];
+            }
+            if ($samples !== [[0, 0, 0, 0], [255, 0, 0, 0], [0, 255, 173, 0], [255, 255, 173, 0], [127, 127, 0, 0]]) throw new RuntimeException('Native Qi original lost its independent asymmetric sample signal');
+            return $samples;
+        } finally { imagedestroy($image); }
+    }
+
     public static function text(string $text, array $ids, string $home, string $imageUrl): string {
         $text = str_replace(self::SOURCE_HOME . '/wp-content/uploads/2026/09/tmp-qi-image', substr($imageUrl, 0, -4), $text);
         $text = str_replace(self::SOURCE_HOME, $home, $text);
