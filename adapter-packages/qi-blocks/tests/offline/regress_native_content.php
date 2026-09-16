@@ -40,6 +40,9 @@ require_once $fixture . '/native-schema/roster.php';
 $schema = Canon::decode(Canon::read_file($fixture . '/native-schema/roster.json'));
 foreach (QiNativeSchemaRoster::expand($schema['added_groups']) as $block => $attributes) {
     foreach ($attributes as $attribute => $_type) unset($originalValues[$block][$attribute]);
+    // These are WordPress global controls, not changes to the original Qi
+    // artifact-derived 7,497 field rules retained by the independent hash.
+    unset($originalValues[$block]['lock'], $originalValues[$block]['metadata']);
 }
 foreach (['image-gallery', 'image-gallery-pinterest', 'image-slider'] as $name) {
     wprism_check_same(['container' => 'list', 'fields' => ['id', 'url', 'alt', 'caption']],

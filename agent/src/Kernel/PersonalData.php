@@ -89,7 +89,7 @@ final class PersonalData {
                     if ($keyMatch !== null
                         && !$reviewedScalar
                         && !self::is_template_reference($child)
-                        && !self::is_technical_control($childKey, $child)) {
+                        && !self::is_technical_control($childKey, $child, $ancestors)) {
                         return $keyMatch;
                     }
                     // Associative keys are stored bytes too: plugin maps may
@@ -287,8 +287,16 @@ final class PersonalData {
     }
 
     /** Boolean/enum controls borrow contact nouns without storing contact data. */
-    private static function is_technical_control(string $key, $value): bool {
+    /** @param list<string> $ancestors */
+    private static function is_technical_control(string $key, $value, array $ancestors = []): bool {
         $normalizedKey = self::normalize_key($key);
+        // Native WordPress Visibility saves viewport.mobile=false. Its strict
+        // boolean describes a screen, not a phone; mobile under any other
+        // parent, and every nonboolean value, retains the original key gate.
+        if ($normalizedKey === 'mobile' && is_bool($value)
+            && $ancestors !== [] && $ancestors[count($ancestors) - 1] === 'viewport') {
+            return true;
+        }
         $tokens = array_values(array_filter(explode('_', $normalizedKey), 'strlen'));
         // Rank Math 1.0.277.2 persists content_ai_country=all; the exact sentinel
         // caused `rank-math-options-general looks like postal address` in the

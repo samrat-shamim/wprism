@@ -5,7 +5,7 @@
   "version_range": {"min": "1.5.2", "max": "1.5.3"},
   "engine_features": [
     "block-attribute-closure/v1", "block-attribute-groups/v1", "block-attribute-name-products/v1", "block-attribute-values/v1",
-    "block-media-derivatives/v1", "block-record-fields/v1",
+    "block-media-derivatives/v1", "block-record-fields/v1", "block-value-contracts/v1", "block-value-shapes/v1",
     "key-bound-strings/v1", "php-container-values/v1", "spec-window/v1"
   ],
   "option_autoload": "preserve",
@@ -51,6 +51,59 @@
   ],
   "block_values": {
     "groups": [
+      {
+        "blocks": [
+        "qi-blocks/accordion", "qi-blocks/advanced-text", "qi-blocks/author-info", "qi-blocks/banner",
+        "qi-blocks/blog-list", "qi-blocks/button", "qi-blocks/call-to-action", "qi-blocks/cards-gallery",
+        "qi-blocks/categories", "qi-blocks/clients-list", "qi-blocks/column", "qi-blocks/columns",
+        "qi-blocks/comments-template", "qi-blocks/contact-form-7", "qi-blocks/countdown", "qi-blocks/counter",
+        "qi-blocks/divider", "qi-blocks/faq", "qi-blocks/how-to", "qi-blocks/icon-with-text",
+        "qi-blocks/image-gallery", "qi-blocks/image-gallery-masonry", "qi-blocks/image-gallery-pinterest",
+        "qi-blocks/image-slider", "qi-blocks/info-box", "qi-blocks/message-box", "qi-blocks/parallax-images",
+        "qi-blocks/post-author", "qi-blocks/post-date", "qi-blocks/post-terms", "qi-blocks/post-title",
+        "qi-blocks/pricing-table", "qi-blocks/process", "qi-blocks/product-list", "qi-blocks/progress-bar-circle",
+        "qi-blocks/progress-bar-horizontal", "qi-blocks/progress-bar-vertical", "qi-blocks/search",
+        "qi-blocks/section-title", "qi-blocks/single-image", "qi-blocks/spacer", "qi-blocks/table-of-contents",
+        "qi-blocks/tabs-horizontal", "qi-blocks/tabs-vertical", "qi-blocks/tag-cloud", "qi-blocks/team-member",
+        "qi-blocks/testimonials-list", "qi-blocks/text-marquee", "qi-blocks/timeline"
+        ],
+        "attributes": ["lock"],
+        "value": {"class": "authored", "object_fields": {
+          "move": {"class": "authored", "enum": [false, true]},
+          "remove": {"class": "authored", "enum": [false, true]}
+        }}
+      },
+      {
+        "blocks": [
+        "qi-blocks/accordion", "qi-blocks/advanced-text", "qi-blocks/author-info", "qi-blocks/banner",
+        "qi-blocks/blog-list", "qi-blocks/button", "qi-blocks/call-to-action", "qi-blocks/cards-gallery",
+        "qi-blocks/categories", "qi-blocks/clients-list", "qi-blocks/column", "qi-blocks/columns",
+        "qi-blocks/comments-template", "qi-blocks/contact-form-7", "qi-blocks/countdown", "qi-blocks/counter",
+        "qi-blocks/divider", "qi-blocks/faq", "qi-blocks/how-to", "qi-blocks/icon-with-text",
+        "qi-blocks/image-gallery", "qi-blocks/image-gallery-masonry", "qi-blocks/image-gallery-pinterest",
+        "qi-blocks/image-slider", "qi-blocks/info-box", "qi-blocks/message-box", "qi-blocks/parallax-images",
+        "qi-blocks/post-author", "qi-blocks/post-date", "qi-blocks/post-terms", "qi-blocks/post-title",
+        "qi-blocks/pricing-table", "qi-blocks/process", "qi-blocks/product-list", "qi-blocks/progress-bar-circle",
+        "qi-blocks/progress-bar-horizontal", "qi-blocks/progress-bar-vertical", "qi-blocks/search",
+        "qi-blocks/section-title", "qi-blocks/single-image", "qi-blocks/spacer", "qi-blocks/table-of-contents",
+        "qi-blocks/tabs-horizontal", "qi-blocks/tabs-vertical", "qi-blocks/tag-cloud", "qi-blocks/team-member",
+        "qi-blocks/testimonials-list", "qi-blocks/text-marquee", "qi-blocks/timeline"
+        ],
+        "attributes": ["metadata"],
+        "value": {"class": "authored", "object_fields": {
+          "name": {"class": "authored", "plain_data": true, "scalar_type": "string"},
+          "blockVisibility": {"class": "authored", "one_of": [
+            {"class": "authored", "enum": [false]},
+            {"class": "authored", "object_fields": {
+              "viewport": {"class": "authored", "object_fields": {
+                "desktop": {"class": "authored", "enum": [false]},
+                "tablet": {"class": "authored", "enum": [false]},
+                "mobile": {"class": "authored", "enum": [false]}
+              }}
+            }}
+          ]}
+        }}
+      },
       {
         "blocks": ["qi-blocks/accordion"],
         "attributes": ["accordionItemsRepeater", "contentHeight"],

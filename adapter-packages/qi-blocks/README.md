@@ -3,7 +3,7 @@
 Experimental authoring capsule for the exact free Qi Blocks 1.5.2 artifact.
 Production qualification is incomplete. The package contains declarations only;
 block values, PHP containers and media effects use shared engine machinery.
-Its 196 exact declaration groups expand to 21,505 field rules across 49 blocks.
+Its 198 exact declaration groups expand to 21,603 field rules across 49 blocks.
 The 109 groups using shared exact-name products spell 5,502 responsive names as
 1,834 bases times the explicit empty, Mobile and Tablet suffixes. The complete
 [artifact schema roster](fixtures/native-schema/README.md) closes 14,008 numeric
@@ -11,9 +11,16 @@ and boolean fields omitted from the old inventory. The content regression
 preserves the original 7,497 rules. Negotiated `block-attribute-closure/v1`
 refuses unknown top-level attributes and malformed original comment bytes
 through Capture, compilation, parser-free Lint and Apply. The roster does not
-impose scalar type predicates or qualify unobserved editor controls. Three
+impose blanket scalar predicates or qualify unobserved editor controls. Three
 gallery rules additionally declare the four fields consumed by the native saver;
 shared `block-record-fields/v1` excludes their attachment-response caches.
+
+WordPress global `lock` and `metadata` use exact object contracts. Rename is a
+strict string; visibility admits the native false literal or the exact viewport
+flag object through `block-value-shapes/v1`. Unknown bindings, notes and pattern
+IDs refuse. Seven independently retained native Save fragments pass divergent-ID
+transport, post/widget compilation and pure review; target editor and HTTP
+qualification of these global controls is still pending.
 
 The native fixtures retain saved content and raw options from WordPress 7.1
 with Qi Blocks 1.5.2, Contact Form 7 6.1.7 and WooCommerce 11.0.0. The authoring

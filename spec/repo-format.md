@@ -5074,9 +5074,10 @@ compose these shapes with the ordinary reference and text codecs.
 Capture, immutable post/widget compilation, native Apply and Lint use the same
 pure shape validation. Original comments for shape-bearing owners are read
 before WordPress parses them, since malformed JSON may otherwise disappear.
-Post/widget host Lint reviews these values without the native parser and emits
-one finding per invalid occurrence when parsed checks also run. Other declared
-references retain their existing parser deferrals. Literal siblings keep
+Post/widget host Lint reviews every present value contract of selected owners,
+including enum-only siblings, without the native parser. It emits one finding
+per invalid occurrence when parsed checks also run. Reference discovery retains
+its existing parser deferrals. Literal siblings keep
 privacy and secret clearance; selecting an object does not clear its siblings.
 
 This feature refines `block_values`; it has no new capability arm, option or

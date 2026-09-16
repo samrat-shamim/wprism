@@ -744,5 +744,62 @@
     "remedy": "Declare independently owned source and target cron windows in shared conformance infrastructure. Keep complete native option comparisons without filtering or deleting transient rows.",
     "teardown": "Owned pair, lease, databases, volumes and site repositories removed after failure.",
     "scope": "Failed attempt. A clean exact-source rerun of the edited shared harness is required."
+  },
+  "native_visual_portfolio_combination_owned_windows": {
+    "source_engine_commit": "92dd44997e9b5a353ac582fd629837613c8b0529",
+    "pair": "qivpwindow916a",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2",
+      "visual-portfolio": "3.8.1"
+    },
+    "driver_exit": 0,
+    "log_sha256": "fde82691d2e3a0c47a9fd9a99171bb78eaea9b3853b6cffd3e81038998437e90",
+    "checks": [
+      "Full initial Apply, complete native observations, canonical recapture and both packages HTTP consumers pass under the closed Qi roster.",
+      "Repeat writes zero; independently owned source and target cron windows preserve complete native option comparisons without filtering transient rows."
+    ],
+    "teardown": "Sole final PASS; owned pair, lease, databases, volumes and both site repositories removed.",
+    "scope": "Exact free artifacts and WordPress 7.1. This run predates global-value admission; it does not qualify globals, other combinations, lifecycle, recovery or host promotion."
+  },
+  "closed_roster_full_local_gate": {
+    "source_engine_commit": "18ccc8cdc21b7dd665de9d98aba661126e6d85d1",
+    "regress-offline-all": {
+      "exit": 0,
+      "shared_suites": 407,
+      "packages": 29,
+      "package_tests": 147,
+      "offline_scenario_gates": 12,
+      "integration_scenarios": 7,
+      "log_sha256": "3e92121750b826207c2a93947eb8b7d92b483ffd118b12acaad44e82e1e25d92"
+    },
+    "reviewed_contract_updates": [
+      "block_attribute_closure has minimum wire version 3.",
+      "The closure key emits the non_surface CLI declaration arm."
+    ],
+    "scope": "Unconditional canonical gate after historical identity isolation and owned cron windows. Later global value-shape changes require a new full gate."
+  },
+  "native_global_value_admission": {
+    "status": "declared-and-offline-exercised-target-native-pending",
+    "adapter_digest": "9a55de4ff86712cc87118261445f21efb737332186e20d0c0d71d569be3c5782",
+    "expanded_field_rules": 21603,
+    "added_wordpress_global_rules": 98,
+    "fixtures": [
+      "fixtures/native-global-controls/observations.json"
+    ],
+    "offline": {
+      "script": "tests/offline/regress_native_global_controls.php",
+      "exit": 0,
+      "assertions": 426,
+      "scope": "Seven complete independent saved fragments: divergent IDs/URLs, exact lock/metadata states and absence, canonical fixed points, post/widget immutable compilation and parser-free/native Lint. Hostile wrong types, unknown nested metadata and malformed comments refuse before any DB contact."
+    },
+    "engine": {
+      "feature": "block-value-shapes/v1",
+      "shape_assertions": 215,
+      "reused_product_assertions": 328,
+      "scope": "Strict scalar and literal/object shape dispatch; selected-owner pure review includes ordinary enum/object siblings with no fallback or new plugin executable."
+    },
+    "privacy": "Only strict boolean mobile under the immediate viewport subject is a screen flag; wrong types, containers, contact contexts, remote descendants and neighboring private text retain the independent privacy/secret gates.",
+    "scope": "The retained source observations were authored before admission. Target native Apply, HTTP/global visibility and target browser Save/reopen remain unqualified. Twelve readiness families remain unready; recompile and re-pin required."
   }
 }

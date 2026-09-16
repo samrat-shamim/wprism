@@ -696,7 +696,8 @@ arbitrary object to occupy its string coordinate. Unknown object members still
 refuse, absence stays absent, and privacy clearance is unchanged.
 
 Original shape-bearing comment bytes and public post/widget Lint share pure
-validation even without WordPress parsing. Native Save/reopen, frontend
+validation of every present value contract on the selected owner, including
+ordinary enum/object siblings, even without WordPress parsing. Native Save/reopen, frontend
 visibility and other injected metadata remain separate evidence obligations;
 do not use these contracts to admit unreviewed bindings, notes or pattern IDs.
 

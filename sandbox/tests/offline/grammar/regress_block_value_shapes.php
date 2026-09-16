@@ -28,7 +28,9 @@ $manifest = ['name' => 'shape-fixture', 'spec_version' => 3, 'option_autoload' =
     'engine_features' => [BlockValueGrammar::FEATURE, BlockValueGrammar::CONTRACT_FEATURE, ValueShapeContract::FEATURE, 'spec-window/v1'],
     'post_types' => ['page' => ['class' => 'authored']],
     'widgets' => ['block' => ['settings' => ['content' => ['class' => 'authored', 'codec' => 'blocks']]]],
-    'block_values' => ['fixture/shape' => ['selection' => $choice]]];
+    'block_values' => ['fixture/shape' => ['selection' => $choice,
+        'lock' => ['class' => 'authored', 'object_fields' => ['move' => ['class' => 'authored', 'enum' => [false, true]]]]],
+        'fixture/plain' => ['lock' => ['class' => 'authored', 'object_fields' => ['move' => ['class' => 'authored', 'enum' => [false, true]]]]]]];
 sort($manifest['engine_features'], SORT_STRING);
 $load = static fn(array $m) => FrozenPolicy::policy([$m], FrozenPolicy::site([$m], WPRISM_SPEC_VERSION));
 $policy = $load($manifest);
@@ -180,6 +182,30 @@ foreach (['<!-- wp:fixture/shape {"selection":broken} /-->', '<!-- wp:fixture/sh
     wprism_check_same(['invalid_block_attributes'], array_column(BlockReferenceScanner::scan_closed_document($malformed, $rules, 'first.md'), 'class'),
         'pure shape review rejects corrupt comment framing without the native parser');
 }
+// Owner selection must validate ordinary contract siblings too; otherwise
+// parser-free review loses an enum-only flag beside a strict scalar/object.
+foreach ([false, null, [], ['move' => 0], ['extension' => 1]] as $invalid) {
+    $body = '<!-- wp:fixture/shape ' . serialize_block_attributes(['selection' => false, 'lock' => $invalid]) . ' /-->';
+    wprism_check_throws(static fn() => Blocks::capture_rewrite($body, $policy, $source), RuntimeException::class, 'Capture rejects an invalid ordinary contract beside a shape-selected value');
+    wprism_check_throws(static fn() => Blocks::apply_rewrite($body, $policy, $target), RuntimeException::class, 'Apply rejects an invalid ordinary contract beside a shape-selected value');
+    wprism_check_same(['invalid_block_value'], array_column(BlockReferenceScanner::scan_closed_document($body, $rules, 'first.md'), 'class'), 'pure selected-owner review includes enum/object siblings without their own shape predicate');
+    foreach (['post', 'widget'] as $surface) {
+        Canon::write_file($post, Canon::post_file($front, $surface === 'post' ? $body : $block(false)));
+        if ($surface === 'widget') Canon::write_file($widget, Canon::encode(['widgets' => [['uuid' => '33333333-3333-4333-8333-333333333333',
+            'type' => 'block', 'settings' => ['content' => $body]]]]));
+        wprism_check_throws(static fn() => RepositoryCompiler::compile($scratch, $policy), WPrism\RepositoryCompilationException::class, 'immutable ' . $surface . ' compilation rejects the invalid ordinary sibling');
+        foreach ([true, false] as $parser) {
+            $env = LintEnvironment::recorded(['format' => LintEnvironment::FORMAT, 'home' => 'https://source.test',
+                'entities' => [], 'column_types' => [], 'probe_hash' => null, 'scanned' => ['blocks' => $parser, 'shortcodes' => false],
+                'state_hash' => LintEnvironment::state_hash($scratch . '/state')]);
+            wprism_check_same(['invalid_block_value'], array_column(Lint::scan_tree($scratch . '/state', $policy, $env), 'class'), 'public ' . $surface . ' review reports exactly one invalid ordinary sibling with or without native parsing');
+        }
+        if (file_exists($widget)) unlink($widget);
+    }
+}
+$legacy = '<!-- wp:fixture/plain {"lock":false} /-->';
+wprism_check_same([], BlockReferenceScanner::scan_closed_document($legacy, $rules, 'legacy.md'), 'an unclosed owner with no shape predicates retains its original raw-review boundary');
+wprism_check_same(['invalid_block_value'], array_column(BlockReferenceScanner::scan(parse_blocks($legacy), $rules, 'legacy.md', 'https://source.test'), 'class'), 'ordinary parsed review still rejects the legacy invalid contract');
 [$status, $stdout, $stderr] = ShellProbe::run('exec php "$1" "$2"', [__DIR__ . '/regress_block_attribute_values.php', '--value-shapes'], $root);
 wprism_check_same(0, $status, 'shape contracts pass the complete reused compiler/SQL/fault/retry/post/widget proof');
 wprism_check_same('', $stderr, 'shape product proof emits no diagnostics');

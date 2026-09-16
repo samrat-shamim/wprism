@@ -6,7 +6,6 @@ require_once __DIR__ . '/LintFinding.php';
 require_once __DIR__ . '/../Grammar/AuthoredValueCodec.php';
 require_once __DIR__ . '/AuthoredValueReferenceScanner.php';
 require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
-require_once __DIR__ . '/../Kernel/ValueShapeContract.php';
 
 /**
  * Manifest-declared Gutenberg block-reference scanning behind Lint's facade.
@@ -21,7 +20,7 @@ require_once __DIR__ . '/../Kernel/ValueShapeContract.php';
 final class BlockReferenceScanner {
     private const MAX_VALUE_LEN = 200;
 
-    /** Closed rosters can be reviewed without WordPress, before its parser discards malformed JSON. */
+    /** Closed/shape-selected owners expose every present value contract before native parsing. */
     public static function scan_closed_document(string $body, array $rules, string $rel): array {
         $findings = [];
         try {
@@ -37,7 +36,10 @@ final class BlockReferenceScanner {
                 continue;
             }
             foreach ($rules[$block['blockName']] as $row) {
-                if (!isset($row['value']) || !ValueShapeContract::uses($row['value']) || !array_key_exists($row['path'], $block['attrs'])) continue;
+                // Selection belongs to the owner, not an individual codec:
+                // A strict scalar sibling can share an owner with enum-only
+                // contracts, whose invalid flags need the same pure review.
+                if (!isset($row['value']) || !array_key_exists($row['path'], $block['attrs'])) continue;
                 $locator = 'blocks.' . $block['blockName'] . '.attrs.' . $row['path'];
                 try {
                     AuthoredValueCodec::assert_value($block['attrs'][$row['path']], $row['value'], true, $locator);

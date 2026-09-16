@@ -16,8 +16,8 @@ $digest = static function (Policy $input): string {
     foreach (ArtifactPolicyIdentity::resolved_adapters($input) as $row) if ($row['name'] === 'qi-blocks') return $row['digest'];
     throw new RuntimeException('Qi identity row is absent');
 };
-wprism_check_same('2dfe718549fff7d2aaadb7289cac7ce03e01420b25da5117b672d8f5ec1cadd1', $digest($policy),
-    'the live Qi package intentionally pins its complete closed-roster identity in its own capsule');
+wprism_check_same('9a55de4ff86712cc87118261445f21efb737332186e20d0c0d71d569be3c5782', $digest($policy),
+    'the live Qi package intentionally pins its complete closed-roster and global-value identity in its own capsule');
 $manifest = Canon::decode(Canon::read_file($library->package('qi-blocks')->manifestPath()));
 $rows = ArtifactPolicyIdentity::manifest_rows($policy);
 $qi = array_values(array_filter($rows, static fn(array $row): bool => $row['name'] === 'qi-blocks'))[0];
@@ -36,6 +36,16 @@ foreach ($open->manifests as $owner) BlockValueGrammar::validate($owner);
 wprism_check($digest($open) !== $digest($policy), 'removing legal closure authority moves Qi identity even when all field value rules stay equal');
 wprism_check(ArtifactPolicyIdentity::manifest_hash($open) !== ArtifactPolicyIdentity::manifest_hash($policy),
     'the containing compiled manifest address binds closure authority too');
+$looseName = clone $policy;
+foreach ($looseName->manifests as &$owner) if ($owner['name'] === 'qi-blocks') {
+    foreach ($owner['block_values']['groups'] as &$group) if (($group['attributes'] ?? []) === ['metadata']) {
+        unset($group['value']['object_fields']['name']['scalar_type']);
+    }
+    unset($group);
+}
+unset($owner);
+foreach ($looseName->manifests as $owner) BlockValueGrammar::validate($owner);
+wprism_check($digest($looseName) !== $digest($policy), 'relaxing the strict global name predicate changes Qi identity despite equal owner and attribute rosters');
 $snapshot = $policy->export_snapshot();
 $snapshot['site']['manifests'] = ['core', 'qi-blocks'];
 wprism_check_same($snapshot, Policy::from_snapshot($snapshot, $library)->export_snapshot(),

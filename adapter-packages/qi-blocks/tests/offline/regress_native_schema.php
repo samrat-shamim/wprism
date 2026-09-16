@@ -35,8 +35,9 @@ $queries = $database->queries();
 $block = static fn(string $name, array $attributes): string => '<!-- wp:' . $name . ' ' . serialize_block_attributes($attributes) . ' /-->';
 $all = '';
 foreach ($native as $name => $attributes) {
-    $names = array_keys($attributes); $names[] = 'className'; sort($names, SORT_STRING);
-    wprism_check_same($names, array_keys($rules[$name]), "$name roster is exactly native schema plus supported WordPress className");
+    $names = array_merge(array_keys($attributes), ['className', 'lock', 'metadata']);
+    sort($names, SORT_STRING);
+    wprism_check_same($names, array_keys($rules[$name]), "$name roster is exactly native schema plus reviewed WordPress global controls");
     $values = [];
     foreach ($added[$name] as $attribute => $type) {
         $values[$attribute] = match (trim($type)) { 'number' => 23, 'boolean' => true, 'string' => 'standard' };
@@ -51,8 +52,8 @@ foreach ($native as $name => $attributes) {
     $unknown = $block($name, ['extension' => ['entity' => 1]]);
     $expected = "wprism: block '$name' contains an undeclared attribute outside its closed roster";
     foreach (['capture', 'apply'] as $verb) {
-        try { Blocks::{$verb . '_rewrite'}($unknown, $policy, $verb === 'capture' ? $source : $target); $message = ''; }
-        catch (RuntimeException $e) { $message = $e->getMessage(); }
+        try { Blocks::{$verb . '_rewrite'}($unknown, $policy, $verb === 'capture' ? $source : $target);
+        $message = ''; } catch (RuntimeException $e) { $message = $e->getMessage(); }
         wprism_check_same($expected, $message, "$name $verb refuses a neutral extension carrying an otherwise invisible source integer");
     }
     $findings = BlockReferenceScanner::scan(parse_blocks($unknown), $policy->block_attr_rules(), 'page.md', 'https://source.example.test');
@@ -64,7 +65,8 @@ wprism_check_same($queries, $database->queries(), 'scalar roster and closure pro
 $scratch = sys_get_temp_dir() . '/wprism-qi-roster-' . bin2hex(random_bytes(8));
 mkdir($scratch . '/state/posts/page', 0700, true);
 $remove = static function (string $path) use (&$remove): void {
-    if (!is_dir($path) || is_link($path)) { unlink($path); return; }
+    if (!is_dir($path) || is_link($path)) { unlink($path);
+    return; }
     foreach (new FilesystemIterator($path, FilesystemIterator::SKIP_DOTS) as $entry) $remove($entry->getPathname());
     rmdir($path);
 };
@@ -82,8 +84,8 @@ $environment = LintEnvironment::recorded(['format' => LintEnvironment::FORMAT, '
     'scanned' => ['blocks' => true, 'shortcodes' => false], 'state_hash' => LintEnvironment::state_hash($scratch . '/state')]);
 $lint = Lint::scan_tree($scratch . '/state', $policy, $environment);
 wprism_check_same(['undeclared_block_attribute'], array_column($lint, 'class'), 'public repository Lint exposes the Qi closure refusal through the shared scanner');
-try { RepositoryCompiler::compile($scratch, $policy); $diagnostics = []; }
-catch (WPrism\RepositoryCompilationException $e) { $diagnostics = $e->diagnostics; }
+try { RepositoryCompiler::compile($scratch, $policy);
+$diagnostics = []; } catch (WPrism\RepositoryCompilationException $e) { $diagnostics = $e->diagnostics; }
 wprism_check_same(['repository_block_attribute_undeclared'], array_column($diagnostics, 'code'), 'the original Qi source-integer reproduction now refuses immutable compilation');
 wprism_check_same($before, Canon::read_file($post), 'compilation refusal preserves authored repository bytes');
 wprism_check_same($queries, $database->queries(), 'public Lint and immutable roster admission/refusal require no target contact');
