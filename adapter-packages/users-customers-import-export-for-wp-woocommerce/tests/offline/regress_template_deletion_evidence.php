@@ -194,7 +194,7 @@ $milestones = [
     'wprism_ssh_enroll_full_recovery importer-deletion',
     'wprism_ssh_install_locked_plugin "$slug" 2.7.5 certified-boundary inactive',
     'wprism_ssh_stage_code_inventory "$slug"',
-    'wprism_ssh_stage_generation_releases 2',
+    'wprism_ssh_stage_generation_releases 3',
     'importer-delete-baseline-identities',
     'importer_delete_assert identities baseline-identities restored-identities baseline',
     'provider-state.json.fail-verify-after',

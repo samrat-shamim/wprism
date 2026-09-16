@@ -113,7 +113,7 @@ wprism_ssh_adopt_extension() {
     git -C /home/wprism/site commit -m "Bind exact Importer deletion code release" >/dev/null
     test -z "$(git -C /home/wprism/site status --porcelain)"
   '
-  wprism_ssh_stage_generation_releases 2
+  wprism_ssh_stage_generation_releases 3
   importer_delete_record code-baseline "$WPRISM" --envs-file="$TMP/envs.json" deploy target
   [ "$(cat "$DIAG_DIR/importer-delete-code-baseline.exit")" = 0 ] \
     || fail 'Importer signed deletion did not establish its exact host code baseline'
