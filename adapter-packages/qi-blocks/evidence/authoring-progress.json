@@ -1261,5 +1261,134 @@
       }
     },
     "native_evidence_scope": "All native operational suffixes of setup, complete Apply extension and dependency driver are byte-identical to the independently reviewed and passed 8f6ee554 native run. Changed ownership prefixes execute deterministically offline, including canonical ownership and wrong-root/wrong-scope refusal before pair mutation. No new live sweep; the source-bound native claim remains 8f6ee554."
+  },
+  "native_dependency_final_local_gates": {
+    "source_engine_commit": "81eb7b449f607fa17c6f2ae928830f6227246a84",
+    "host_php": "8.3.33",
+    "checks": {
+      "offline": {
+        "command": "make -j8 -k regress-offline-all",
+        "exit": 0,
+        "log_sha256": "2738b67b8a3807417671983f17bedf50861c107fe24fa568e7e44db5f67b8825",
+        "tail": [
+          "✔ integration-scenarios/rank-math-commerce-multilingual: integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_source_native_premise.php",
+          "✔ integration-scenarios/rank-math-yoast-incompatibility: integration-scenarios/rank-math-yoast-incompatibility/tests/offline/regress_rank_math_yoast_incompatibility.php",
+          "✔ integration-scenarios/woocommerce-rewrite-coinstall: integration-scenarios/woocommerce-rewrite-coinstall/tests/offline/regress_woocommerce_hierarchy_lookups.php",
+          "✔ REGRESS_ADAPTER_PACKAGES PASSED: 29 packages, 148 package tests, 12 offline scenario gates, 7 integration scenarios",
+          "regress-offline-corpus: 408 offline suites green",
+          "regress-offline-all: 408 offline suites green"
+        ]
+      },
+      "composer": {
+        "command": "composer check",
+        "exit": 0,
+        "log_sha256": "59c73cf321e9869d386c19d3bc44febd68f3f3d23174bb20c6c800a376369d36",
+        "tail": [
+          "............................................................. 1403 / 1405 ( 99%)",
+          "..                                                            1405 / 1405 (100%)",
+          "",
+          "Time: 03:16.270, Memory: 76.02 MB",
+          "",
+          "OK (1405 tests, 39855 assertions)"
+        ]
+      },
+      "release": {
+        "command": "make release-gate",
+        "exit": 0,
+        "log_sha256": "902db615b892f16ba6884e09707ba1fd0c3c1b74953efa2a372574595417fcc1",
+        "tail": [
+          "php tools/offline-corpus.php --check",
+          "offline-corpus: tools/offline-corpus.mk matches the tree (408 offline suites)",
+          "php tools/adapter-kit.php --check",
+          "adapter-kit: tools/adapter-kit.json matches the tree (11 live files packaged)",
+          "php tools/adapter-grade.php --check",
+          "adapter grade check: package-owned evidence and computed grade inputs agree"
+        ]
+      }
+    },
+    "independent_reviews": {
+      "luna": "CLEAR exact source, no P1/P2; focused 56 + fetch artifact",
+      "terra": "CLEAR exact source, no P1/P2; focused 56 + fetch artifact",
+      "sol": "CLEAR exact source, no P1/P2; focused 56 + fetch artifact"
+    },
+    "scope": "Full final local gates and three independent reviews at exact 81eb7b44. Native dependency qualification remains bound to exact 8f6ee554; no current-source native dependency result is inferred."
+  },
+  "native_target_picker_input_premise": {
+    "source_engine_commit": "81eb7b449f607fa17c6f2ae928830f6227246a84",
+    "incomplete_attempt": {
+      "pair": "qipicker916a",
+      "parent_exit": 130,
+      "result": "incomplete-ui-probe",
+      "log_sha256": "1722a1de37fabf31553bfd6484e811286cfdc54dd7a38d53425e5a783c9ccd2f",
+      "capture_a_sha256": "ad10aeff2e83788e4a315aff972ac533b5f1ea5190e1c57edad06f7011baee27",
+      "capture_b_sha256": "f4395aee3b80ddaec1769500d22ff40c0675c0573a99b3b82ba4270f6cb5a487",
+      "preservation_admission_sha256": "d5d2e61ba7855e13c5da72c156cd212eaebda34a1d03a64dd003ab092aa999e9",
+      "preservation": {
+        "result": "pass",
+        "source_commit": "81eb7b449f607fa17c6f2ae928830f6227246a84",
+        "compiled_entities": 7,
+        "body_sha256": "bf3647db340a0706c09a2bf5658f4131c76f6b63dae9592822a1f97e67c0fc97",
+        "native_before_sha256": "ddcca427796fc651d74744a04dbc1dda1f561e666a543245870407f28b0bebe8",
+        "native_after_sha256": "7ca9144ef502e476709b6d318ac77e158415f67ec6e82302f453a730f987f640",
+        "unchanged_native_fields": [
+          "home",
+          "ids",
+          "uuids",
+          "featured",
+          "attachment",
+          "page_body",
+          "options",
+          "styles",
+          "uploads"
+        ],
+        "before_posts": 12,
+        "after_posts": 15,
+        "new_post_types": {
+          "wp_global_styles": 1,
+          "post": 1,
+          "revision": 1
+        },
+        "scope": "Incomplete browser probe, no picker or Save/reopen qualification. All prior non-revision posts and complete observed Qi/body/media fields preserved; two full Capture results and complete compiler/media fixed points remain equal to the passing native baseline. No complete database equality after browser opening is claimed."
+      },
+      "native_scope": "Complete seven-entity divergent-ID Apply/repeat/native/HTTP/recapture admission passes. All six retained media-control transport consumers also pass, with one content update and zero-write repeat. These are partial native admission records, not a terminal full suite result.",
+      "ui_scope": "No actual target picker action or editor Save/reopen is qualified. No terminal native suite PASS was published. Chrome also reports its observed WordPress iframe stylesheet warning and extension transport errors; no clean-console claim."
+    },
+    "isolated_diagnostic": {
+      "pair": "qievent916a",
+      "ports": [
+        9524,
+        9525
+      ],
+      "log_sha256": "8ae00540f55490b7795aa7aeff44d05a854adbdc331d469da69d66003f8d1551",
+      "parent_exit": 0,
+      "verdict": "Native editor diagnostic cleanup passed; independent pair list showed no owned live/stopped pair.",
+      "premise": "Exact locked Qi source corpus on one side; native Qi deactivated and an empty native draft on the other. Bare WordPress reproduced inert input. Native Chrome surface exposed the Password Manager data-breach notice following the disposable admin/admin login. Acknowledging its informational OK restored native Document Overview activation and visible List View. No credentials or browser protections changed.",
+      "layer": "Browser test environment and authoring guidance. No adapter or engine runtime change.",
+      "scope": "Input-premise isolation only; no native picker Save/reopen, Apply, lifecycle, or platform graduation claim."
+    },
+    "pending": [
+      "Actual target signature and both progress pattern picker Saves/reopens",
+      "Distinct multi-image native gallery Saves/reopens and divergent-ID transport",
+      "Origin and effect of observed ephemeral data-qi-editor-link-bound DOM marker before qualifying that browser consumer"
+    ]
+  },
+  "owner_requested_pause": {
+    "date": "2026-09-16",
+    "instruction": "Merge the current PR and pause; no more tests; stop all running processes.",
+    "last_native_attempt": {
+      "pair": "qipicker916b",
+      "source_engine_commit": "81eb7b449f607fa17c6f2ae928830f6227246a84",
+      "parent_exit": 130,
+      "log_sha256": "54b808a0ce9282f3fd4bf3b0a5f49367370b49a7f328dd0528e8c3b996a0d551",
+      "scope": "Complete seven-entity native baseline admission passed; the six-control extension was interrupted after controls-seed. No target picker browser action, terminal suite pass, or additional qualification is claimed. Owned pair destroyed."
+    },
+    "last_offline_addition": {
+      "script": "tests/offline/regress_native_controls.php",
+      "assertions": 45,
+      "exit": 0,
+      "scope": "Previously completed focused run, including synthetic two-distinct-selection transport in both orders for three galleries. No native multi-image Save/reopen claim."
+    },
+    "validation_boundary": "Full local gates and independent reviews remain bound to exact 81eb7b44. Final test/documentation/evidence additions have not received another full gate or reviewer pass; no additional tests were run after the owner requested stopping.",
+    "readiness": "Experimental and production-unready. Pending qualification listed above remains incomplete; merging this work does not graduate the adapter."
   }
 }

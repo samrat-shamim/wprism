@@ -526,6 +526,16 @@ error envelopes even when the process exits zero. Decode a downloaded QR
 independently before claiming its encoded destination; a preview label alone
 proves neither the downloaded bytes nor their content.
 
+Page DOM visibility and focus do not establish that native browser input is
+available. Qi's disposable `admin/admin` login triggered Chrome's Password
+Manager notice outside the page DOM: links, toolbar controls and keyboard
+activation appeared inert while the page reported visible and focused. The
+same empty bare WordPress editor opened List View after that informational
+notice was acknowledged. Inspect the native browser surface and verify a
+simple control's actual postcondition before attributing an input failure to
+an adapter. Keep the incomplete attempt and the isolated premise correction;
+handling a test-environment notice grants no native Save/reopen evidence.
+
 Disabling WP-Cron does not quiesce every native shutdown callback. Trace any
 operational transition to its source, bind its exact phase, row identity and
 clock window, and prove no work was dispatched before permitting its measured

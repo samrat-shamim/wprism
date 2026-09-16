@@ -61,4 +61,52 @@ $database(901);
 $applied = Blocks::apply_rewrite($canonical, $policy, $target);
 wprism_check(!str_contains($applied, 'localhost:9176') && !str_contains($applied, '{{post:'), 'target selections resolve native IDs and URLs');
 wprism_check_same($canonical, Blocks::capture_rewrite($applied, $policy, $target), 'six native media controls have an exact cross-ID canonical fixed point');
+
+// One selected attachment cannot expose a projection or reference rewrite that
+// accidentally reuses index zero. These are synthetic transport probes derived
+// from the retained responses; real multi-image Save/reopen remains separate.
+$secondUuid = '22222222-2222-4222-8222-222222222222';
+$twoAttachments = static function (int $firstId, int $secondId) use ($uuid, $secondUuid): void {
+    FakeWpdb::install()->seedTable('wp_wprism_map', [
+        ['uuid' => $uuid, 'entity_type' => 'post', 'id_kind' => 'post', 'local_id' => $firstId],
+        ['uuid' => $secondUuid, 'entity_type' => 'post', 'id_kind' => 'post', 'local_id' => $secondId],
+    ]);
+};
+foreach (parse_blocks($native) as $block) {
+    if (!isset($block['attrs']['gallery'])) continue;
+    $firstImage = $block['attrs']['gallery'][0];
+    $secondImage = $firstImage;
+    $secondImage['id'] = 2;
+    $secondImage['url'] = 'http://localhost:9176/wp-content/uploads/2026/09/second-selection.png';
+    $secondImage['alt'] = 'Second selected image';
+    $secondImage['caption'] = 'Second authored caption';
+    $secondImage['width'] = 640;
+    $secondImage['height'] = 960;
+    foreach ([[$firstImage, $secondImage], [$secondImage, $firstImage]] as $images) {
+        $probe = $block;
+        $probe['attrs']['gallery'] = $images;
+        $twoAttachments(1, 2);
+        $captured = Blocks::capture_rewrite(serialize_blocks([$probe]), $policy, $source);
+        $selections = parse_blocks($captured)[0]['attrs']['gallery'];
+        $expected = [];
+        foreach ($images as $image) {
+            $expected[] = [
+                'id' => '{{post:' . ($image['id'] === 1 ? $uuid : $secondUuid) . '}}',
+                'url' => str_replace('http://localhost:9176/wp-content/uploads', '{{uploads}}', $image['url']),
+                'alt' => $image['alt'],
+                'caption' => $image['caption'],
+            ];
+        }
+        wprism_check_same($expected, $selections, $block['blockName'] . ' projects both distinct selections in their authored order');
+        $twoAttachments(901, 1407);
+        $rewritten = Blocks::apply_rewrite($captured, $policy, $target);
+        $targetSelections = parse_blocks($rewritten)[0]['attrs']['gallery'];
+        wprism_check_same(array_map(static fn(array $image): int => $image['id'] === 1 ? 901 : 1407, $images),
+            array_column($targetSelections, 'id'), $block['blockName'] . ' independently rebinds both physical identities');
+        wprism_check_same(array_map(static fn(array $image): string => str_replace('http://localhost:9176', 'https://target.example.test', $image['url']), $images),
+            array_column($targetSelections, 'url'), $block['blockName'] . ' independently rebinds both upload URLs');
+        wprism_check_same($captured, Blocks::capture_rewrite($rewritten, $policy, $target),
+            $block['blockName'] . ' two-selection transport retains its complete canonical fixed point');
+    }
+}
 if (wprism_check_failed() > 0) exit(1);
