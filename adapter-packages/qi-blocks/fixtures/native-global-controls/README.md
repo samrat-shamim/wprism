@@ -30,5 +30,9 @@ native metadata/uploads, unexpected visibility and duplicate owners. The first
 live attempt stopped at an incomplete HTML oracle: its original-image URL
 rebind omitted WordPress's generated srcset derivatives. The retained complete
 HTML passes the corrected, metadata-bound comparison without dropping any
-attributes. This diagnosis is not a passing lane: a fresh live result is needed;
-browser controls and computed responsive visibility remain separate.
+attributes. This diagnosis is not a passing lane. A subsequent fresh run on
+`af41f108` now passes all seven global states, all six picker shapes and four
+asymmetric crops, complete native preservation and canonical recapture,
+zero-write repeat and verified owned teardown. Exact source and stream hash are
+recorded in the capsule's authoring progress. Browser controls and computed
+responsive visibility remain separate qualifications.

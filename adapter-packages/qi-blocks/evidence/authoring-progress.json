@@ -801,5 +801,58 @@
     },
     "privacy": "Only strict boolean mobile under the immediate viewport subject is a screen flag; wrong types, containers, contact contexts, remote descendants and neighboring private text retain the independent privacy/secret gates.",
     "scope": "The retained source observations were authored before admission. Target native Apply, HTTP/global visibility and target browser Save/reopen remain unqualified. Twelve readiness families remain unready; recompile and re-pin required."
+  },
+  "native_global_controls_full_apply": {
+    "source_engine_commit": "af41f1080248889ff364a2b93f60a56c2200383d",
+    "pair": "qiglobalapply916b",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2"
+    },
+    "adapter_digest": "9a55de4ff86712cc87118261445f21efb737332186e20d0c0d71d569be3c5782",
+    "driver": "tests/live/regress_native_apply.sh",
+    "driver_exit": 0,
+    "log_sha256": "03694114ed46f27819397a9b9387d0e2faf364c9622505cab9698b066921b2e4",
+    "native_global_saves": 7,
+    "native_picker_shapes": 6,
+    "native_custom_crops": 4,
+    "checks": [
+      "Seven independently retained complete fragments pass real REST Save, divergent-ID Apply, exact lock/metadata presence and absence, canonical recapture and zero-write repeat.",
+      "Visible global owners retain exactly one native image; all four responsive widths bind native metadata/uploads on each site. Complete HTML and CSS remain exact after only independently proven image coordinates rebind.",
+      "All six picker shapes and four asymmetric selected crop dimensions/pixels pass the same fresh run. Complete native target-local rows/options/media and every compiled entity remain preserved."
+    ],
+    "review": "Luna, Terra and Sol cleared the seven-case loop. Sol found symmetric image loss in the frontend oracle; af41f108 closes it with 219 admission assertions and independent re-review.",
+    "prior_attempt": {
+      "source_engine_commit": "d14059a9c20caf3bb5f9521fc1361038fa2bf0d7",
+      "driver_exit": 255,
+      "failure": "First global HTML comparison omitted WordPress responsive derivative URL rebinding. Complete retained source/target HTML differs only in those proven srcset coordinates; the corrected reader admits the original unfiltered HTML.",
+      "scope": "Failed attempt; its owned pair was destroyed. No pass inferred."
+    },
+    "teardown": "Sole final REGRESS_QI_NATIVE_APPLY PASSED; owned pair, lease, site repositories, databases and volumes removed.",
+    "scope": "Exact free artifact and WordPress 7.1. Target browser Save/reopen, computed viewport visibility, broader media contexts, lifecycle, version, recovery and host promotion remain separate qualifications."
+  },
+  "native_global_lane_full_local_gate": {
+    "source_engine_commit": "d87fa956b2df0856ce5b2060968452cdb57b01a6",
+    "regress-offline-all": {
+      "exit": 0,
+      "shared_suites": 408,
+      "packages": 29,
+      "package_tests": 147,
+      "offline_scenario_gates": 12,
+      "integration_scenarios": 7,
+      "log_sha256": "eaa3392b3a61353e9071cb1d3b0af0009ccd6afcec67d31ad3b40ef7f020c69a"
+    },
+    "composer check": {
+      "exit": 0,
+      "phpunit_tests": 1405,
+      "phpunit_assertions": 39811,
+      "log_sha256": "42a87038e8f7ec8457949111a15a9aa2b49ae2a35ba9059d2e53e51824b63edd"
+    },
+    "release-gate": {
+      "exit": 0,
+      "shared_suites": 408,
+      "log_sha256": "902db615b892f16ba6884e09707ba1fd0c3c1b74953efa2a372574595417fcc1"
+    },
+    "scope": "Unconditional canonical gate after native global replay and image admission hardening. Later authoring changes require their own final full gate."
   }
 }
