@@ -39,7 +39,14 @@ $services = new WPrism\ApplyServices($policy, $compiled, new WPrism\ApplyService
     selectionDeclaresEntityBatchFor: $unexpected, selectionTriggersProviderActionFor: $unexpected,
     pinnedProviderActionOwns: $unexpected, upsertMeta: $unexpected
 ), '/fixture/repo');
-foreach (['inactive' => [], 'missing' => ['plugins' => [], 'plugin_exists' => [$plugin => false]], 'prior' => ['plugins' => [$plugin => '2.7.4']]] as $case => $changes) {
+foreach (['inactive' => [], 'missing' => ['plugins' => [], 'plugin_exists' => [$plugin => false]],
+    'prior' => ['plugins' => [$plugin => '2.7.4']],
+    'maximum' => ['active_plugins' => [$plugin], 'plugins' => [$plugin => '2.7.6']],
+    'unreadable' => ['active_plugins' => [$plugin], 'plugins' => [$plugin => '']],
+    'wrong-basename' => ['active_plugins' => [ImporterDependencyEvidence::WRONG_PLUGIN],
+        'plugins' => [ImporterDependencyEvidence::WRONG_PLUGIN => '2.7.5'],
+        'plugin_exists' => [ImporterDependencyEvidence::WRONG_PLUGIN => true]],
+] as $case => $changes) {
     try {
         $observation = array_replace($facts, $changes);
         if ($case === 'inactive') {
@@ -63,6 +70,67 @@ foreach (['inactive' => [], 'missing' => ['plugins' => [], 'plugin_exists' => [$
     wprism_check_same(ImporterDependencyEvidence::profile($case)['nodes'][0]['message'], $actual,
         'native refusal cause is prebound to the actual public preparation gate: ' . $case);
 }
+$tables = ['wt_iew_mapping_template' => true, 'wt_iew_action_history' => true];
+$premises = [
+    'installed' => ['version' => '2.7.5', 'active' => false, 'loaded' => false, 'marker' => null,
+        'tables' => array_fill_keys(array_keys($tables), false), 'wrong_version' => null, 'wrong_active' => false,
+        'entry_sha256' => ImporterDependencyEvidence::EXACT_SHA256, 'wrong_sha256' => null, 'backup_sha256' => null],
+    'inactive' => ['version' => '2.7.5', 'active' => false, 'loaded' => false, 'marker' => null,
+        'tables' => $tables, 'wrong_version' => null, 'wrong_active' => false,
+        'entry_sha256' => ImporterDependencyEvidence::EXACT_SHA256, 'wrong_sha256' => null, 'backup_sha256' => null],
+    'missing' => ['version' => null, 'active' => false, 'loaded' => false, 'marker' => null,
+        'tables' => $tables, 'wrong_version' => null, 'wrong_active' => false,
+        'entry_sha256' => null, 'wrong_sha256' => null, 'backup_sha256' => null],
+    'prior' => ['version' => '2.7.4', 'active' => false, 'loaded' => false, 'marker' => null,
+        'tables' => $tables, 'wrong_version' => null, 'wrong_active' => false,
+        'entry_sha256' => ImporterDependencyEvidence::PRIOR_SHA256, 'wrong_sha256' => null, 'backup_sha256' => null],
+    'maximum' => ['version' => '2.7.6', 'active' => true, 'loaded' => false, 'marker' => '1',
+        'tables' => $tables, 'wrong_version' => null, 'wrong_active' => false,
+        'entry_sha256' => ImporterDependencyEvidence::MAXIMUM_SHA256, 'wrong_sha256' => null,
+        'backup_sha256' => ImporterDependencyEvidence::EXACT_SHA256],
+    'unreadable' => ['version' => null, 'active' => true, 'loaded' => false, 'marker' => '1',
+        'tables' => $tables, 'wrong_version' => null, 'wrong_active' => false,
+        'entry_sha256' => ImporterDependencyEvidence::UNREADABLE_SHA256, 'wrong_sha256' => null,
+        'backup_sha256' => ImporterDependencyEvidence::EXACT_SHA256],
+    'wrong-basename' => ['version' => null, 'active' => false, 'loaded' => false, 'marker' => '1',
+        'tables' => $tables, 'wrong_version' => '2.7.5', 'wrong_active' => true, 'entry_sha256' => null,
+        'wrong_sha256' => ImporterDependencyEvidence::EXACT_SHA256,
+        'backup_sha256' => ImporterDependencyEvidence::EXACT_SHA256],
+    'boundary-restored' => ['version' => '2.7.5', 'active' => true, 'loaded' => false, 'marker' => '1',
+        'tables' => $tables, 'wrong_version' => null, 'wrong_active' => false,
+        'entry_sha256' => ImporterDependencyEvidence::EXACT_SHA256, 'wrong_sha256' => null, 'backup_sha256' => null],
+];
+foreach ($premises as $case => $premise) {
+    wprism_check(ImporterDependencyEvidence::premise($case, $premise), 'exact dependency premise is admitted: ' . $case);
+    foreach (array_keys($premise) as $key) {
+        $changed = $premise;
+        $changed[$key] = $key === 'tables' ? [] : '__changed__';
+        wprism_check(!ImporterDependencyEvidence::premise($case, $changed),
+            'dependency premise rejects a changed field: ' . $case . ' ' . $key);
+    }
+}
+$termUuid = '11111111-1111-4111-8111-111111111111';
+$templateUuid = '22222222-2222-5222-a222-222222222222';
+$warningTree = ['files' => [
+    ['path' => "terms/category/$termUuid--uncategorized.json"],
+    ['path' => "tables/wt_iew_mapping_template/$templateUuid--selected-users.json"],
+]];
+wprism_check_same(["adopted env term 1 as $termUuid (terms/category/$termUuid--uncategorized.json)",
+    "adopted env table row wt_iew_mapping_template:103 as $templateUuid (tables/wt_iew_mapping_template/$templateUuid--selected-users.json)"],
+    ImporterDependencyEvidence::initialApplyWarnings($warningTree, ['original' => 103]),
+    'initial Apply admits the exact term and native template adoption disclosures');
+wprism_check_throws(static fn() => ImporterDependencyEvidence::initialApplyWarnings(['files' => []], ['original' => 103]),
+    RuntimeException::class, 'initial Apply cannot hide a missing canonical adoption identity');
+wprism_check_throws(static fn() => ImporterDependencyEvidence::initialApplyWarnings($warningTree, ['original' => '103']),
+    RuntimeException::class, 'initial Apply cannot weaken the native template identity type');
+foreach (['grouping' => '111111111-111-4111-8111-111111111111',
+    'version' => '11111111-1111-9111-8111-111111111111',
+    'variant' => '11111111-1111-4111-7111-111111111111'] as $case => $malformed) {
+    $changed = $warningTree;
+    $changed['files'][0]['path'] = "terms/category/$malformed--uncategorized.json";
+    wprism_check_throws(static fn() => ImporterDependencyEvidence::initialApplyWarnings($changed, ['original' => 103]),
+        RuntimeException::class, 'initial Apply rejects a noncanonical UUID ' . $case);
+}
 $state = ['format' => 'wprism-importer-native-settings/v1', 'tables' => array_fill_keys([
     'posts', 'postmeta', 'options', 'terms', 'term_taxonomy', 'term_relationships', 'termmeta',
     'users', 'usermeta', 'wt_iew_action_history', 'wt_iew_mapping_template'], [['fixture' => 'preserve']]),
@@ -84,4 +152,6 @@ wprism_check(!ImporterDependencyEvidence::retained($state, $changed), 'retention
 wprism_check(!ImporterDependencyEvidence::retained([], []), 'matching empty observations cannot prove native retention');
 wprism_check_throws(static fn() => ImporterDependencyEvidence::profile('unknown'), RuntimeException::class,
     'unknown refusal cannot select a generic success predicate');
+wprism_check_throws(static fn() => ImporterDependencyEvidence::premise('unknown', []), RuntimeException::class,
+    'unknown dependency state cannot select a generic native predicate');
 wprism_check_summary('Importer dependency evidence');
