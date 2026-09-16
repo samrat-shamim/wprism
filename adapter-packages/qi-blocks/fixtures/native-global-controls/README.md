@@ -12,8 +12,10 @@ visibility setting adds `metadata.blockVisibility.viewport.mobile: false`;
 omission uses `metadata.blockVisibility: false`. Resetting visibility removes
 that member, and resetting the final name removes `metadata` entirely.
 
-These are source-shape observations. The current closed Qi roster correctly
-refuses these still-undeclared attributes. They do not qualify target Apply,
-editor round-trip, pattern bindings, notes, other metadata, or production
-readiness. Their exact semantics must be declared through shared bounded value
-contracts before admission; no implicit global exception is authorized.
+These source-shape observations predate adapter admission. Shared bounded
+value contracts now admit lock flags, strict string names and the exact
+literal/object visibility shapes; the capsule's offline regression exercises
+Capture/Apply and immutable post/widget compilation. Target-native Apply, HTTP,
+editor round-trip and production readiness remain separate qualifications.
+Pattern bindings, notes and other unreviewed metadata still refuse; no implicit
+global exception is authorized.

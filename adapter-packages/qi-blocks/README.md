@@ -128,9 +128,10 @@ The [native global-control observations](fixtures/native-global-controls/README.
 record seven actual editor saves for lock, rename and visibility. WordPress adds
 these global attributes beyond Qi's own schema. All four movement/removal lock
 states, a saved name, mobile hiding, omission and resets have exact native saved
-fragments. They remain outside the admitted closed roster: the regression proves
-the current refusal in both Capture and Apply before any database access. These
-source observations do not qualify target transfer or editing.
+fragments. The observations predate admission; exact shared value contracts now
+admit these two globals. The 426-assertion regression exercises divergent-ID
+Capture/Apply, immutable post/widget compilation and pure review. These source
+observations and offline checks do not qualify target-native transfer or editing.
 
 Broader editor, inline template, widget/template media, crop failure/removal,
 retirement/reactivation, version and combination qualification remain

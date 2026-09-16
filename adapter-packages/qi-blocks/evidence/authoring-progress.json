@@ -715,7 +715,7 @@
       "assertions": 45
     },
     "teardown": "Final native editor reopens the reset block with unchecked lock controls and no pending Save; browser tab, owned pair, lease, databases, volumes and repositories removed.",
-    "scope": "Source writer observations only. Current closed Qi admission deliberately refuses these undeclared globals. No target Apply, global-control editing, or readiness qualification."
+    "scope": "Source writer observations only. At the recorded 43db61d9 commit the closed Qi roster refused these then-undeclared globals. Later declaration and offline admission are recorded separately; this observation supplies no target-native Apply, global-control editing or readiness qualification."
   },
   "latest_quality_gate_attempt": {
     "source_engine_commit": "43db61d9c7767384c80117d95ed0e0cbb0213fc0",
