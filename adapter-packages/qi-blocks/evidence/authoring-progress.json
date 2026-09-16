@@ -854,5 +854,44 @@
       "log_sha256": "902db615b892f16ba6884e09707ba1fd0c3c1b74953efa2a372574595417fcc1"
     },
     "scope": "Unconditional canonical gate after native global replay and image admission hardening. Later authoring changes require their own final full gate."
+  },
+  "native_target_global_browser_roundtrip": {
+    "source_engine_commit": "af41f1080248889ff364a2b93f60a56c2200383d",
+    "pair": "qiglobaleditor916a",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2"
+    },
+    "adapter_digest": "9a55de4ff86712cc87118261445f21efb737332186e20d0c0d71d569be3c5782",
+    "observations": "fixtures/native-global-controls/target-observations.json",
+    "observations_sha256": "24633ceb15ad04ec48e1b4894f366cfbda1acf5f17f019d0dcfdc84cb5f649e2",
+    "first_save_body": "fixtures/native-global-controls/target-first-save.html",
+    "first_save_body_sha256": "227e9797f6f2d6c71e97714cf14f3920f2618cc39862d92f153c081e560de961",
+    "actual_native_target_saves": 12,
+    "complete_rest_response_windows": 7,
+    "computed_frontend_observations": 21,
+    "compiled_entities_per_complete_target_capture": 7,
+    "checks": [
+      "All four lock states, rename/reset, literal omission, individual mobile/tablet/desktop settings, all three viewport settings together and final reset use actual target editor controls and Save.",
+      "Complete observed content.raw response hashes match independent native readback for the first seven states; later truncated network windows are excluded from HTTP response claims.",
+      "Every whole native body matches the frozen complete first writer with only the independently observed selected Single Image owner replaced. First Save retains an explicit four-LF authoring delta, never a runtime normalization.",
+      "Two complete target captures compile and converge per state; corresponding captured global controls also match native readback. Complete unselected native posts except edited page/revisions, Qi options/styles, identities/featured relations and all selected media/upload state stay unchanged.",
+      "Actual loaded WordPress tablet CSS spans 481–782px. Measurements at 375/600/1440px prove individual and combined viewport behavior; omission removes markup and reset restores it. Earlier 820px measurements remain desktop observations."
+    ],
+    "offline": {
+      "suite": "tests/offline/regress_native_global_controls.php",
+      "assertions": 736,
+      "result": "pass",
+      "scope": "Original source seven-state portability/refusals plus complete target first-writer/body reconstruction, twelve source/target native fragments, complete four-identity corpus fixed points, public post/widget compilation/Lint and computed viewport observations."
+    },
+    "diagnostics": {
+      "editor_errors": [],
+      "editor_warnings": [],
+      "network": "Seven initial writer responses retained by full body/request/response hashes; later truncated windows excluded.",
+      "first_save": "Full first-Save diff contains only two deletions of two LF bytes outside the changed Single Image owner. This is explicit native authoring evidence, never runtime normalization.",
+      "all_viewports": "Initial scratch expectation guessed viewport member order; retained native writer and complete captures preserve desktop/tablet/mobile order. Initial failure retained; no adapter bytes changed."
+    },
+    "teardown": "Parent owned authoring session exited zero after QI_TARGET_GLOBAL_EDITOR_AUTHORING_CLEANUP_PASSED; pair list confirms no live or stopped owned pairs.",
+    "scope": "Experimental native authoring/Apply evidence only. Remaining editor/media contexts, removal/failure/lifecycle/version/platform/host promotion and recovery remain unqualified; the single Qi plugin PR stays draft."
   }
 }
