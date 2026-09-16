@@ -72,6 +72,24 @@ final class ImporterTemplateDeletionEvidence {
         self::same(json_decode($jobs[0]['data'], true, 32, JSON_THROW_ON_ERROR), $history['template_data'], 'native history reopens its complete form after original deletion');
     }
 
+    public static function identities(array $before, array $after, array $native): void {
+        self::check(($before['format'] ?? null) === 'wprism-importer-template-identities/v1'
+            && array_keys($before) === ['format', 'rows'] && count($before['rows']) === 3,
+            'complete target identity preimage');
+        $ids = array_map('intval', array_column(self::selected($native['tables']['wt_iew_mapping_template'] ?? []), 'id'));
+        sort($ids, SORT_NUMERIC);
+        self::check(array_map('intval', array_column($before['rows'], 'local_id')) === $ids,
+            'identity preimage belongs to the three restored native rows');
+        foreach ($before['rows'] as $row) {
+            self::check(array_keys($row) === ['uuid', 'entity_type', 'id_kind', 'local_id']
+                && preg_match('/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/D', $row['uuid']) === 1
+                && $row['entity_type'] === 'wt_iew_mapping_template' && $row['id_kind'] === 'iew_template',
+                'exact typed target identity binding');
+        }
+        self::check(count(array_unique(array_column($before['rows'], 'uuid'))) === 3, 'distinct target identity bindings');
+        self::same($before, $after, 'target restoration preserves every selected identity binding');
+    }
+
     public static function initialCapture(array $agent, array $host): void {
         $warning = <<<'WARNING'
 users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php 2.7.5 is active on this environment but absent from the existing WPrism code-version baseline. Its activation or first version change therefore cannot be distinguished from an out-of-band update. Run 'wprism deploy' to reconcile and record the installed bytes, or remove the undeclared activation before capture/apply. — 'wprism capture' observed this and did NOT accept it as the new baseline: capture reports what it sees, it does not reconcile code. The recorded versions are unchanged, so this finding is still there on the next 'wprism status'.
@@ -138,6 +156,7 @@ elseif ($mode === 'removed') ImporterTemplateDeletionEvidence::removed($read($ar
 elseif ($mode === 'same') ImporterTemplateDeletionEvidence::same($read($argv[2]), $read($argv[3]), 'complete native preservation');
 elseif ($mode === 'tombstones') ImporterTemplateDeletionEvidence::tombstones($read($argv[2]), $read($argv[3]));
 elseif ($mode === 'reopened') ImporterTemplateDeletionEvidence::reopened($read($argv[2]), $read($argv[3]), $read($argv[4]), $read($argv[5]), (int) $argv[6]);
+elseif ($mode === 'identities') ImporterTemplateDeletionEvidence::identities($read($argv[2]), $read($argv[3]), $read($argv[4]));
 elseif ($mode === 'private-refusal') ImporterTemplateDeletionEvidence::privateRefusal($read($argv[2]), $argv[3]);
 else throw new RuntimeException('unknown deletion evidence mode');
 echo 'PASS: Importer deletion ' . $mode . "\n";

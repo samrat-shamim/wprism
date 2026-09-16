@@ -63,6 +63,27 @@ foreach (['wrong-copy-id', 'old-cursor-selected', 'copy-form-lost', 'history-for
     wprism_check_throws(static fn() => ImporterTemplateDeletionEvidence::reopened($before, $badExport, $badImport, $badHistory, $historyId),
         RuntimeException::class, 'native independence oracle rejects ' . $fault);
 }
+$selectedIds = array_map('intval', array_column(ImporterTemplateDeletionEvidence::selected($rows), 'id'));
+sort($selectedIds, SORT_NUMERIC);
+$identities = ['format' => 'wprism-importer-template-identities/v1', 'rows' => array_map(
+    static fn(int $id): array => ['uuid' => sprintf('00000000-0000-5000-8000-%012d', $id),
+        'entity_type' => 'wt_iew_mapping_template', 'id_kind' => 'iew_template', 'local_id' => (string) $id],
+    $selectedIds
+)];
+ImporterTemplateDeletionEvidence::identities($identities, $identities, $before);
+wprism_check(true, 'exact target identity preimage survives fixture restoration');
+foreach (['missing-row', 'wrong-local', 'wrong-type', 'wrong-kind', 'duplicate-uuid', 'changed-postimage'] as $fault) {
+    $badBefore = $identities;
+    $badAfter = $identities;
+    if ($fault === 'missing-row') array_pop($badBefore['rows']);
+    if ($fault === 'wrong-local') $badBefore['rows'][0]['local_id'] = '99';
+    if ($fault === 'wrong-type') $badBefore['rows'][0]['entity_type'] = 'post';
+    if ($fault === 'wrong-kind') $badBefore['rows'][0]['id_kind'] = 'post';
+    if ($fault === 'duplicate-uuid') $badBefore['rows'][1]['uuid'] = $badBefore['rows'][0]['uuid'];
+    if ($fault === 'changed-postimage') $badAfter['rows'][0]['uuid'] = '00000000-0000-5000-8000-000000000099';
+    wprism_check_throws(static fn() => ImporterTemplateDeletionEvidence::identities($badBefore, $badAfter, $before),
+        RuntimeException::class, 'target identity oracle rejects ' . $fault);
+}
 $warning = <<<'WARNING'
 users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php 2.7.5 is active on this environment but absent from the existing WPrism code-version baseline. Its activation or first version change therefore cannot be distinguished from an out-of-band update. Run 'wprism deploy' to reconcile and record the installed bytes, or remove the undeclared activation before capture/apply. — 'wprism capture' observed this and did NOT accept it as the new baseline: capture reports what it sees, it does not reconcile code. The recorded versions are unchanged, so this finding is still there on the next 'wprism status'.
 WARNING;
@@ -174,6 +195,8 @@ $milestones = [
     'wprism_ssh_install_locked_plugin "$slug" 2.7.5 certified-boundary inactive',
     'wprism_ssh_stage_code_inventory "$slug"',
     'wprism_ssh_stage_generation_releases 2',
+    'importer-delete-baseline-identities',
+    'importer_delete_assert identities baseline-identities restored-identities baseline',
     'provider-state.json.fail-verify-after',
     'and .status.state == "rolled_back" and .status.terminal == true',
     'importer_delete_assert same baseline rollback-preserved',

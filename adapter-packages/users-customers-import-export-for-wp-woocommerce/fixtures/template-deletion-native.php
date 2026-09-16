@@ -14,6 +14,7 @@ $check(is_admin() && current_user_can('manage_options') && defined('WT_U_IEW_VER
     'exact native administrator context');
 global $wpdb, $wp_filter;
 $table = $wpdb->prefix . 'wt_iew_mapping_template';
+$mapTable = $wpdb->prefix . 'wprism_map';
 $read = static function () use ($wpdb, $table, $check): array {
     $wpdb->last_error = '';
     $rows = $wpdb->get_results("SELECT * FROM `$table` ORDER BY id LIMIT 65", ARRAY_A);
@@ -39,6 +40,19 @@ $select = static function (array $rows) use ($check): array {
         if ($matches !== []) $selected[$label] = $matches[0];
     }
     return $selected;
+};
+$readIdentities = static function (array $localIds) use ($wpdb, $mapTable, $check): array {
+    $localIds = array_values(array_unique(array_map('intval', $localIds)));
+    sort($localIds, SORT_NUMERIC);
+    $check(count($localIds) === 3 && $localIds[0] > 0, 'three bounded positive identity-map keys');
+    $placeholders = implode(',', array_fill(0, count($localIds), '%d'));
+    $wpdb->last_error = '';
+    $rows = $wpdb->get_results($wpdb->prepare(
+        "SELECT uuid, entity_type, id_kind, local_id FROM `$mapTable` WHERE id_kind=%s AND local_id IN ($placeholders) ORDER BY local_id",
+        ['iew_template', ...$localIds]
+    ), ARRAY_A);
+    $check($wpdb->last_error === '' && is_array($rows), 'exact template identity-map read');
+    return $rows;
 };
 if ($phase === 'policy') {
     require_once WPMU_PLUGIN_DIR . '/wprism/src/Delete/ExecutableOwnerBoundary.php';
@@ -79,6 +93,21 @@ if ($phase === 'repository') {
         JSON_THROW_ON_ERROR), "\n";
     return;
 }
+if ($phase === 'identity-map') {
+    $selected = $select($read());
+    $ids = array_map(static fn(array $row): int => (int) $row['id'], $selected);
+    sort($ids, SORT_NUMERIC);
+    $identities = $readIdentities($ids);
+    $check(array_map('intval', array_column($identities, 'local_id')) === $ids, 'complete selected identity-map preimage');
+    foreach ($identities as $identity) {
+        $check(array_keys($identity) === ['uuid', 'entity_type', 'id_kind', 'local_id']
+            && preg_match('/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/D', $identity['uuid']) === 1
+            && $identity['entity_type'] === 'wt_iew_mapping_template' && $identity['id_kind'] === 'iew_template',
+            'exact typed template identity-map row');
+    }
+    echo json_encode(['format' => 'wprism-importer-template-identities/v1', 'rows' => $identities], JSON_THROW_ON_ERROR), "\n";
+    return;
+}
 if ($phase === 'seed') {
     $before = $read();
     $check(count($before) === 5, 'native export/import Save and Save As produced five templates');
@@ -109,20 +138,32 @@ if ($phase === 'seed') {
 if ($phase === 'restore-fixture') {
     // This prepares the target preimage after native source Delete/Capture.
     // It is deliberately separate from the signed product rollback proof.
-    $baseline = json_decode((string) stream_get_contents(STDIN), true, 32, JSON_THROW_ON_ERROR);
+    $input = json_decode((string) stream_get_contents(STDIN), true, 32, JSON_THROW_ON_ERROR);
+    $baseline = $input['native'] ?? null;
+    $identity = $input['identities'] ?? null;
+    $check(is_array($baseline) && is_array($identity)
+        && ($identity['format'] ?? null) === 'wprism-importer-template-identities/v1'
+        && is_array($identity['rows'] ?? null) && count($identity['rows']) === 3, 'complete target preimage input');
     $rows = $baseline['tables']['wt_iew_mapping_template'] ?? [];
     $selected = $select($rows);
     $check(count($rows) === 7 && count($selected) === 3 && $select($read()) === [], 'owned missing-row fixture preimage');
+    $ids = array_map(static fn(array $row): int => (int) $row['id'], $selected);
+    sort($ids, SORT_NUMERIC);
+    $check($readIdentities($ids) === [], 'selected local identity bindings are absent after source Capture');
     $check($wpdb->query('START TRANSACTION') !== false, 'fixture restoration transaction');
     try {
         foreach ($selected as $row) $check($wpdb->insert($table, $row) === 1, 'restore one exact owned fixture row');
+        foreach ($identity['rows'] as $row) {
+            $check($wpdb->insert($mapTable, $row, ['%s', '%s', '%s', '%d']) === 1, 'restore one exact target identity binding');
+        }
         $check($read() === $rows, 'fixture restoration recreates the complete template census');
+        $check($readIdentities($ids) === $identity['rows'], 'fixture restoration recreates the exact target identity bindings');
         $check($wpdb->query('COMMIT') !== false, 'fixture restoration commit');
     } catch (Throwable $failure) {
         $wpdb->query('ROLLBACK');
         throw $failure;
     }
-    echo json_encode(['restored' => array_keys($selected)], JSON_THROW_ON_ERROR), "\n";
+    echo json_encode(['restored' => array_keys($selected), 'identity_uuids' => array_column($identity['rows'], 'uuid')], JSON_THROW_ON_ERROR), "\n";
     return;
 }
 if ($phase === 'delete') {

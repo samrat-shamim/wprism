@@ -122,6 +122,7 @@ wprism_ssh_adopt_extension() {
   grep -Fq 'deploy complete:' "$DIAG_DIR/importer-delete-code-baseline.stdout" \
     || fail 'Importer signed deletion host deploy lacked its terminal product result'
   importer_delete_capture baseline json importer_delete_observe
+  importer_delete_capture baseline-identities json importer_delete_native template-deletion-native identity-map
   for label in export-original import-original import-draft; do
     importer_delete_capture "native-$label" json importer_delete_native template-deletion-native delete "$label"
     jq -e --arg label "$label" --slurpfile seed "$DIAG_DIR/importer-delete-seed.stdout" \
@@ -144,9 +145,14 @@ wprism_ssh_adopt_extension() {
     capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json
   importer_delete_capture repeated-repository json importer_delete_native template-deletion-native repository
   importer_delete_assert same deletion-repository repeated-repository
-  importer_delete_capture restore-fixture json importer_delete_native template-deletion-native restore-fixture <"$DIAG_DIR/importer-delete-baseline.stdout"
+  jq -cn --slurpfile native "$DIAG_DIR/importer-delete-baseline.stdout" \
+    --slurpfile identities "$DIAG_DIR/importer-delete-baseline-identities.stdout" \
+    '{native:$native[0],identities:$identities[0]}' \
+    | importer_delete_capture restore-fixture json importer_delete_native template-deletion-native restore-fixture
   importer_delete_capture restored json importer_delete_observe
   importer_delete_assert same baseline restored
+  importer_delete_capture restored-identities json importer_delete_native template-deletion-native identity-map
+  importer_delete_assert identities baseline-identities restored-identities baseline
   importer_delete_capture intent-commit empty ssh_fixture \
     'set -eu; git -C /home/wprism/site add -- state; git -C /home/wprism/site commit -m "Capture native Importer template deletions" >/dev/null; test -z "$(git -C /home/wprism/site status --porcelain)"'
   importer_delete_capture plan json "$WPRISM" --envs-file="$TMP/envs.json" plan target --format=json
