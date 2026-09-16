@@ -55,7 +55,7 @@ final class ImporterPasswordMappingEvidence {
             'reason_code' => 'capture_failed',
             'nodes' => [[
                 'class' => RuntimeException::class,
-                'message' => "wprism: table 'wt_iew_mapping_template' column 'data' (row {$seed['id']}).mapping_form_data.mapping_fields requires enabled field template 'user_pass'",
+                'message' => "wprism: table 'wt_iew_mapping_template' column 'data' (row {$seed['id']}).mapping_form_data.mapping_fields requires nonempty field template 'user_pass'",
                 'parent_index' => null,
                 'relation' => 'root',
             ]],
@@ -76,8 +76,8 @@ final class ImporterPasswordMappingEvidence {
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') !== __FILE__) return;
 if (($argv[1] ?? '') !== 'verify') throw new RuntimeException('unknown password-mapping evidence mode');
 $pair = $argv[2] ?? '';
-ImporterPasswordMappingEvidence::verify(...array_map(static function (string $stem) use ($pair): array {
+ImporterPasswordMappingEvidence::verify(...array_map(static function (string $stem, int $index) use ($pair): array {
     $transport = '/^ ?Container wprism-' . preg_quote($pair, '/') . '-cli[12]-run-[a-f0-9]{12} (Creating|Created) *$/D';
-    return json_decode(PrivateCommandOutput::readObject($stem, $transport), true, 64, JSON_THROW_ON_ERROR);
-}, array_slice($argv, 3)));
+    return json_decode(PrivateCommandOutput::readObject($stem, $transport, expectedExit: $index === 3 ? 1 : 0), true, 64, JSON_THROW_ON_ERROR);
+}, array_slice($argv, 3), array_keys(array_slice($argv, 3))));
 echo "PASS: Importer required password mapping refusal and restoration\n";

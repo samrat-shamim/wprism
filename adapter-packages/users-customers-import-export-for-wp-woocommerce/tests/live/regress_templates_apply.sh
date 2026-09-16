@@ -147,7 +147,7 @@ password_private=$(sed -n '1s/^private command diagnostics (unverified): //p' "$
 [ -n "$password_private" ] && [ -d "$password_private" ] || fail 'password mapping refusal did not retain private evidence'
 php "$PACKAGE_ROOT/fixtures/password-mapping-evidence.php" verify "$PAIR" \
   "$sink/imports-password-before" "$sink/imports-password-seed" "$sink/imports-password-seeded" \
-  "$sink/imports-password-capture" "$password_private/baseline" "$password_private/private" \
+  "$password_private/command" "$password_private/baseline" "$password_private/private" \
   "$sink/imports-password-after" "$sink/imports-password-clean"
 capture imports-source template_side 1 observe
 capture imports-capture candidate 1 capture --repo=/siterepo --format=json

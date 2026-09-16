@@ -29,7 +29,7 @@ $public = ['format' => 'wprism-command-refusal/v1', 'ok' => false, 'command' => 
     'message' => 'capture refused at an unclassified safety gate', 'details_redacted' => true,
     'diagnostics' => [['code' => 'capture_failed', 'message' => 'capture refused at an unclassified safety gate']]];
 $baseline = ['command' => 'capture', 'baseline' => '[]'];
-$message = "wprism: table 'wt_iew_mapping_template' column 'data' (row $id).mapping_form_data.mapping_fields requires enabled field template 'user_pass'";
+$message = "wprism: table 'wt_iew_mapping_template' column 'data' (row $id).mapping_form_data.mapping_fields requires nonempty field template 'user_pass'";
 $record = ['format' => 'wprism-private-refusal-evidence/v2', 'command' => 'capture', 'reason_code' => 'capture_failed',
     ...PrivateRefusalEvidence::graph(new RuntimeException($message))];
 $recordBytes = json_encode($record, JSON_THROW_ON_ERROR);
