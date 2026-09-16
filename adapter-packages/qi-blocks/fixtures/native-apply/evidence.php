@@ -122,6 +122,31 @@ final class QiNativeApplyEvidence {
         self::check($rebound === $css['source'], 'complete frontend stylesheet changed beyond its independently proven home and page bindings');
     }
 
+    /** Complete native content-only postimage preservation, independent of declarations. */
+    public static function content_native(array $source, array $target, array $before, array $seed, string $saved): void {
+        foreach ([$source, $target, $before] as $record) self::check(($record['format'] ?? null) === 'wprism-qi-native-apply/v1', 'native content record format');
+        self::check($source['home'] === $seed['home'] && $target['home'] === $before['home']
+            && $source['home'] !== $target['home'], 'native content home bindings changed');
+        self::check($source['ids'] === $seed['ids'] && $target['ids'] === $before['ids']
+            && $source['uuids'] === $target['uuids'] && $target['uuids'] === $before['uuids'], 'content update changed native or durable identities');
+        foreach ([$source, $target] as $native) {
+            $image = str_replace($seed['home'], $native['home'], $seed['image_url']);
+            $expected = $native === $source ? QiConformanceCorpus::body($saved, $native['ids'], $native['home'], $image)
+                : QiConformanceCorpus::applied_body($saved, $native['ids'], $native['home'], $image);
+            self::check($native['page_body'] === $expected, 'complete content body differs from independent native fixture expectation');
+            $rows = array_column($native['posts'], null, 'ID');
+            self::check(($rows[$native['ids']['page']]['post_content'] ?? null) === $native['page_body'], 'content body differs from its complete stored native row');
+        }
+        foreach (['home', 'options', 'styles', 'featured', 'attachment', 'uploads'] as $field) {
+            self::check($target[$field] === $before[$field], 'content-only update changed complete native ' . $field);
+        }
+        $posts = array_column($target['posts'], null, 'ID');
+        self::check(count($posts) === count($before['posts']), 'content-only update created or deleted native posts');
+        foreach ($before['posts'] as $post) if ((int) $post['ID'] !== $before['ids']['page']) {
+            self::check(($posts[$post['ID']] ?? null) === $post, 'content-only update changed an unrelated complete native row');
+        }
+    }
+
     public static function content_update(array $apply, array $repeat): void {
         foreach ([$apply, $repeat] as $result) QiNativeApplyEvidence::check($result['warnings'] === [] && $result['canary'] === 'clean'
             && $result['drift'] === [] && $result['actions'] === [] && $result['verification'] === [
@@ -140,8 +165,10 @@ final class QiNativeApplyEvidence {
     }
 
     public static function product(array $plan, array $apply, array $repeat, array $captures, array $source): void {
-        $created = array_column($plan['create'], 'uuid'); $expected = array_values($source['uuids']);
-        sort($created, SORT_STRING); sort($expected, SORT_STRING);
+        $created = array_column($plan['create'], 'uuid');
+        $expected = array_values($source['uuids']);
+        sort($created, SORT_STRING);
+        sort($expected, SORT_STRING);
         self::check($created === $expected && count($plan['update']) === 2 && count($plan['adopt']) === 1, 'native plan changed authored scope');
         foreach (['warnings', 'provider_problems', 'drift', 'conflict', 'collision', 'delete', 'delete_conflict', 'deleted', 'code_mismatch',
             'code_drift', 'incomplete_apply', 'incomplete_lifecycle', 'missing_user', 'skipped_user_meta', 'selected_actions', 'regen_pending', 'regen_context', 'env_missing'] as $field) {
@@ -171,14 +198,16 @@ if (($argv[1] ?? null) === '--admit-roundtrip-native') {
 if (($argv[1] ?? null) === '--admit-roundtrip-fixed-point') {
     if ($argc !== 9) throw new RuntimeException('roundtrip fixed-point admission requires Apply, repeat, source/target HTML and three native records');
     $read = static fn(string $path): array => json_decode(file_get_contents($path), true, 64, JSON_THROW_ON_ERROR);
-    $source = $read($argv[6]); $target = $read($argv[7]);
+    $source = $read($argv[6]);
+    $target = $read($argv[7]);
     QiNativeApplyEvidence::apply_pair($read($argv[2]), $read($argv[3]));
     QiNativeApplyEvidence::check($target === $read($argv[8]), 'repeat Apply or frontend consumption changed complete target native state');
     QiNativeApplyEvidence::css(file_get_contents($argv[4]), file_get_contents($argv[5]), $source, $target);
     echo json_encode(['format' => 'wprism-qi-native-roundtrip-fixed-point/v1', 'result' => 'pass'], JSON_THROW_ON_ERROR), "\n";
 }
 if (($argv[1] ?? null) === '--admit') {
-    $root = dirname(__DIR__, 4); $capsule = dirname(__DIR__, 2);
+    $root = dirname(__DIR__, 4);
+    $capsule = dirname(__DIR__, 2);
     require_once $root . '/sandbox/tests/lib/agent_version.php';
     require_once $root . '/sandbox/tests/lib/RepositoryConvergence.php';
     require_once $root . '/sandbox/tests/lib/wp_stubs.php';
@@ -186,16 +215,19 @@ if (($argv[1] ?? null) === '--admit') {
     require_once $root . '/agent/src/Policy/Policy.php';
     require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
     wprism_test_define_agent_versions();
-    $sink = $argv[2]; $pair = $argv[3];
+    $sink = $argv[2];
+    $pair = $argv[3];
     $read = static fn(string $name, string $verb = ''): array => QiNativeApplyEvidence::object($sink . '/' . $name, $pair, $root, $verb);
-    $source = $read('source1'); $target = $read('target2');
+    $source = $read('source1');
+    $target = $read('target2');
     QiNativeApplyEvidence::native($source, $target, $read('before2'), $read('seed1'), file_get_contents($capsule . '/fixtures/native-blocks.html'), file_get_contents($capsule . '/fixtures/native-options.json'));
     QiNativeApplyEvidence::check($target === $read('stable2') && $target === $read('target-http-after') && $source === $read('source-http-after'), 'repeat Apply or frontend read changed complete native state');
     QiNativeApplyEvidence::check($read('styles1') === ['status' => 'success', 'message' => 'Options are saved', 'data' => null, 'redirect' => ''], 'native Qi style writer did not succeed');
     $captures = [];
     foreach (['capture1', 'recapture2', 'source-repeat1', 'render-recapture2', 'render-repeat1'] as $name) $captures[] = $read($name, 'capture');
     QiNativeApplyEvidence::product($read('plan2', 'plan'), $read('apply2', 'apply'), $read('repeat2', 'apply'), $captures, $source);
-    $library = WPrism\AdapterLibrary::fromSourceTree($root); $repositories = [];
+    $library = WPrism\AdapterLibrary::fromSourceTree($root);
+    $repositories = [];
     foreach (['source', 'target-input', 'target', 'source-repeat', 'render-source', 'render-target'] as $side) {
         $repo = $sink . '/' . $side;
         $policy = WPrism\Policy::load($repo, adapterLibrary: $library);

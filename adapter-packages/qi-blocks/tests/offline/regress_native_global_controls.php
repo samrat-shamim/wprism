@@ -11,6 +11,7 @@ require_once "$root/agent/src/Grammar/Tokens.php";
 require_once "$root/agent/src/Repository/Ledger.php";
 require_once "$root/agent/src/Repository/RepositoryCompiler.php";
 require_once "$root/agent/src/Review/Lint.php";
+require_once dirname(__DIR__, 2) . '/fixtures/native-global-controls/corpus.php';
 wprism_test_define_agent_versions();
 
 use WPrism\{BlockReferenceScanner, Blocks, Canon, Lint, LintEnvironment, RepositoryCompiler, Tokens};
@@ -66,6 +67,7 @@ $lint = static function (bool $parser) use ($scratch, $policy): array {
 $empty = '<!-- wp:qi-blocks/single-image /-->';
 $block = static fn(array $attrs): string => '<!-- wp:qi-blocks/single-image ' . serialize_block_attributes($attrs) . ' /-->';
 $states = [];
+$original = parse_blocks(Canon::read_file($capsule . '/fixtures/native-blocks.html'));
 foreach ($record['cases'] as $case) {
     $native = array_values(array_filter(parse_blocks($case['saved']), static fn(array $block): bool => $block['blockName'] !== null));
     wprism_check_same(1, count($native), 'each native global-control fixture has one complete selected owner');
@@ -73,6 +75,14 @@ foreach ($record['cases'] as $case) {
     wprism_check_same($case['lock'], $native[0]['attrs']['lock'], 'native lock readback preserves both strict boolean members');
     wprism_check_same($case['metadata'], $native[0]['attrs']['metadata'] ?? null, 'native metadata observations retain their complete active or absent shape');
     $states[Canon::encode($case['lock'])] = true;
+    $replayed = parse_blocks(QiNativeGlobalControlsCorpus::saved(serialize_blocks($original), $bytes, $case['case']));
+    wprism_check_same(count($original), count($replayed), 'retained native global replay preserves the complete original corpus census');
+    $other = $original;
+    $otherAfter = $replayed;
+    wprism_check_same($case['lock'], $replayed[0]['attrs']['lock'], 'full-corpus replay retains the independently observed global lock shape');
+    wprism_check_same($case['metadata'], $replayed[0]['attrs']['metadata'] ?? null, 'full-corpus replay retains native metadata shape and absence');
+    unset($other[0], $otherAfter[0]);
+    wprism_check_same($other, $otherAfter, 'replay changes only the explicitly selected native Single Image owner');
     $database(1);
     $canonical = Blocks::capture_rewrite($case['saved'], $policy, $source);
     $database(801);
@@ -95,6 +105,10 @@ foreach ($record['cases'] as $case) {
     unlink($widget);
 }
 wprism_check_same(4, count($states), 'native saves independently observed all four movement/removal lock states');
+wprism_check_throws(static fn() => QiNativeGlobalControlsCorpus::saved(serialize_blocks($original), $bytes . ' ', $record['cases'][0]['case']), RuntimeException::class, 'replay refuses changed independent observation bytes');
+wprism_check_throws(static fn() => QiNativeGlobalControlsCorpus::saved(serialize_blocks($original), $bytes, 'global-unknown'), RuntimeException::class, 'replay refuses an invented native case');
+wprism_check_throws(static fn() => QiNativeGlobalControlsCorpus::saved(serialize_blocks(array_slice($original, 1)), $bytes, $record['cases'][0]['case']), RuntimeException::class, 'replay refuses a missing original native owner');
+wprism_check_throws(static fn() => QiNativeGlobalControlsCorpus::saved(serialize_blocks([...$original, $original[0]]), $bytes, $record['cases'][0]['case']), RuntimeException::class, 'replay refuses a duplicated original native owner');
 $valid = $block(['metadata' => ['name' => 'http://localhost:9508/renamed', 'blockVisibility' => false], 'lock' => ['move' => false]]);
 $database(1);
 $captured = Blocks::capture_rewrite($valid, $policy, $source);

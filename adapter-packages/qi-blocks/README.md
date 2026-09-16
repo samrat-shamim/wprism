@@ -129,7 +129,7 @@ record seven actual editor saves for lock, rename and visibility. WordPress adds
 these global attributes beyond Qi's own schema. All four movement/removal lock
 states, a saved name, mobile hiding, omission and resets have exact native saved
 fragments. The observations predate admission; exact shared value contracts now
-admit these two globals. The 426-assertion regression exercises divergent-ID
+admit these two globals. The 458-assertion regression exercises divergent-ID
 Capture/Apply, immutable post/widget compilation and pure review. These source
 observations and offline checks do not qualify target-native transfer or editing.
 

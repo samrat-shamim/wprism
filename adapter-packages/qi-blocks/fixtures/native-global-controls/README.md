@@ -19,3 +19,11 @@ Capture/Apply and immutable post/widget compilation. Target-native Apply, HTTP,
 editor round-trip and production readiness remain separate qualifications.
 Pattern bindings, notes and other unreviewed metadata still refuse; no implicit
 global exception is authorized.
+
+The native Apply lane replays all seven complete saved fragments through the
+real REST content writer. Each update has an independent complete body oracle,
+checks the frontend owner and CSS, compares full native target-local state,
+recaptures every compiled entity and repeats without writes. Its offline
+admission controls cover altered elements, wrong image coordinates, unexpected
+visibility and duplicate owners. This lane still needs a fresh live result;
+browser controls and computed responsive visibility remain separate.
