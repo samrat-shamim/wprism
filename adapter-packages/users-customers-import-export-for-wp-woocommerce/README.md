@@ -190,7 +190,8 @@ draft. Full observations cover eleven native tables and operational files.
 Both Save As copies and completed export history reopen after deletion. Public
 Capture emits exactly three tombstones bound to the prior hash, revision and
 source path, and repeated Capture preserves their bytes. Explicit fixture
-restoration prepares a target preimage; it is not product recovery. Public
+restoration prepares the target rows and their exact identity-map preimage; it
+is not product recovery. Public
 Plan identifies those three rows, and direct `apply --with-deletes` refuses
 before mutation with the exact public and private writer-exclusion cause.
 
@@ -201,7 +202,7 @@ recovery, and runs signed host promotion. Loss of external writer exclusion at
 Delete's final pre-COMMIT frontier must restore the complete native preimage;
 the next promotion deletes the exact rows and a repeat reaches a fixed point.
 
-The exact-artifact version matrix reuses the complete 2.7.5 agent roundtrip,
+The exact-artifact version matrix reuses the complete 2.7.5 ordinary host roundtrip,
 then replaces the active target plugin with official locked 2.7.4 bytes.
 Public deployment and Apply must each refuse with the exact version cause,
 preserving the full native database (including engine ledgers and cron rows), canonical

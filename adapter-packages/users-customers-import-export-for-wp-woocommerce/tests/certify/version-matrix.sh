@@ -19,7 +19,7 @@ version_matrix_preflight() {
     || fail 'Importer version matrix requires its reviewed certified boundary'
   jq -e '(.entry.mode // "roundtrip") == "roundtrip" and .entry.plugins == [{"slug":"users-customers-import-export-for-wp-woocommerce","version":"2.7.5"}]' \
     "$IMPORTER_MATRIX_PACKAGE/tests/conformance/entry.json" >/dev/null \
-    || fail 'Importer version matrix requires its exact 2.7.5 agent roundtrip'
+    || fail 'Importer version matrix requires its exact 2.7.5 ordinary host roundtrip'
 }
 
 importer_matrix_capture() { # <unique stage> <expected exit> <command...>
