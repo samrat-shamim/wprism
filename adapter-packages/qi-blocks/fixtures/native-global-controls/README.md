@@ -24,6 +24,11 @@ The native Apply lane replays all seven complete saved fragments through the
 real REST content writer. Each update has an independent complete body oracle,
 checks the frontend owner and CSS, compares full native target-local state,
 recaptures every compiled entity and repeats without writes. Its offline
-admission controls cover altered elements, wrong image coordinates, unexpected
-visibility and duplicate owners. This lane still needs a fresh live result;
+219 admission assertions cover altered elements, symmetric image loss, wrong
+image coordinates, the complete responsive URL roster bound to each site's
+native metadata/uploads, unexpected visibility and duplicate owners. The first
+live attempt stopped at an incomplete HTML oracle: its original-image URL
+rebind omitted WordPress's generated srcset derivatives. The retained complete
+HTML passes the corrected, metadata-bound comparison without dropping any
+attributes. This diagnosis is not a passing lane: a fresh live result is needed;
 browser controls and computed responsive visibility remain separate.

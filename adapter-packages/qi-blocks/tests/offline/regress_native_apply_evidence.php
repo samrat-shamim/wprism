@@ -407,7 +407,14 @@ foreach (QiNativeGlobalControlsCorpus::cases($globalBytes) as $name => $case) {
     QiNativeApplyEvidence::content_native($globalSource, $globalTarget, $records['target'], $seed, $globalSaved);
     wprism_check(true, 'shared native content admission preserves complete global postimage and target-local state: ' . $name);
     $hidden = ($case['metadata']['blockVisibility'] ?? null) === false;
-    $element = static fn(array $native): string => '<div class="qodef-block-915bb80f"><img class="wp-image-' . $native['ids']['image'] . '" src="' . $native['attachment']['url'] . '" alt=""></div>';
+    $element = static function (array $native): string {
+        $candidates = [$native['attachment']['url'] . ' 1200w'];
+        foreach ($native['attachment']['metadata']['sizes'] as $size) if (in_array($size['width'], [300, 768, 1024], true)) {
+            $candidates[] = $native['home'] . '/wp-content/uploads/' . dirname($native['attachment']['file']) . '/' . $size['file'] . ' ' . $size['width'] . 'w';
+        }
+        return '<div class="qodef-block-915bb80f"><img class="wp-image-' . $native['ids']['image'] . '" src="' . $native['attachment']['url']
+            . '" width="1200" height="800" srcset="' . implode(', ', $candidates) . '" alt=""></div>';
+    };
     $globalSourceHtml = str_replace('</body>', ($hidden ? '' : $element($globalSource)) . '</body>', $sourceHtml);
     $globalTargetHtml = str_replace('</body>', ($hidden ? '' : $element($globalTarget)) . '</body>', $targetHtml);
     $frontend = static fn(string $html) => QiNativeGlobalControlsEvidence::frontend($globalSourceHtml, $html, $globalSource, $globalTarget, $case);
@@ -419,6 +426,31 @@ foreach (QiNativeGlobalControlsCorpus::cases($globalBytes) as $name => $case) {
     }
     if (!$hidden) foreach ([str_replace('alt=""', 'alt="unreviewed"', $globalTargetHtml), str_replace($globalTarget['attachment']['url'], 'https://wrong.example.test/image.png', $globalTargetHtml)] as $badHtml) {
         wprism_check_throws(static fn() => $frontend($badHtml), RuntimeException::class, 'global frontend admission rejects altered complete native element or image coordinate');
+    }
+    if (!$hidden) {
+        // Equal source/target subtrees cannot prove that either retained its
+        // image. These mutations exercise the real frontend admission on both
+        // sides, including the srcset discrepancy found in the first live run.
+        foreach ([
+            'missing selected image' => static fn(string $html): string => preg_replace('/<img\b[^>]*>/', '', $html),
+            'wrong selected class' => static fn(string $html): string => preg_replace('/wp-image-[0-9]+/', 'wp-image-999', $html),
+            'wrong selected URL' => static fn(string $html): string => preg_replace('/src="[^"]*"/', 'src="https://wrong.example.test/image.png"', $html),
+            'duplicate selected image' => static fn(string $html): string => preg_replace('/(<img\b[^>]*>)/', '$1$1', $html),
+            'wrong selected dimensions' => static fn(string $html): string => str_replace('width="1200"', 'width="999"', $html),
+            'missing responsive candidates' => static fn(string $html): string => preg_replace('/ srcset="[^"]*"/', '', $html),
+            'invented responsive URL' => static fn(string $html): string => str_replace('tmp-qi-image-300x200.png', 'invented-300x200.png', $html),
+            'wrong responsive width' => static fn(string $html): string => str_replace(' 300w', ' 301w', $html),
+            'lost responsive width' => static fn(string $html): string => preg_replace('/, [^,\"]+ 300w/', '', $html),
+        ] as $label => $mutateHtml) {
+            wprism_check_throws(static fn() => QiNativeGlobalControlsEvidence::frontend($mutateHtml($globalSourceHtml), $mutateHtml($globalTargetHtml), $globalSource, $globalTarget, $case),
+                RuntimeException::class, 'global frontend admission rejects symmetric ' . $label . ': ' . $name);
+        }
+        $badHtml = str_replace('tmp-qi-image-300x200.png', 'invented-300x200.png', $globalTargetHtml);
+        wprism_check_throws(static fn() => $frontend($badHtml), RuntimeException::class, 'global frontend admission independently binds target responsive image URLs');
+        $badNative = $globalTarget;
+        unset($badNative['uploads']['2026/09/tmp-qi-image-300x200.png']);
+        wprism_check_throws(static fn() => QiNativeGlobalControlsEvidence::frontend($globalSourceHtml, $globalTargetHtml, $globalSource, $badNative, $case), RuntimeException::class,
+            'global frontend admission refuses a responsive URL with no native upload owner');
     }
     $bad = $globalTarget;
     $bad['options'][1]['option_value'] = 'changed-runtime-state';
