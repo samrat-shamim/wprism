@@ -12,7 +12,8 @@ use WPrismTest\EvidenceSizeProfile;
 $scratch = sys_get_temp_dir() . '/wprism-private-tree-' . bin2hex(random_bytes(8));
 mkdir($scratch, 0700);
 $remove = static function (string $path): void {
-    if (!is_dir($path) || is_link($path)) { if (file_exists($path) || is_link($path)) unlink($path); return; }
+    if (!is_dir($path) || is_link($path)) { if (file_exists($path) || is_link($path)) unlink($path);
+    return; }
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
     foreach ($iterator as $entry) {
         if ($entry->isDir() && !$entry->isLink()) rmdir($entry->getPathname());
@@ -24,7 +25,7 @@ register_shutdown_function(static fn() => $remove($scratch));
 $source = "$scratch/source";
 mkdir("$source/state/0", 0700, true);
 mkdir("$source/state/empty", 0700);
-$raw = ["0/0" => "", 'demo.md' => "exact bytes\0\xff\r\nno final newline", 'state.json' => "{\"z\":1,\"a\":2}\n"];
+$raw = ['0/0' => '', 'demo.md' => "exact bytes\0\xff\r\nno final newline", 'state.json' => "{\"z\":1,\"a\":2}\n"];
 foreach ($raw as $path => $bytes) file_put_contents("$source/state/$path", $bytes);
 $tree = FilesystemTreeEvidence::capture($source, 'state');
 FilesystemTreeEvidence::assertRecord($tree, 'state');
@@ -41,6 +42,71 @@ wprism_check_same($raw['demo.md'], base64_decode($fileRoot['files'][0]['contents
 $empty = FilesystemTreeEvidence::capture($source, 'state/empty');
 FilesystemTreeEvidence::assertRecord($empty, 'state/empty');
 wprism_check_same(['root' => 'state/empty', 'directories' => [''], 'files' => []], $empty, 'an existing empty tree is distinct from a missing root');
+$inventory = \WPrism\FilesystemTreeSnapshot::observe($source, "$source/state", 'state', 'native hash inventory evidence', 'fixture');
+FilesystemTreeEvidence::assertInventory($inventory, 'state');
+wprism_check(true, 'native inventory admission reuses bounded core hash and path records without retaining file bytes');
+wprism_check_throws(static fn() => FilesystemTreeEvidence::assertRecord($inventory, 'state'), RuntimeException::class,
+    'hash inventory cannot impersonate a complete retained-content record');
+wprism_check_throws(static fn() => FilesystemTreeEvidence::assertInventory($tree, 'state'), RuntimeException::class,
+    'inventory has its own closed schema and cannot claim embedded bytes');
+foreach (['hash', 'extra-field', 'missing-hash', 'float-size', 'negative-size', 'file-limit', 'mtime', 'absolute', 'parent', 'slash',
+    'control', 'empty-path', 'duplicate-file', 'duplicate-dir', 'missing-parent', 'missing-root', 'root', 'unordered', 'nonlist'] as $fault) {
+    $bad = $inventory;
+    switch ($fault) {
+        case 'hash': $bad['files'][1]['sha256'] = 'invalid';
+        break;
+        case 'extra-field': $bad['files'][1]['trusted'] = true;
+        break;
+        case 'missing-hash': unset($bad['files'][1]['sha256']);
+        break;
+        case 'float-size': $bad['files'][1]['bytes'] = 1.0;
+        break;
+        case 'negative-size': $bad['files'][1]['bytes'] = -1;
+        break;
+        case 'file-limit': $bad['files'][1]['bytes'] = \WPrism\FilesystemTreeSnapshot::MAX_FILE_BYTES + 1;
+        break;
+        case 'mtime': $bad['files'][1]['mtime'] = 'unknown';
+        break;
+        case 'absolute': $bad['files'][1]['path'] = '/outside';
+        break;
+        case 'parent': $bad['files'][1]['path'] = '../outside';
+        break;
+        case 'slash': $bad['files'][1]['path'] = 'a\\outside';
+        break;
+        case 'control': $bad['files'][1]['path'] = "a\noutside";
+        break;
+        case 'empty-path': $bad['files'][1]['path'] = '';
+        break;
+        case 'duplicate-file': $bad['files'][] = $bad['files'][0];
+        break;
+        case 'duplicate-dir': $bad['directories'][] = 'empty';
+        break;
+        case 'missing-parent': $bad['directories'] = ['', 'empty'];
+        break;
+        case 'missing-root': $bad['directories'] = ['0', 'empty'];
+        break;
+        case 'root': $bad['root'] = 'other';
+        break;
+        case 'unordered': $bad['files'] = array_reverse($bad['files']);
+        break;
+        case 'nonlist': $bad['files'] = ['file' => $bad['files'][0]];
+        break;
+    }
+    wprism_check_throws(static fn() => FilesystemTreeEvidence::assertInventory($bad, 'state'), RuntimeException::class,
+        'inventory replay rejects a malformed complete record: ' . $fault);
+}
+$largeInventory = ['root' => 'state', 'directories' => [''], 'files' => []];
+for ($index = 0; $index < 64; $index++) $largeInventory['files'][] = ['path' => sprintf('%04d', $index),
+    'bytes' => \WPrism\FilesystemTreeSnapshot::MAX_FILE_BYTES, 'mtime' => 1, 'sha256' => str_repeat('a', 64)];
+FilesystemTreeEvidence::assertInventory($largeInventory, 'state');
+wprism_check(true, 'complete hash inventories retain the core aggregate byte boundary without expanding retained-content budgets');
+$largeInventory['files'][] = ['path' => 'last', 'bytes' => 1, 'mtime' => 1, 'sha256' => str_repeat('a', 64)];
+wprism_check_throws(static fn() => FilesystemTreeEvidence::assertInventory($largeInventory, 'state'), RuntimeException::class,
+    'hash inventory cannot exceed the core aggregate tree byte boundary');
+$overInventory = $inventory;
+$overInventory['directories'] = array_fill(0, FilesystemTreeEvidence::MAX_ENTRIES + 1, '');
+wprism_check_throws(static fn() => FilesystemTreeEvidence::assertInventory($overInventory, 'state'), RuntimeException::class,
+    'inventory replay keeps the fixed test transport entry ceiling');
 $overEntries = $empty;
 $overEntries['directories'] = array_fill(0, FilesystemTreeEvidence::MAX_ENTRIES + 1, '');
 wprism_check_throws(static fn() => FilesystemTreeEvidence::assertRecord($overEntries, 'state/empty'), RuntimeException::class,
@@ -62,26 +128,46 @@ foreach (['hash', 'bytes', 'contents', 'missing-content', 'extra-field', 'float-
     'empty-path', 'duplicate-file', 'duplicate-dir', 'missing-parent', 'missing-root', 'root', 'unordered', 'nonlist', 'oversized'] as $fault) {
     $bad = $tree;
     switch ($fault) {
-        case 'hash': $bad['files'][1]['sha256'] = str_repeat('a', 64); break;
-        case 'bytes': $bad['files'][1]['bytes']++; break;
-        case 'contents': $bad['files'][1]['contents_base64'] = base64_encode('different'); break;
-        case 'missing-content': unset($bad['files'][1]['contents_base64']); break;
-        case 'extra-field': $bad['files'][1]['trusted'] = true; break;
-        case 'float-size': $bad['files'][1]['bytes'] = (float) $bad['files'][1]['bytes']; break;
-        case 'mtime': $bad['files'][1]['mtime'] = 'unknown'; break;
-        case 'absolute': $bad['files'][1]['path'] = '/outside'; break;
-        case 'parent': $bad['files'][1]['path'] = '../outside'; break;
-        case 'slash': $bad['files'][1]['path'] = 'a\\outside'; break;
-        case 'control': $bad['files'][1]['path'] = "a\noutside"; break;
-        case 'empty-path': $bad['files'][1]['path'] = ''; break;
-        case 'duplicate-file': $bad['files'][] = $bad['files'][0]; break;
-        case 'duplicate-dir': $bad['directories'][] = 'empty'; break;
-        case 'missing-parent': $bad['directories'] = ['', 'empty']; break;
-        case 'missing-root': $bad['directories'] = ['0', 'empty']; break;
-        case 'root': $bad['root'] = 'different'; break;
-        case 'unordered': $bad['files'] = array_reverse($bad['files']); break;
-        case 'nonlist': $bad['files'] = ['file' => $bad['files'][0]]; break;
-        case 'oversized': $bad['files'][1]['bytes'] = FilesystemTreeEvidence::MAX_BYTES + 1; break;
+        case 'hash': $bad['files'][1]['sha256'] = str_repeat('a', 64);
+        break;
+        case 'bytes': $bad['files'][1]['bytes']++;
+        break;
+        case 'contents': $bad['files'][1]['contents_base64'] = base64_encode('different');
+        break;
+        case 'missing-content': unset($bad['files'][1]['contents_base64']);
+        break;
+        case 'extra-field': $bad['files'][1]['trusted'] = true;
+        break;
+        case 'float-size': $bad['files'][1]['bytes'] = (float) $bad['files'][1]['bytes'];
+        break;
+        case 'mtime': $bad['files'][1]['mtime'] = 'unknown';
+        break;
+        case 'absolute': $bad['files'][1]['path'] = '/outside';
+        break;
+        case 'parent': $bad['files'][1]['path'] = '../outside';
+        break;
+        case 'slash': $bad['files'][1]['path'] = 'a\\outside';
+        break;
+        case 'control': $bad['files'][1]['path'] = "a\noutside";
+        break;
+        case 'empty-path': $bad['files'][1]['path'] = '';
+        break;
+        case 'duplicate-file': $bad['files'][] = $bad['files'][0];
+        break;
+        case 'duplicate-dir': $bad['directories'][] = 'empty';
+        break;
+        case 'missing-parent': $bad['directories'] = ['', 'empty'];
+        break;
+        case 'missing-root': $bad['directories'] = ['0', 'empty'];
+        break;
+        case 'root': $bad['root'] = 'different';
+        break;
+        case 'unordered': $bad['files'] = array_reverse($bad['files']);
+        break;
+        case 'nonlist': $bad['files'] = ['file' => $bad['files'][0]];
+        break;
+        case 'oversized': $bad['files'][1]['bytes'] = FilesystemTreeEvidence::MAX_BYTES + 1;
+        break;
     }
     wprism_check_throws(static fn() => FilesystemTreeEvidence::assertRecord($bad, 'state'), RuntimeException::class,
         "retained tree decoder refuses $fault without the original filesystem");
@@ -101,7 +187,8 @@ unlink("$source/state/oversized");
 file_put_contents("$source/state/half-a", str_repeat('x', intdiv(FilesystemTreeEvidence::MAX_BYTES, 2)));
 file_put_contents("$source/state/half-b", str_repeat('x', intdiv(FilesystemTreeEvidence::MAX_BYTES, 2)));
 wprism_check_throws(static fn() => FilesystemTreeEvidence::capture($source, 'state'), RuntimeException::class, 'the aggregate content budget cannot be bypassed with small files');
-unlink("$source/state/half-a"); unlink("$source/state/half-b");
+unlink("$source/state/half-a");
+unlink("$source/state/half-b");
 
 $hook = new ReflectionProperty(WPrism\FilesystemTreeSnapshot::class, 'testDirectoryObservationHook');
 $observations = 0;
@@ -133,11 +220,13 @@ $write = static function (string $suffix, string $bytes) use ($stem): void {
 $answer = json_encode(['tree' => $tree], JSON_THROW_ON_ERROR);
 $reset = static function () use ($write, $answer, $private): void {
     chmod($private, 0700);
-    $write('stdout', $answer); $write('stderr', ''); $write('exit', "0\n");
+    $write('stdout', $answer);
+    $write('stderr', '');
+    $write('exit', "0\n");
 };
 $reset();
 wprism_check_same($answer, PrivateCommandOutput::readObject($stem), 'private output admission returns the original complete object bytes');
-foreach (["", "opaque\0\xff\r\nno final newline", '[]', '{}', "one\ntwo\n"] as $opaque) {
+foreach (['', "opaque\0\xff\r\nno final newline", '[]', '{}', "one\ntwo\n"] as $opaque) {
     $write('stdout', $opaque);
     wprism_check_same($opaque, PrivateCommandOutput::readBytes($stem), 'opaque transport retains exact bytes without interpreting or normalizing them');
     wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem), Throwable::class, 'opaque admission cannot weaken the existing nonempty-object API');
@@ -197,7 +286,7 @@ foreach ([1, 17, 255] as $expectedExit) {
     wprism_check_same($answer, PrivateCommandOutput::readBytes($stem, expectedExit: $expectedExit), 'opaque streams retain the same exact process status');
     wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem), RuntimeException::class, 'expected nonzero status cannot weaken default success admission');
 }
-foreach (["0\n", "2\n", "01\n", "1", "1\n2\n", "-1\n", "256\n"] as $wrongExit) {
+foreach (["0\n", "2\n", "01\n", '1', "1\n2\n", "-1\n", "256\n"] as $wrongExit) {
     $write('exit', $wrongExit);
     wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem, expectedExit: 1), RuntimeException::class, 'fixed refusal status rejects a different or malformed process result');
 }
@@ -208,22 +297,39 @@ foreach (['nonzero', 'bad-exit', 'duplicate', 'array', 'empty-object', 'noise', 
     'stdout-mode', 'stderr-mode', 'exit-mode', 'missing', 'hardlink', 'symlink'] as $fault) {
     $reset();
     switch ($fault) {
-        case 'nonzero': $write('exit', "1\n"); break;
-        case 'bad-exit': $write('exit', '0'); break;
-        case 'duplicate': $write('stdout', $answer . "\n" . $answer); break;
-        case 'array': $write('stdout', '[]'); break;
-        case 'empty-object': $write('stdout', '{}'); break;
-        case 'noise': $write('stderr', "PHP Warning: unaccepted diagnostic\n"); break;
-        case 'large-stdout': $write('stdout', str_repeat(' ', 1048577)); break;
-        case 'large-stderr': $write('stderr', str_repeat("\n", 1048577)); break;
-        case 'large-exit': $write('exit', str_repeat('0', 9)); break;
-        case 'directory-mode': chmod($private, 0755); break;
-        case 'stdout-mode': chmod("$stem.stdout", 0644); break;
-        case 'stderr-mode': chmod("$stem.stderr", 0644); break;
-        case 'exit-mode': chmod("$stem.exit", 0644); break;
-        case 'missing': unlink("$stem.stdout"); break;
-        case 'hardlink': link("$stem.stdout", "$scratch/shared"); break;
-        case 'symlink': rename("$stem.stdout", "$scratch/shared"); symlink("$scratch/shared", "$stem.stdout"); break;
+        case 'nonzero': $write('exit', "1\n");
+        break;
+        case 'bad-exit': $write('exit', '0');
+        break;
+        case 'duplicate': $write('stdout', $answer . "\n" . $answer);
+        break;
+        case 'array': $write('stdout', '[]');
+        break;
+        case 'empty-object': $write('stdout', '{}');
+        break;
+        case 'noise': $write('stderr', "PHP Warning: unaccepted diagnostic\n");
+        break;
+        case 'large-stdout': $write('stdout', str_repeat(' ', 1048577));
+        break;
+        case 'large-stderr': $write('stderr', str_repeat("\n", 1048577));
+        break;
+        case 'large-exit': $write('exit', str_repeat('0', 9));
+        break;
+        case 'directory-mode': chmod($private, 0755);
+        break;
+        case 'stdout-mode': chmod("$stem.stdout", 0644);
+        break;
+        case 'stderr-mode': chmod("$stem.stderr", 0644);
+        break;
+        case 'exit-mode': chmod("$stem.exit", 0644);
+        break;
+        case 'missing': unlink("$stem.stdout");
+        break;
+        case 'hardlink': link("$stem.stdout", "$scratch/shared");
+        break;
+        case 'symlink': rename("$stem.stdout", "$scratch/shared");
+        symlink("$scratch/shared", "$stem.stdout");
+        break;
     }
     wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem), Throwable::class, "private output admission refuses $fault");
     if (!in_array($fault, ['duplicate', 'array', 'empty-object'], true)) {
@@ -234,7 +340,8 @@ foreach (['nonzero', 'bad-exit', 'duplicate', 'array', 'empty-object', 'noise', 
         wprism_check_throws(static fn() => PrivateCommandOutput::readObject($stem, expectedExit: 1), Throwable::class, "fixed-status refusal retains private admission checks for $fault");
     }
     if ($fault === 'hardlink') unlink("$scratch/shared");
-    if ($fault === 'symlink') { unlink("$stem.stdout"); unlink("$scratch/shared"); }
+    if ($fault === 'symlink') { unlink("$stem.stdout");
+    unlink("$scratch/shared"); }
 }
 $reset();
 $databaseProfile = EvidenceSizeProfile::NATIVE_DATABASE;

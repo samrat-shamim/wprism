@@ -131,6 +131,20 @@ foreach (['plugins', 'uploads'] as $name) {
     $changed = $image;
     $changed['files'][$name]['files'][0]['sha256'] = str_repeat('f', 64);
     wprism_check_throws(static fn() => QiNativeDependencyEvidence::images($image, $changed), Throwable::class, 'same-size native file rewrite invalidates refusal evidence: ' . $name);
+    $changed = $image;
+    $changed['files'][$name]['files'][0]['sha256'] = 'invalid';
+    wprism_check_throws(static fn() => QiNativeDependencyEvidence::images($changed, $changed), Throwable::class,
+        'stable malformed native hash inventory cannot prove no mutation: ' . $name);
 }
 wprism_check_throws(static fn() => QiNativeDependencyEvidence::profile('unknown'), RuntimeException::class, 'no generic refusal cause fallback');
+$capture = ['counts' => ['post' => 4, 'term' => 1, 'menu' => 0, 'sidebar' => 1, 'options' => 1, 'deletion' => 0],
+    'media' => 1, 'notes' => [], 'warnings' => [], 'initial_code_baseline' => null];
+QiNativeApplyEvidence::capture_result($capture);
+wprism_check(true, 'final native restoration Capture uses the complete baseline admission');
+foreach (['media' => 0, 'notes' => ['unadmitted note'], 'warnings' => ['unadmitted warning'], 'initial_code_baseline' => 'unproved'] as $field => $value) {
+    $changed = $capture;
+    $changed[$field] = $value;
+    wprism_check_throws(static fn() => QiNativeApplyEvidence::capture_result($changed), Throwable::class,
+        'restored Capture cannot hide changed media or diagnostics: ' . $field);
+}
 wprism_check_summary('Qi native dependency evidence');

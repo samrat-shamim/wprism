@@ -46,7 +46,8 @@ capture delete '' wp_side 2 plugin uninstall qi-blocks --deactivate
 dependency_refusal missing
 capture install-prior '' "${COMPOSE[@]}" run --rm -T -v "$prior_zip:/qi-prior.zip:ro" cli2 wp plugin install /qi-prior.zip --activate
 dependency_refusal prior
-capture reinstall '' "${COMPOSE[@]}" run --rm -T -v "$zip:/qi-exact.zip:ro" cli2 wp plugin install /qi-exact.zip --force --activate
+capture reinstall '' "${COMPOSE[@]}" run --rm -T -v "$zip:/qi-exact.zip:ro" cli2 wp plugin install /qi-exact.zip --force
+capture reinstalled-status '' dependency_native observe
 capture reinstalled-apply apply candidate 2 apply --repo=/siterepo --format=json
 capture backup '' dependency_native backup
 capture maximum-header '' dependency_native maximum-header

@@ -91,8 +91,10 @@ final class QiNativeDependencyEvidence {
                 QiNativeApplyEvidence::check(count($image['repository'][$name]['files']) > 0, 'nonempty dependency repository ' . $name);
             }
             QiNativeApplyEvidence::check(array_keys($image['files']) === ['plugins', 'uploads'], 'both native filesystem roots observed');
-            foreach ($image['files'] as $name => $tree) QiNativeApplyEvidence::check(array_keys($tree) === ['root', 'directories', 'files']
-                && $tree['root'] === $name && $tree['directories'] !== [] && $tree['files'] !== [], 'nonempty complete native ' . $name . ' inventory');
+            foreach ($image['files'] as $name => $tree) {
+                WPrismTest\FilesystemTreeEvidence::assertInventory($tree, $name);
+                QiNativeApplyEvidence::check($tree['directories'] !== [] && $tree['files'] !== [], 'nonempty complete native ' . $name . ' inventory');
+            }
         }
         QiNativeApplyEvidence::check($before === $after, 'refusal changed the complete native database, canonical intent, policy, media or plugin/upload inventories');
     }
@@ -141,6 +143,7 @@ foreach (QiNativeDependencyEvidence::CASES as $case) {
     QiNativeDependencyEvidence::images($images['before'], $images['after']);
 }
 QiNativeApplyEvidence::check($object('restored-status') === QiNativeDependencyEvidence::expected('restored'), 'exact basename, bytes, version and activation restored');
+QiNativeApplyEvidence::check($object('reinstalled-status') === QiNativeDependencyEvidence::expected('restored'), 'official exact code replacement preserves native activation without a redundant activation request');
 QiNativeApplyEvidence::check($object('target2') === $object('restored-native') && $object('restored-native') === $object('restored-stable'),
     'all dependency faults, native reactivation, successful retry and HTTP consumers preserve the complete target native corpus');
 foreach (['reactivated-apply', 'reinstalled-apply', 'restored-apply', 'restored-repeat'] as $name) {
@@ -151,5 +154,20 @@ foreach (['reactivated-apply', 'reinstalled-apply', 'restored-apply', 'restored-
         ], 'restored exact dependency resumes a verified zero-write Apply: ' . $name);
 }
 QiNativeApplyEvidence::css($read('source-http'), $read('restored-http'), $object('source1'), $object('restored-native'));
+QiNativeApplyEvidence::capture_result($object('restored-capture', 'capture'));
+require_once $root . '/sandbox/tests/lib/agent_version.php';
+require_once $root . '/sandbox/tests/lib/RepositoryConvergence.php';
+require_once $root . '/sandbox/tests/lib/wp_stubs.php';
+require_once $root . '/agent/src/Policy/Policy.php';
+require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
+wprism_test_define_agent_versions();
+$library = WPrism\AdapterLibrary::fromSourceTree($root);
+$repositories = [];
+foreach (['source', 'dependency-target'] as $side) {
+    $repo = "$sink/$side";
+    $policy = WPrism\Policy::load($repo, adapterLibrary: $library);
+    $repositories[$side] = WPrism\RepositoryCompiler::compile_staged($repo . '/state', $repo, $policy);
+}
+WPrismTest\RepositoryConvergence::assertSame($repositories['source'], $repositories['dependency-target']);
 echo json_encode(['format' => 'wprism-qi-native-dependency-admission/v1', 'result' => 'pass', 'refusals' => QiNativeDependencyEvidence::CASES,
     'scope' => 'Public content-only agent Apply preflight and native code restoration. Full database and repository bytes, plugin/upload hash inventories; no host certification or source-payload transport claim.'], JSON_THROW_ON_ERROR), "\n";

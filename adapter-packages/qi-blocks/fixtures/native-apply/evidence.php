@@ -164,6 +164,12 @@ final class QiNativeApplyEvidence {
             'initial Apply lost its exact default-category adoption boundary');
     }
 
+    public static function capture_result(array $capture): void {
+        self::check($capture['counts'] === ['post' => 4, 'term' => 1, 'menu' => 0, 'sidebar' => 1, 'options' => 1, 'deletion' => 0]
+            && $capture['media'] === 1 && $capture['notes'] === [] && $capture['warnings'] === [] && $capture['initial_code_baseline'] === null,
+            'capture omitted content, media or diagnostics');
+    }
+
     public static function product(array $plan, array $apply, array $repeat, array $captures, array $source): void {
         $created = array_column($plan['create'], 'uuid');
         $expected = array_values($source['uuids']);
@@ -180,8 +186,7 @@ final class QiNativeApplyEvidence {
         self::check($apply['warnings'] === ['adopted env term 1 as ' . $adopt['uuid'] . ' (' . $adopt['path'] . ')'], 'Apply emitted an unproved diagnostic');
         self::apply_pair($apply, $repeat);
         self::check(count($captures) === 5, 'complete capture stages are absent');
-        foreach ($captures as $capture) self::check($capture['counts'] === ['post' => 4, 'term' => 1, 'menu' => 0, 'sidebar' => 1, 'options' => 1, 'deletion' => 0]
-            && $capture['media'] === 1 && $capture['notes'] === [] && $capture['warnings'] === [] && $capture['initial_code_baseline'] === null, 'capture omitted content, media or diagnostics');
+        foreach ($captures as $capture) self::capture_result($capture);
     }
 }
 
