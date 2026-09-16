@@ -233,6 +233,8 @@ ADOPT_BY_SLUG=$(conformance_adopt_by_slug "$ENTRY") \
   || fail "manifest '$MANIFEST' has malformed fixture adoption policy"
 DISABLE_TARGET_CRON=$(conformance_disable_target_cron "$ENTRY") \
   || fail "manifest '$MANIFEST' has malformed target cron fixture policy"
+DISABLE_SOURCE_CRON=$(conformance_disable_source_cron "$ENTRY") \
+  || fail "manifest '$MANIFEST' has malformed source cron fixture policy"
 MODE=$(echo "$ENTRY" | jq -r '.mode // "roundtrip"')
 case "$MODE" in
   roundtrip|capture-plan|agent-roundtrip|agent-apply-roundtrip) ;;
@@ -330,18 +332,25 @@ conformance_cleanup() {
   fi
   exit "$status"
 }
+conformance_source_cron_transport() { wordpress_cron_window_compose_transport cli1 "$@"; }
 conformance_target_cron_transport() { wordpress_cron_window_compose_transport cli2 "$@"; }
-conformance_target_cron_begin() {
-  [ "$DISABLE_TARGET_CRON" = true ] || return 0
+conformance_cron_begin() {
+  [ "$DISABLE_TARGET_CRON" = true ] || [ "$DISABLE_SOURCE_CRON" = true ] || return 0
   . tests/lib/wordpress_cron_window.sh
   CONFORMANCE_CRON_WINDOW_STARTED=1
   trap 'exit 130' INT TERM
-  wordpress_cron_window_begin wp_conf2 conformance_target_cron_transport \
-    || fail 'conformance could not establish its owned target cron window'
+  if [ "$DISABLE_SOURCE_CRON" = true ]; then
+    wordpress_cron_window_begin wp_conf1 conformance_source_cron_transport source \
+      || fail 'conformance could not establish its owned source cron window'
+  fi
+  if [ "$DISABLE_TARGET_CRON" = true ]; then
+    wordpress_cron_window_begin wp_conf2 conformance_target_cron_transport target \
+      || fail 'conformance could not establish its owned target cron window'
+  fi
 }
-conformance_target_cron_end() {
+conformance_cron_end() {
   [ "$CONFORMANCE_CRON_WINDOW_STARTED" = 1 ] || return 0
-  wordpress_cron_window_release || fail 'conformance target cron window cleanup failed'
+  wordpress_cron_window_release || fail 'conformance cron window cleanup failed'
   CONFORMANCE_CRON_WINDOW_STARTED=0
 }
 trap 'conformance_cleanup "$?"' EXIT
@@ -405,7 +414,7 @@ bash bin/pair.sh reset "$CONF_PAIR"
 
 say "pair.sh up: boot conf1 (:$CONF1_PORT) / conf2 (:$CONF2_PORT), DB-level readiness, generic WordPress bootstrap"
 bash bin/pair.sh up "$CONF_PAIR" "$CONF1_PORT" "$CONF2_PORT" "${PAIR_UP_FLAGS[@]}"
-conformance_target_cron_begin
+conformance_cron_begin
 
 normalize_archive_root() { # normalize_archive_root <env> <plugin|theme> <slug> <archive-root>
   local env="$1" kind="$2" slug="$3" archive_root="$4" side="${1#conf}" base
@@ -612,7 +621,7 @@ if [ "$MODE" = "capture-plan" ]; then
   say "capture-plan acceptance: reviewed operations are reachable without claiming apply"
   run_wprism_capture_plan "$CAPTURE_PLAN_CLAIMS" wp_conf1 /siterepo
   pass "capture, compile, plan, and recapture paths are exercised; deploy/apply remain explicitly outside this profile"
-  conformance_target_cron_end
+  conformance_cron_end
   printf '\n\033[1;32m✔ CONFORMANCE PASSED (%s; capture-plan)\033[0m\n' "$MANIFEST"
   exit 0
 fi
@@ -812,7 +821,7 @@ if [ -f "$CHECK" ]; then
   bash "$CHECK"
 fi
 
-conformance_target_cron_end
+conformance_cron_end
 if [ "$MODE" = agent-roundtrip ]; then
   printf '\n\033[1;32m✔ AGENT ROUNDTRIP PASSED (%s; production promotion withheld)\033[0m\n' "$MANIFEST"
 elif [ "$MODE" = agent-apply-roundtrip ]; then

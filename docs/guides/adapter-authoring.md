@@ -810,6 +810,17 @@ qualification remains pending.
 
 ### Keep repeated block declarations reviewable
 
+Keep current identity evidence with its owner. A capsule's digest changes when
+its declaration or named executable bytes change; pin that intentional
+transition in the capsule's regression. Shared identity-mechanism tests use
+controlled declarations. A historical product-image proof must retain the
+actual historical package/platform input bytes, verify their complete file
+hashes, and load the ordinary library and policy readers against those inputs.
+Do not rebuild a historical digest or snapshot fixture from today's capsules:
+Qi's closed-roster edit exposed fourteen unrelated disposition-split failures
+from exactly that coupling. Do not add each later adapter edit to a global
+overlay of historical digests.
+
 A native block schema is authoring evidence, not a reason to copy an identical
 value rule thousands of times into a manifest. Qi's first draft expanded
 7,497 rules across 49 blocks into 31,397 lines; 7,269 rules were identical
@@ -4081,11 +4092,16 @@ library.
    production special cases to make a read-only assertion pass.
 
    For observations spanning conformance child hooks and Apply, set
-   `entry.disable_target_cron` to `true`. The shared runner establishes the
-   same owned target guard after pair bootstrap and removes it on success,
-   failure or signal; child hooks need no independent transport or cleanup.
+   `entry.disable_target_cron` or `entry.disable_source_cron` to `true` for each
+   observed site. The shared runner establishes independently owned guards
+   after pair bootstrap and removes them on success, failure or signal; child
+   hooks need no independent transport or cleanup. Qi's Visual Portfolio
+   combination exposed a source `_transient_doing_cron` timestamp change while
+   its complete canonical state stayed identical. Declare the source window
+   too when complete native source rows span repeated Capture.
    Omission or `false` preserves ordinary fixture cron behavior. The entry
-   accepts only a JSON boolean and is validated before pair mutation. This
+   accepts only JSON booleans and is validated before pair mutation. A cleanup
+   failure on one site must still release the other owned guard. This
    controls new fixture cron launches, not existing workers or other writers;
    complete-row comparisons must still retain cron rows. A version-matrix
    parent opens its own window for observations after the conformance child

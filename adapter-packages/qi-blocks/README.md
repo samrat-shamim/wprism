@@ -53,6 +53,8 @@ php adapter-packages/qi-blocks/tests/offline/regress_native_media.php
 php adapter-packages/qi-blocks/tests/offline/regress_native_controls.php
 php adapter-packages/qi-blocks/tests/offline/regress_native_contexts.php
 php adapter-packages/qi-blocks/tests/offline/regress_native_schema.php
+php adapter-packages/qi-blocks/tests/offline/regress_native_identity.php
+php adapter-packages/qi-blocks/tests/offline/regress_native_global_controls.php
 ```
 
 Manifest grammar and structural package validation pass. The artifact lock
@@ -106,14 +108,22 @@ keep the frontend at 32px on both the source and target. This upstream behavior
 remains a qualification limit; no plugin executable or storage workaround was
 added. Broader widget/template media controls remain separate obligations.
 
-The complete native Apply lane passes again on `a6ccdf54`, before the new roster
-contract. It replays all six retained picker controls, compares the signature
+The complete native Apply lane passes again on `43db61d9` with the new closed
+roster contract. It replays all six retained picker controls, compares the signature
 and both progress patterns as well as the three galleries, and exercises all
 four crops using a deterministic spatial PNG. Five exact original pixel samples
 exclude the historical uniform-image premise; native Qi source crops and target
 crops match in decoded dimensions and every RGBA pixel. Repeat Apply writes
 nothing and the owned pair is removed. This run qualifies transport/render of
 the retained controls; it does not add target browser Save/reopen evidence.
+
+The [native global-control observations](fixtures/native-global-controls/README.md)
+record seven actual editor saves for lock, rename and visibility. WordPress adds
+these global attributes beyond Qi's own schema. All four movement/removal lock
+states, a saved name, mobile hiding, omission and resets have exact native saved
+fragments. They remain outside the admitted closed roster: the regression proves
+the current refusal in both Capture and Apply before any database access. These
+source observations do not qualify target transfer or editing.
 
 Broader editor, inline template, widget/template media, crop failure/removal,
 retirement/reactivation, version and combination qualification remain

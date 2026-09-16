@@ -284,7 +284,7 @@ CAPTURE_PLAN_RESULT=$(jq -nc --argjson report "$CAPTURE_PLAN_REPORT" '
 ')
 CAPTURE_PLAN_READY_RESULT='{"create":[],"update":[],"conflict":[],"adapter_dispositions":[]}'
 CAPTURE_PLAN_PROBES=0
-CONFORMANCE_CRON_END=$(sed -n '/^conformance_target_cron_end() {$/,/^}$/p' conformance/run.sh)
+CONFORMANCE_CRON_END=$(sed -n '/^conformance_cron_end() {$/,/^}$/p' conformance/run.sh)
 [ -n "$CONFORMANCE_CRON_END" ] || fail 'actual conformance cron completion boundary is missing'
 capture_plan_probe() { # <claims> <report> <report rc> <plan> <plan rc> [report prefix] [plan prefix]
   bash -c '
@@ -1508,9 +1508,24 @@ for invalid in 'null' '[]' '{} {}' '{"disable_target_cron":null}' '{"disable_tar
 done
 CRON_DECLARATION_LINE=$(grep -n '^DISABLE_TARGET_CRON=$(conformance_disable_target_cron' conformance/run.sh | cut -d: -f1)
 PAIR_UP_LINE=$(grep -n '^bash bin/pair.sh up ' conformance/run.sh | cut -d: -f1)
-CRON_BEGIN_LINE=$(grep -n '^conformance_target_cron_begin$' conformance/run.sh | cut -d: -f1)
+CRON_BEGIN_LINE=$(grep -n '^conformance_cron_begin$' conformance/run.sh | cut -d: -f1)
 [ -n "$CRON_DECLARATION_LINE" ] && [ "$CRON_DECLARATION_LINE" -lt "$PAIR_RESET_LINE" ] \
   && [ "$CRON_BEGIN_LINE" -eq $((PAIR_UP_LINE + 1)) ] || fail 'cron authority must validate before mutation and open immediately after bootstrap'
 pass 'entry-declared target cron window is typed, optional and established before fixture work'
+
+[ "$(conformance_disable_source_cron '{}')" = false ] || fail 'ordinary source cron default changed'
+[ "$(conformance_disable_source_cron '{"disable_source_cron":false}')" = false ] || fail 'explicit source cron default changed'
+[ "$(conformance_disable_source_cron '{"disable_source_cron":true}')" = true ] || fail 'declared source cron window was ignored'
+[ "$(conformance_disable_source_cron '{"disable_target_cron":true}')" = false ] || fail 'target authority disabled source cron'
+[ "$(conformance_disable_target_cron '{"disable_source_cron":true}')" = false ] || fail 'source authority disabled target cron'
+for invalid in 'null' '[]' '{} {}' '{"disable_source_cron":null}' '{"disable_source_cron":"true"}' \
+  '{"disable_source_cron":0}' '{"disable_source_cron":[]}' '{"disable_source_cron":{}}'; do
+  if conformance_disable_source_cron "$invalid" >/dev/null 2>&1; then fail "malformed source cron fixture policy was admitted: $invalid"; fi
+done
+if conformance_disable_cron '{}' other >/dev/null 2>&1; then fail 'undeclared cron role was admitted'; fi
+SOURCE_CRON_DECLARATION_LINE=$(grep -n '^DISABLE_SOURCE_CRON=$(conformance_disable_source_cron' conformance/run.sh | cut -d: -f1)
+[ -n "$SOURCE_CRON_DECLARATION_LINE" ] && [ "$SOURCE_CRON_DECLARATION_LINE" -lt "$PAIR_RESET_LINE" ] \
+  || fail 'source cron authority must validate before pair mutation'
+pass 'source and target cron window declarations are independently typed before pair mutation'
 
 printf '\033[1;32m✔ REGRESS_CONFORMANCE_ASSERTS PASSED\033[0m\n'

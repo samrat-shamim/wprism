@@ -7,9 +7,8 @@
  * WHY THIS SUITE EXISTS
  * ---------------------
  * `manifests/dispositions.json` was 302 lines, 37,707 bytes and 16 entries in
- * one file; the current library has one package-local disposition per adapter
- * plus `platform/adapter-library/core/disposition.json` — 19 subjects in all.
- * That is a
+ * one file; the retained split library has one package-local disposition per
+ * adapter plus `platform/adapter-library/core/disposition.json`. That is a
  * relocation of bytes AGENTS.md rule 2 calls adapter identity:
  * `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's own
  * disposition into that adapter's row and the row hashed IS its `digest`, so a
@@ -24,12 +23,12 @@
  * ------------------------------------------------
  * PART 1 pins the historical WPrism 21-subject digest union, each compatible
  * world's `manifest_hash` and snapshot, and `registry_sha256` as LITERALS
- * captured from this greenfield tree, through the product path a deployed
+ * captured from the retained greenfield source bytes, through the product path a deployed
  * site uses. Recomputing both sides of an equality would prove nothing — it
  * would hold whatever the split did to the bytes — so the expected values are
  * frozen text in this file and the comparison is against the engine. The
  * older split-transition values remain below as historical exact maps; they
- * are not the current baseline.
+ * are not the retained greenfield baseline.
  *
  * PART 2 is what makes that comparison a measurement. It enumerates the
  * canonical-encoding hazards a relocation of JSON can introduce and measures
@@ -42,7 +41,7 @@
  *     property that makes lifting an entry out of a document admissible at all
  *     (Canon sorts keys everywhere, Canon.php:44,58);
  *   - the int/float round trip is the hazard the digest CANNOT catch — Canon
- *     erases it — so its guard is the census beside it: no shipped reviewed
+ *     erases it — so its guard is the census beside it: no retained reviewed
  *     member is a number, and that assertion is a tripwire, not trivia.
  *
  * A suite that reported three passes here would be hiding the third answer,
@@ -56,7 +55,7 @@
 declare(strict_types=1);
 
 // WP-4.12: derived from agent/wprism.php, not retyped. This suite reads the
-// SHIPPED platform.json (through Policy::load -> AdapterRegistry), and that
+// retained platform.json (through Policy::load -> AdapterRegistry), and that
 // document restates both defines — so a literal here disagrees with the tree
 // the moment the defines move and the suite dies on "platform version
 // disagrees with the loaded agent" instead of reporting anything about
@@ -70,6 +69,7 @@ if (!function_exists('is_multisite')) {
 }
 
 require_once __DIR__ . '/../../lib/check.php';
+require_once __DIR__ . '/../../lib/historical_identity_library.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
@@ -85,7 +85,7 @@ use WPrism\ManifestDispositions;
 use WPrism\Policy;
 
 $repo = dirname(__DIR__, 4);
-$adapterLibrary = AdapterLibrary::fromSourceTree($repo);
+$adapterLibrary = WPrismHistoricalIdentityLibrary::materialize();
 $manifestPath = static function (string $name) use ($adapterLibrary): string {
     return $adapterLibrary->package($name)?->manifestPath()
         ?? throw new RuntimeException("shipped adapter package '$name' is absent");
@@ -118,7 +118,7 @@ register_shutdown_function(static function () use ($removeTree, $scratchRoot): v
 });
 
 // ---------------------------------------------------------------------------
-echo "\nPART 1 — THE GATE: every shipped digest matches the explicit WPrism baseline\n";
+echo "\nPART 1 — THE GATE: every retained historical digest matches the explicit WPrism baseline\n";
 // ---------------------------------------------------------------------------
 // Historical capture from the pre-split tree (adapter-program @ ed852db6),
 // retained as the exact input to the transition overlays below. It covered the
@@ -436,10 +436,9 @@ wprism_check(
 $shippedNames = array_keys(WPRISM_CURRENT_DIGESTS);
 $actualNames = array_map(static fn(\WPrism\AdapterPackage $package): string => $package->name(), $adapterLibrary->packages());
 sort($actualNames, SORT_STRING);
-wprism_check_same([], array_values(array_diff($shippedNames, $actualNames)), 'every historical identity fixture subject still exists in the live library');
-// Whole-registry addressing intentionally sees capsule additions (WP-4.5).
-// Retain the historical pin set through the real frozen registry reader,
-// instead of adding every new capsule to unrelated identity-transition literals.
+wprism_check_same($shippedNames, $actualNames, 'the retained historical library contains exactly its original identity subjects');
+// This is the byte-pinned historical product image. Its registry and ordered
+// policy snapshots do not derive from today's independently owned capsules.
 $baselineData = $liveRegistry->data();
 $baselineData['manifests'] = array_intersect_key($baselineData['manifests'], WPRISM_CURRENT_DIGESTS);
 $baselineManifests = array_map(static fn(string $name): array => Canon::decode(Canon::read_file($manifestPath($name))), $shippedNames);
@@ -450,9 +449,6 @@ $baselineSnapshot = static function (Policy $policy) use ($shippedRegistry): arr
     ManifestDispositions::from_snapshot($snapshot['dispositions'], $snapshot['manifests']);
     return $snapshot;
 };
-if (count($actualNames) > count($shippedNames)) {
-    wprism_check($liveRegistry->sha256() !== $shippedRegistry->sha256(), 'new capsules still move the actual whole-registry address; only the historical fixture view is bounded');
-}
 $rankWorldPins = array_values(array_diff($shippedNames, ['change-wp-admin-login', 'yoast']));
 $yoastWorldPins = array_values(array_diff($shippedNames, ['change-wp-admin-login', 'rank-math']));
 $aioPins = ['core', 'change-wp-admin-login'];

@@ -1,0 +1,111 @@
+{
+  "format": "wprism-qi-native-global-controls/v1",
+  "source_commit": "43db61d9c7767384c80117d95ed0e0cbb0213fc0",
+  "pair": "qiglobals916a",
+  "versions": {
+    "wordpress": "7.1",
+    "qi-blocks": "1.5.2"
+  },
+  "artifact_sha256": "6168357231ad0d39e41bcf71b1a0d4ad0fa08a5cc4263cc708dfe198b1f1f887",
+  "writer": "Native WordPress list-view Lock/Rename/Hide modal Apply and actual editor Save button",
+  "scope": "Native source authoring observation only. Adapter admission, target Apply, target editor round-trip and readiness remain unqualified. Final reset/unlocked state was reopened in the native editor.",
+  "cases": [
+    {
+      "case": "global-lock-rename",
+      "body_sha256": "a61f6e9d02b094438410efe2710807842107a7c10413e126f4eaf99e17a6d288",
+      "styles_sha256": "48939db58352ca2c18ad645408002bddab2142299c2429f3be6b970f8d3290d9",
+      "lock": {
+        "move": true,
+        "remove": false
+      },
+      "metadata": {
+        "name": "Qi renamed native image"
+      },
+      "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":1,\"url\":\"http://localhost:9508/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":true,\"remove\":false},\"metadata\":{\"name\":\"Qi renamed native image\"}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-1\"  src=\"http://localhost:9508/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->"
+    },
+    {
+      "case": "global-mobile-hidden",
+      "body_sha256": "61ff14f408fa7dcd6a3afb4fd0ba729bbc6380dbf3d4e228e2d53096858141ee",
+      "styles_sha256": "48939db58352ca2c18ad645408002bddab2142299c2429f3be6b970f8d3290d9",
+      "lock": {
+        "move": true,
+        "remove": false
+      },
+      "metadata": {
+        "name": "Qi renamed native image",
+        "blockVisibility": {
+          "viewport": {
+            "mobile": false
+          }
+        }
+      },
+      "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":1,\"url\":\"http://localhost:9508/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":true,\"remove\":false},\"metadata\":{\"name\":\"Qi renamed native image\",\"blockVisibility\":{\"viewport\":{\"mobile\":false}}}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-1\"  src=\"http://localhost:9508/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->"
+    },
+    {
+      "case": "global-omitted",
+      "body_sha256": "9ac86ef7088258a2712585fab98d8c2e1ca2071859c953221e220e3ae9f3c9a3",
+      "styles_sha256": "48939db58352ca2c18ad645408002bddab2142299c2429f3be6b970f8d3290d9",
+      "lock": {
+        "move": true,
+        "remove": false
+      },
+      "metadata": {
+        "name": "Qi renamed native image",
+        "blockVisibility": false
+      },
+      "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":1,\"url\":\"http://localhost:9508/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":true,\"remove\":false},\"metadata\":{\"name\":\"Qi renamed native image\",\"blockVisibility\":false}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-1\"  src=\"http://localhost:9508/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->"
+    },
+    {
+      "case": "global-lock-both",
+      "body_sha256": "1d991cb123c5146dabe003ba085c1c7a2cc4631277e4efcf4adee933718c695e",
+      "styles_sha256": "48939db58352ca2c18ad645408002bddab2142299c2429f3be6b970f8d3290d9",
+      "lock": {
+        "move": true,
+        "remove": true
+      },
+      "metadata": {
+        "name": "Qi renamed native image",
+        "blockVisibility": false
+      },
+      "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":1,\"url\":\"http://localhost:9508/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":true,\"remove\":true},\"metadata\":{\"name\":\"Qi renamed native image\",\"blockVisibility\":false}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-1\"  src=\"http://localhost:9508/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->"
+    },
+    {
+      "case": "global-lock-removal",
+      "body_sha256": "5cf35e825d9c84b7fe3c3339fb9d9ffa28a224be881bae3ab0cf2c1f8f035d4f",
+      "styles_sha256": "48939db58352ca2c18ad645408002bddab2142299c2429f3be6b970f8d3290d9",
+      "lock": {
+        "move": false,
+        "remove": true
+      },
+      "metadata": {
+        "name": "Qi renamed native image",
+        "blockVisibility": false
+      },
+      "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":1,\"url\":\"http://localhost:9508/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":false,\"remove\":true},\"metadata\":{\"name\":\"Qi renamed native image\",\"blockVisibility\":false}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-1\"  src=\"http://localhost:9508/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->"
+    },
+    {
+      "case": "global-visible-unlocked",
+      "body_sha256": "72d0aaf64c7d7f6e12a3b17500b29ba0e918b421d7b0659d68954af4463a722a",
+      "styles_sha256": "48939db58352ca2c18ad645408002bddab2142299c2429f3be6b970f8d3290d9",
+      "lock": {
+        "move": false,
+        "remove": false
+      },
+      "metadata": {
+        "name": "Qi renamed native image"
+      },
+      "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":1,\"url\":\"http://localhost:9508/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":false,\"remove\":false},\"metadata\":{\"name\":\"Qi renamed native image\"}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-1\"  src=\"http://localhost:9508/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->"
+    },
+    {
+      "case": "global-reset",
+      "body_sha256": "c9ab34e37e484fe4aea7adb0073b5c9ce1d2aa5dcbc72b72129166fe08d56dd7",
+      "styles_sha256": "48939db58352ca2c18ad645408002bddab2142299c2429f3be6b970f8d3290d9",
+      "lock": {
+        "move": false,
+        "remove": false
+      },
+      "metadata": null,
+      "saved": "<!-- wp:qi-blocks/single-image {\"uniqueClass\":\"qodef-block-915bb80f\",\"galleryData\":\"gallery-465\",\"marginBottom\":7,\"image\":{\"id\":1,\"url\":\"http://localhost:9508/wp-content/uploads/2026/09/tmp-qi-image.png\",\"alt\":\"\",\"caption\":\"\"},\"imageSize\":\"\",\"lock\":{\"move\":false,\"remove\":false}} -->\n<div class=\"wp-block-qi-blocks-single-image qodef-block-container qodef-block-915bb80f\"><div class=\"qi-block-single-image qodef-block qodef-m\"><div class=\"qodef-m-image\"><img class=\"wp-image-1\"  src=\"http://localhost:9508/wp-content/uploads/2026/09/tmp-qi-image.png\" alt=\"\"/></div></div></div>\n<!-- /wp:qi-blocks/single-image -->"
+    }
+  ]
+}
