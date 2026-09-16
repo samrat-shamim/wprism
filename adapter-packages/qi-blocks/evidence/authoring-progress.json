@@ -893,5 +893,349 @@
     },
     "teardown": "Parent owned authoring session exited zero after QI_TARGET_GLOBAL_EDITOR_AUTHORING_CLEANUP_PASSED; pair list confirms no live or stopped owned pairs.",
     "scope": "Experimental native authoring/Apply evidence only. Remaining editor/media contexts, removal/failure/lifecycle/version/platform/host promotion and recovery remain unqualified; the single Qi plugin PR stays draft."
+  },
+  "native_target_global_browser_full_local_gate": {
+    "source_engine_commit": "f239191c697c00a45da140b7771f681d235831bd",
+    "reviewers": {
+      "luna": "CLEAR, 736 focused assertions",
+      "terra": "CLEAR, 736 focused assertions",
+      "sol": "CLEAR, 736 focused assertions"
+    },
+    "regress-offline-all": {
+      "exit": 0,
+      "shared_suites": 408,
+      "packages": 29,
+      "package_tests": 147,
+      "offline_scenario_gates": 12,
+      "integration_scenarios": 7,
+      "log_sha256": "c51c2c3f25f2d24935e4e00426f037590fe3ec21dd3360279737837c95a3df5c"
+    },
+    "composer check": {
+      "exit": 0,
+      "phpunit_tests": 1405,
+      "phpunit_assertions": 39821,
+      "log_sha256": "ab2a06294dd1f3ab0dbe76e4c3c12310972097e7184904dd758c21b3f958570c"
+    },
+    "release-gate": {
+      "exit": 0,
+      "shared_suites": 408,
+      "log_sha256": "902db615b892f16ba6884e09707ba1fd0c3c1b74953efa2a372574595417fcc1"
+    },
+    "scope": "Complete unconditional final local gate for target native global editor milestone. Later tracked edits need their own final gate. Retain and append this historical result in the next authoring-progress edit."
+  },
+  "native_dependency_refusals_and_restoration": {
+    "source_engine_commit": "8f6ee5541e7663b348c9f182c685c538a4712ca7",
+    "script": "tests/live/regress_native_dependencies.sh",
+    "pair": "qidependencies916b",
+    "exit": 0,
+    "result": "REGRESS_QI_NATIVE_DEPENDENCIES PASSED",
+    "native_archive_sha256": "6168357231ad0d39e41bcf71b1a0d4ad0fa08a5cc4263cc708dfe198b1f1f887",
+    "prior_archive_sha256": "9a9971ae6328cbcbdecb4beaabc90c61de6df5e7ba16bc523ee1dd20a1176ca2",
+    "full_log_sha256": "65dffef0e9e5323f2c10bab8af3cda7c3e04bcc92ddb5846731b926cf7e7fb13",
+    "native_refusal_images": {
+      "inactive": {
+        "premise": {
+          "version": "1.5.2",
+          "active": false,
+          "loaded": false,
+          "wrong_version": null,
+          "wrong_active": false,
+          "entry_sha256": "1e7c3ec1b77eb8d1663aaf177cfd8533a3794d96015d08236796872f25b77e5e",
+          "wrong_sha256": null,
+          "backup_sha256": null
+        },
+        "public_refusal_sha256": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
+        "images": {
+          "tables": {
+            "before_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "after_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "bytes": 387
+          },
+          "database": {
+            "before_sha256": "21fbe467819055866703c1281049fab026a5c4f0dc1b0ed01979f81852473c34",
+            "after_sha256": "21fbe467819055866703c1281049fab026a5c4f0dc1b0ed01979f81852473c34",
+            "bytes": 233226
+          },
+          "repository": {
+            "before_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "after_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "bytes": 654289
+          },
+          "files": {
+            "before_sha256": "6b1b943d302e00cf0a7543531f4a215b1fb258614b4552c8a33d382b90103916",
+            "after_sha256": "6b1b943d302e00cf0a7543531f4a215b1fb258614b4552c8a33d382b90103916",
+            "bytes": 100795
+          },
+          "code": {
+            "before_sha256": "2fb4123a3e8a7a7af96fad1438e2af8ede0c57cad3bcd1e53fac70a7e13cc9ed",
+            "after_sha256": "2fb4123a3e8a7a7af96fad1438e2af8ede0c57cad3bcd1e53fac70a7e13cc9ed",
+            "bytes": 215
+          }
+        }
+      },
+      "missing": {
+        "premise": {
+          "version": null,
+          "active": false,
+          "loaded": false,
+          "wrong_version": null,
+          "wrong_active": false,
+          "entry_sha256": null,
+          "wrong_sha256": null,
+          "backup_sha256": null
+        },
+        "public_refusal_sha256": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
+        "images": {
+          "tables": {
+            "before_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "after_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "bytes": 387
+          },
+          "database": {
+            "before_sha256": "c26ae85068e94532b18fe383a0ef905d8173553d979b2bcbce3b3576f1bb1e1b",
+            "after_sha256": "c26ae85068e94532b18fe383a0ef905d8173553d979b2bcbce3b3576f1bb1e1b",
+            "bytes": 233226
+          },
+          "repository": {
+            "before_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "after_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "bytes": 654289
+          },
+          "files": {
+            "before_sha256": "147dde0672a0df9fc514a1c822dd649076f4b418ed9b85eec68617d05e970e43",
+            "after_sha256": "147dde0672a0df9fc514a1c822dd649076f4b418ed9b85eec68617d05e970e43",
+            "bytes": 8889
+          },
+          "code": {
+            "before_sha256": "fc6468a4c1ad2442eb427fe0ec3fcd1997804b7a37a09a114793f9a8311195cd",
+            "after_sha256": "fc6468a4c1ad2442eb427fe0ec3fcd1997804b7a37a09a114793f9a8311195cd",
+            "bytes": 150
+          }
+        }
+      },
+      "prior": {
+        "premise": {
+          "version": "1.5.1",
+          "active": true,
+          "loaded": false,
+          "wrong_version": null,
+          "wrong_active": false,
+          "entry_sha256": "05f51dda085ed0365922cf771ff80d0c5dfa4f6b2220dfc2b986ee87dd7b0f96",
+          "wrong_sha256": null,
+          "backup_sha256": null
+        },
+        "public_refusal_sha256": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
+        "images": {
+          "tables": {
+            "before_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "after_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "bytes": 387
+          },
+          "database": {
+            "before_sha256": "70b6db230d234c2182330f291645af2510f8753a8927ceee32ab285ab34ef0d5",
+            "after_sha256": "70b6db230d234c2182330f291645af2510f8753a8927ceee32ab285ab34ef0d5",
+            "bytes": 233269
+          },
+          "repository": {
+            "before_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "after_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "bytes": 654289
+          },
+          "files": {
+            "before_sha256": "dbbdc9de24a968847cc27bee34c7eeecd248c140e5438a90af4239364752cfa9",
+            "after_sha256": "dbbdc9de24a968847cc27bee34c7eeecd248c140e5438a90af4239364752cfa9",
+            "bytes": 100795
+          },
+          "code": {
+            "before_sha256": "1604c3d9564108cd1fc197fc35c2dffe638e1e91b5ad8775ec9fa30e316ccb42",
+            "after_sha256": "1604c3d9564108cd1fc197fc35c2dffe638e1e91b5ad8775ec9fa30e316ccb42",
+            "bytes": 214
+          }
+        }
+      },
+      "maximum": {
+        "premise": {
+          "version": "1.5.3",
+          "active": true,
+          "loaded": false,
+          "wrong_version": null,
+          "wrong_active": false,
+          "entry_sha256": "1a8fbd2d49992ee21a9ed03f0bb20b9a5d8e5f052f7d69c0677ed82711b9c682",
+          "wrong_sha256": null,
+          "backup_sha256": "1e7c3ec1b77eb8d1663aaf177cfd8533a3794d96015d08236796872f25b77e5e"
+        },
+        "public_refusal_sha256": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
+        "images": {
+          "tables": {
+            "before_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "after_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "bytes": 387
+          },
+          "database": {
+            "before_sha256": "0b094fce97486eeb11ff3dfcd414145c81793c06f76e3fbf573364806b9eb809",
+            "after_sha256": "0b094fce97486eeb11ff3dfcd414145c81793c06f76e3fbf573364806b9eb809",
+            "bytes": 233269
+          },
+          "repository": {
+            "before_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "after_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "bytes": 654289
+          },
+          "files": {
+            "before_sha256": "31debc2c80e7198e81df38b49df085b22f0f6e15ea5cdf753e1ecb027bd19999",
+            "after_sha256": "31debc2c80e7198e81df38b49df085b22f0f6e15ea5cdf753e1ecb027bd19999",
+            "bytes": 100962
+          },
+          "code": {
+            "before_sha256": "9b29bc52830d44788165139eb513309ce11e6026ac91382ca40bec2dea5046bd",
+            "after_sha256": "9b29bc52830d44788165139eb513309ce11e6026ac91382ca40bec2dea5046bd",
+            "bytes": 276
+          }
+        }
+      },
+      "unreadable": {
+        "premise": {
+          "version": null,
+          "active": true,
+          "loaded": false,
+          "wrong_version": null,
+          "wrong_active": false,
+          "entry_sha256": "cc75e6c76917a276d48c28980fb0d43246c6df14f93b01cf46521c17b736360e",
+          "wrong_sha256": null,
+          "backup_sha256": "1e7c3ec1b77eb8d1663aaf177cfd8533a3794d96015d08236796872f25b77e5e"
+        },
+        "public_refusal_sha256": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
+        "images": {
+          "tables": {
+            "before_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "after_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "bytes": 387
+          },
+          "database": {
+            "before_sha256": "0b094fce97486eeb11ff3dfcd414145c81793c06f76e3fbf573364806b9eb809",
+            "after_sha256": "0b094fce97486eeb11ff3dfcd414145c81793c06f76e3fbf573364806b9eb809",
+            "bytes": 233269
+          },
+          "repository": {
+            "before_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "after_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "bytes": 654289
+          },
+          "files": {
+            "before_sha256": "3c112438c2978209c2696cf238e6051f8b4199f95a1559e57ebcbc88dd0bc6d5",
+            "after_sha256": "3c112438c2978209c2696cf238e6051f8b4199f95a1559e57ebcbc88dd0bc6d5",
+            "bytes": 100962
+          },
+          "code": {
+            "before_sha256": "2a844efb9ee9714b5511a67882ec1bee2ef70dda5de5da207a20633dd9879616",
+            "after_sha256": "2a844efb9ee9714b5511a67882ec1bee2ef70dda5de5da207a20633dd9879616",
+            "bytes": 273
+          }
+        }
+      },
+      "wrong-basename": {
+        "premise": {
+          "version": null,
+          "active": false,
+          "loaded": false,
+          "wrong_version": "1.5.2",
+          "wrong_active": true,
+          "entry_sha256": null,
+          "wrong_sha256": "1e7c3ec1b77eb8d1663aaf177cfd8533a3794d96015d08236796872f25b77e5e",
+          "backup_sha256": "1e7c3ec1b77eb8d1663aaf177cfd8533a3794d96015d08236796872f25b77e5e"
+        },
+        "public_refusal_sha256": "10961c9d6f5c368313ccda7addb35c3bd5f3b22e0d0b312a1b383aacd486473c",
+        "images": {
+          "tables": {
+            "before_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "after_sha256": "65bfc384c205ede29dabff97806b0d7c1895e8676a2a9bd6f993914a6ec02492",
+            "bytes": 387
+          },
+          "database": {
+            "before_sha256": "f184762752029a4d8a8e0f24dc1959d3125637aeb974becb6d47c81b5202c1dc",
+            "after_sha256": "f184762752029a4d8a8e0f24dc1959d3125637aeb974becb6d47c81b5202c1dc",
+            "bytes": 233270
+          },
+          "repository": {
+            "before_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "after_sha256": "69f8aa561c6f6faa758aa88da7f2964e41de5867e259fb87e2fc787edbc83775",
+            "bytes": 654289
+          },
+          "files": {
+            "before_sha256": "9751c71ae7b5e44f8100590aadfc9c3f1fcf3e895bb16c2384c0109db8d17d8e",
+            "after_sha256": "9751c71ae7b5e44f8100590aadfc9c3f1fcf3e895bb16c2384c0109db8d17d8e",
+            "bytes": 100963
+          },
+          "code": {
+            "before_sha256": "cb83836fe91c4f06d58c8304595f1bd1f1e75993b5d7e1b31e7c83a97d3e0c3a",
+            "after_sha256": "cb83836fe91c4f06d58c8304595f1bd1f1e75993b5d7e1b31e7c83a97d3e0c3a",
+            "bytes": 276
+          }
+        }
+      }
+    },
+    "source_ids": {
+      "image": 1,
+      "first": 2,
+      "second": 3,
+      "page": 4
+    },
+    "restored_target_ids": {
+      "image": 9,
+      "first": 10,
+      "second": 11,
+      "page": 12
+    },
+    "complete_target_native_sha256": "bab384fa951d1e22a9c2d9f9b35e4ee7dce701606174d63cc7bc3bca730df88b",
+    "restored_capture_sha256": "fbfb95ab0e1db903a6ef132e3c4b049b08a50e28077883db975de1d70685e451",
+    "compiled_entities": 7,
+    "verified_zero_write_retries": [
+      "reactivated-apply",
+      "reinstalled-apply",
+      "restored-apply",
+      "restored-repeat"
+    ],
+    "full_database_and_repository_bytes_preserved_on_each_refusal": true,
+    "complete_plugin_and_upload_hash_inventories_preserved_on_each_refusal": true,
+    "fresh_private_causes_verified": 6,
+    "owned_teardown": "destroyed; pair list has no live or stopped pairs",
+    "offline": {
+      "native_dependencies_assertions": 51,
+      "native_apply_admission_assertions": 219,
+      "shared_private_tree_assertions": 167
+    },
+    "reviewers": {
+      "luna": "CLEAR at exact 8f6ee554",
+      "terra": "CLEAR at exact 8f6ee554",
+      "sol": "CLEAR at exact 8f6ee554"
+    },
+    "prior_attempt": {
+      "source_engine_commit": "690dccba37ba882c5852dc4caaa901ee4900f780",
+      "pair": "qidependencies916a",
+      "exit": 255,
+      "full_log_sha256": "8ece04dee6a3a3427f627b574531d65173b16c6700167c6bc152f755b8aa354c",
+      "failure": "WP-CLI reinstall --force --activate emitted an already-active warning; strict native admission stopped. Corrected command replaces code without redundant activation and independently observes exact active state. No success claim for this attempt. Owned pair destroyed."
+    },
+    "evidence_reader_prior_defect": {
+      "prior_reader_commit": "690dccba37ba882c5852dc4caaa901ee4900f780",
+      "hardened_reader_commit": "8f6ee5541e7663b348c9f182c685c538a4712ca7",
+      "proof": "Both readers received the same complete native refusal image with one plugin SHA replaced by invalid. Prior reader admitted it; hardened shared inventory validation refused it. Positive/negative reproduction exits were zero and emitted the declared distinct outcomes.",
+      "prior_stdout_sha256": "ddad23f68dc84b82aaf5c24966dd35f6f4511290bf2b32acff87f7605f026de1",
+      "hardened_stdout_sha256": "530399b396fd765f0ee9a8cebc76a1fd89238b1758b0d6c94f8541ebc84bfae0"
+    },
+    "composer_check": {
+      "source_engine_commit": "8f6ee5541e7663b348c9f182c685c538a4712ca7",
+      "exit": 0,
+      "tests": 1405,
+      "assertions": 39855,
+      "log_sha256": "4e2e7ad1796f633695f960602c63051a859e843982ed29627f0cc1c8e36c4464"
+    },
+    "scope": "Public content-only agent Apply dependency gate and native inactive/missing/prior/header/basename restoration; whole database/repository bytes and native plugin/upload hash inventories, exact target-native corpus, HTTP/CSS and source/target full compiler convergence. No host certification or source-code payload transport claim.",
+    "pending": [
+      "declared runtime/platform boundaries and file-permission faults",
+      "source payload version/identity transport",
+      "canonical retirement and host lifecycle/promotion/recovery",
+      "remaining native editor/media and participant combination qualification"
+    ]
   }
 }
