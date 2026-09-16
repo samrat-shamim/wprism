@@ -7,6 +7,7 @@ require_once __DIR__ . '/ReferenceRules.php';
 require_once __DIR__ . '/RecordFields.php';
 require_once __DIR__ . '/EncodedText.php';
 require_once __DIR__ . '/ValueContractGrammar.php';
+require_once __DIR__ . '/BlockAttributeReader.php';
 
 /** Exact block attributes reuse the option/meta value grammar without changing legacy path semantics. */
 final class BlockValueGrammar {
@@ -17,6 +18,8 @@ final class BlockValueGrammar {
     public const ATTRIBUTE_PRODUCT_FEATURE = 'block-attribute-name-products/v1';
     public const ATTRIBUTE_BASES_FIELD = 'attribute_bases';
     public const ATTRIBUTE_SUFFIXES_FIELD = 'attribute_suffixes';
+    public const CLOSURE_FEATURE = 'block-attribute-closure/v1';
+    public const CLOSURE_FIELD = 'block_attribute_closure';
     public const MAX_GROUPS = 256;
     public const MAX_GROUP_MEMBERS = 4096;
     public const MAX_GROUP_VALUES = 65536;
@@ -38,11 +41,15 @@ final class BlockValueGrammar {
     }
 
     public static function validate(array $manifest): void {
-        if (!array_key_exists(self::SECTION, $manifest)) return;
+        if (!array_key_exists(self::SECTION, $manifest)) {
+            self::closure_blocks($manifest, []);
+            return;
+        }
         $registry = self::attribute_maps($manifest);
         if (!is_array($registry) || $registry === [] || array_is_list($registry)) {
             throw new \RuntimeException('wprism: block_values must be a non-empty object keyed by block name');
         }
+        self::closure_blocks($manifest, $registry);
         $base = ($manifest['spec_version'] ?? 0) >= 3
             && in_array(self::FEATURE, $manifest['engine_features'] ?? [], true);
         $grammar = new ValueContractGrammar(
@@ -109,6 +116,71 @@ final class BlockValueGrammar {
             'max_expanded_group_values' => self::MAX_GROUP_VALUES,
             'authority' => 'v3 manifest declaring block-attribute-values/v1, block-attribute-groups/v1 and block-attribute-name-products/v1',
         ];
+    }
+
+    public static function closure_grammar(): array {
+        return [
+            'field' => self::CLOSURE_FIELD,
+            'shape' => 'nonempty sorted unique list of exact block names owned by this manifest block_values',
+            'roster' => 'the normalized block_values attribute names plus disjoint exact block_attrs paths from the same manifest',
+            'unknown_attributes' => 'presence refuses, including null and empty containers; neither values nor unknown field names appear in the diagnostic',
+            'max_blocks' => self::MAX_GROUP_MEMBERS,
+            'max_block_bytes' => 128,
+            'authority' => 'v3 manifest declaring block-attribute-values/v1 and block-attribute-closure/v1; no site override',
+        ];
+    }
+
+    /** @return array<string,true> */
+    private static function closure_blocks(array $manifest, array $registry): array {
+        if (!array_key_exists(self::CLOSURE_FIELD, $manifest)) return [];
+        if (($manifest['spec_version'] ?? 0) < 3
+            || !in_array(self::FEATURE, (array) ($manifest['engine_features'] ?? []), true)
+            || !in_array(self::CLOSURE_FEATURE, (array) ($manifest['engine_features'] ?? []), true)) {
+            throw new \RuntimeException('wprism: block attribute closure requires both negotiated v3 block value features');
+        }
+        $blocks = $manifest[self::CLOSURE_FIELD];
+        if (!is_array($blocks) || !array_is_list($blocks) || $blocks === [] || count($blocks) > self::MAX_GROUP_MEMBERS) {
+            throw new \RuntimeException('wprism: block attribute closure requires a bounded nonempty exact block list');
+        }
+        $out = [];
+        $prior = null;
+        foreach ($blocks as $block) {
+            if (!is_string($block) || strlen($block) > 128 || preg_match('/^[a-z][a-z0-9_-]*\/[a-z][a-z0-9_-]*$/D', $block) !== 1
+                || !isset($registry[$block]) || ($prior !== null && strcmp($prior, $block) >= 0)) {
+                throw new \RuntimeException('wprism: block attribute closure requires sorted unique block_values owners');
+            }
+            $out[$block] = true;
+            $prior = $block;
+        }
+        return $out;
+    }
+
+    /** Runtime metadata comes only from the trusted declaration projection; legacy row grammars cannot inject it. */
+    public static function assert_closed_attributes(string $block, array $attributes, array $rules): void {
+        // Projection annotates every row uniformly. Existing open declarations
+        // need no additional per-attribute work on their production path.
+        if (($rules[0]['closed_attributes'] ?? false) !== true) return;
+        $declared = [];
+        foreach ($rules as $rule) {
+            $declared[$rule['path']] = true;
+        }
+        if (array_diff_key($attributes, $declared) !== []) {
+            throw new \RuntimeException("wprism: block '$block' contains an undeclared attribute outside its closed roster");
+        }
+    }
+
+    /** WordPress may erase invalid JSON before exposing attrs; validate the original closed comment bytes. */
+    public static function assert_closed_document(string $body, array $rules): void {
+        foreach (self::read_closed_attributes($body, $rules) as $block) {
+            self::assert_closed_attributes($block['blockName'], $block['attrs'], $rules[$block['blockName']]);
+        }
+    }
+
+    /** @return list<array{blockName:string,attrs:array,offset:int}> */
+    public static function read_closed_attributes(string $body, array $rules): array {
+        $names = [];
+        foreach ($rules as $name => $rows) if (($rows[0]['closed_attributes'] ?? false) === true) $names[] = $name;
+        return BlockAttributeReader::read($body, $names);
     }
 
     /**
@@ -251,12 +323,18 @@ final class BlockValueGrammar {
         $out = [];
         $owners = [];
         $values = [];
+        $closed = [];
         foreach ($manifests as $i => $manifest) {
             foreach ($manifest['block_attrs'] ?? [] as $block => $rules) {
+                foreach ($rules as $rule) if (array_key_exists('closed_attributes', $rule)) {
+                    throw new \RuntimeException('wprism: authored block attributes cannot carry internal closure metadata');
+                }
                 $out[$block] = $rules;
                 $owners[$block][$i] = true;
             }
-            foreach (self::attribute_maps($manifest) as $block => $attributes) {
+            $registry = self::attribute_maps($manifest);
+            $closed += self::closure_blocks($manifest, $registry);
+            foreach ($registry as $block => $attributes) {
                 $owners[$block][$i] = true;
                 $values[$block] = $attributes;
             }
@@ -273,6 +351,8 @@ final class BlockValueGrammar {
             foreach ($attributes as $attribute => $rule) {
                 $out[$block][] = ['path' => $attribute, 'value' => $rule];
             }
+            if (isset($closed[$block])) foreach ($out[$block] as &$row) $row['closed_attributes'] = true;
+            unset($row);
         }
         return $out;
     }

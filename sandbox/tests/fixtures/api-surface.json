@@ -8073,6 +8073,39 @@
                     "return_type": "array",
                     "static": true,
                     "visibility": "public"
+                },
+                "scan_closed_document": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "body",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rules",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rel",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
                 }
             },
             "parent": null,
@@ -8090,6 +8123,12 @@
                 },
                 "ATTRIBUTE_SUFFIXES_FIELD": {
                     "value_repr": "attribute_suffixes"
+                },
+                "CLOSURE_FEATURE": {
+                    "value_repr": "block-attribute-closure/v1"
+                },
+                "CLOSURE_FIELD": {
+                    "value_repr": "block_attribute_closure"
                 },
                 "CONTRACT_FEATURE": {
                     "value_repr": "block-value-contracts/v1"
@@ -8132,6 +8171,64 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "assert_closed_attributes": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "block",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "attributes",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rules",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assert_closed_document": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "body",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rules",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "attribute_maps": {
                     "abstract": false,
                     "final": false,
@@ -8150,6 +8247,14 @@
                     "visibility": "public"
                 },
                 "attribute_product_grammar": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "closure_grammar": {
                     "abstract": false,
                     "final": false,
                     "parameters": [],
@@ -8182,6 +8287,31 @@
                             "default": null,
                             "has_default": false,
                             "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "read_closed_attributes": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "body",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rules",
                             "type": "array",
                             "variadic": false
                         }

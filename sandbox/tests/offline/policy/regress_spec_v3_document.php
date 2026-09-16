@@ -274,6 +274,7 @@ wprism_check_same(
 wprism_check_same(
     [
         'attr-id-codecs/v1',
+        'block-attribute-closure/v1',
         'block-attribute-groups/v1',
         'block-attribute-name-products/v1',
         'block-attribute-values/v1',

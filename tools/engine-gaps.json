@@ -230,6 +230,18 @@
         "sandbox/tests/offline/grammar/regress_php_container_values.php"
       ]
     },
+    "closed_block_attribute_rosters": {
+      "title": "closed exact native block attribute inventories",
+      "status": "shipped",
+      "definition": "Negotiated block-attribute-closure/v1 closes selected owned blocks over their normalized block_values names and disjoint legacy paths. Capture, immutable post/widget compilation, lint and Apply reject unknown attribute presence without displaying unreviewed field names or values. The existing declaration projection supplies internal roster metadata; no runtime schema lookup, plugin executable, site override or default codec is added.",
+      "evidence": [
+        "agent/src/Kernel/BlockValueGrammar.php",
+        "agent/src/Grammar/Blocks.php",
+        "agent/src/Repository/RepositoryPortableShapeValidator.php",
+        "agent/src/Review/BlockReferenceScanner.php",
+        "sandbox/tests/offline/grammar/regress_block_attribute_closure.php"
+      ]
+    },
     "structured_block_attribute_values": {
       "title": "declarative structured block values and derived cache exclusion",
       "status": "shipped",
@@ -795,6 +807,27 @@
         }
       ],
       "closing": "The negotiated block-attribute-values/v1 section composes existing reference/text codecs and scope/privacy gates. Product tests cover native post capture, complete compilation without WordPress or database contact, checked SQL with divergent IDs, late-write rollback, retry, repeated apply, full recapture and widget-content validation. This closes these attribute representations only; Qi capsule qualification and custom-crop rebuilding remain separate work."
+    },
+    {
+      "id": "qi-blocks-attribute-roster",
+      "candidate": "Qi Blocks",
+      "versions_probed": ["1.5.2"],
+      "disposition": "closed",
+      "blocked_adapters": ["qi-blocks"],
+      "coordinates": [{
+        "coordinate": "block_values.qi-blocks/single-image.extension.entity",
+        "cannot_represent": "An undeclared nested attribute carrying a source-local integer survives Capture, empty lint findings and immutable compilation. Exact plugin version pins cannot assign semantics to dynamically extended or Git-authored fields, and ID-shaped-name heuristics do not see this coordinate.",
+        "primitive_required": "closed_block_attribute_rosters",
+        "closed_by": [
+          "agent/src/Kernel/BlockValueGrammar.php",
+          "agent/src/Grammar/Blocks.php",
+          "agent/src/Repository/RepositoryPortableShapeValidator.php",
+          "agent/src/Review/BlockReferenceScanner.php",
+          "sandbox/tests/offline/grammar/regress_block_attribute_closure.php"
+        ]
+      }],
+      "closing": "The optional negotiated block-attribute-closure/v1 contract closes reviewed owned blocks over the existing normalized attribute roster. Unknown presence refuses without displaying unreviewed field names or values; existing open declarations retain their behavior. The shared suite covers strict grammar, post/widget compilation, direct capture/apply, nested lint and the reused full SQL/rollback/retry/recapture proof. Native Qi roster qualification remains capsule-owned.",
+      "notes": "This closes declaration expressiveness; it does not claim that every Qi native editor extension is supported."
     },
     {
       "id": "qi-blocks-html-media",

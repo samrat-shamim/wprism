@@ -5,6 +5,7 @@ require_once __DIR__ . '/Pending.php';
 require_once __DIR__ . '/LintFinding.php';
 require_once __DIR__ . '/../Grammar/AuthoredValueCodec.php';
 require_once __DIR__ . '/AuthoredValueReferenceScanner.php';
+require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
 
 /**
  * Manifest-declared Gutenberg block-reference scanning behind Lint's facade.
@@ -18,6 +19,24 @@ require_once __DIR__ . '/AuthoredValueReferenceScanner.php';
  */
 final class BlockReferenceScanner {
     private const MAX_VALUE_LEN = 200;
+
+    /** Closed rosters can be reviewed without WordPress, before its parser discards malformed JSON. */
+    public static function scan_closed_document(string $body, array $rules, string $rel): array {
+        $findings = [];
+        try {
+            $blocks = BlockValueGrammar::read_closed_attributes($body, $rules);
+        } catch (\RuntimeException $e) {
+            return [LintFinding::make('invalid_block_attributes', $rel, 'blocks.attrs', null, null, $e->getMessage())];
+        }
+        foreach ($blocks as $block) {
+            try {
+                BlockValueGrammar::assert_closed_attributes($block['blockName'], $block['attrs'], $rules[$block['blockName']]);
+            } catch (\RuntimeException $e) {
+                $findings[] = LintFinding::make('undeclared_block_attribute', $rel, 'blocks.' . $block['blockName'] . '.attrs', null, null, $e->getMessage());
+            }
+        }
+        return $findings;
+    }
 
     /**
      * @param array<int,array> $blocks parsed Gutenberg blocks
@@ -55,6 +74,15 @@ final class BlockReferenceScanner {
         foreach ($blocks as $block) {
             $name = $block['blockName'] ?? null;
             if ($name !== null) {
+                try {
+                    BlockValueGrammar::assert_closed_attributes($name, (array) ($block['attrs'] ?? []), $blockRules[$name] ?? []);
+                } catch (\RuntimeException $e) {
+                    $findings[] = LintFinding::make('undeclared_block_attribute', $rel, 'blocks.' . $name . '.attrs', null, null, $e->getMessage());
+                    // Unknown fields have no reviewed meaning or display authority.
+                    // Keep their names and values out of heuristic diagnostics too.
+                    if (!empty($block['innerBlocks'])) self::scanBlocks($block['innerBlocks'], $blockRules, $rel, $home, $resolveId, $findings);
+                    continue;
+                }
                 $rulesByPath = [];
                 foreach ($blockRules[$name] ?? [] as $r) {
                     $rulesByPath[$r['path']] = $r;

@@ -58,3 +58,14 @@ the original URL. The shared engine already treats that state as no crop work.
 Both source and target editors emitted the same WordPress iframe stylesheet
 warning; it is not a clean-console qualification. The capsule remains
 experimental, with lifecycle, host, version and combination work outstanding.
+
+The complete native Apply runner passes on
+`a6ccdf54ae15c5f585df024c6f5353fffadf0a58` using a newly generated spatial PNG.
+Red increases with x, green with y, and blue alternates across unequal tiles.
+Five exact source samples are required on both sites before comparing every
+decoded crop RGBA pixel. The historical retained uniform original stays
+unchanged; it is not the input to this asymmetric live run. Four native Qi
+source crops, target HTTP files, metadata ownership, complete canonical
+recapture and zero-write repeat pass. The owned pair and both repositories are
+removed after the final PASS. Browser reopening remains the earlier separately
+scoped evidence.

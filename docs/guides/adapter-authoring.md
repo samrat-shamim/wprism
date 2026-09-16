@@ -624,6 +624,43 @@ an earlier write, retry, repeat and complete recapture. Include widget content
 when the same block can be stored there. `regress-block-attribute-values` is
 the engine pin; native plugin render and editor validation remain capsule work.
 
+### Closing a native block attribute roster
+
+Before treating a complete native block inventory as a closed contract,
+negotiate `block-attribute-closure/v1` alongside `block-attribute-values/v1`
+and declare its exact owned blocks:
+
+```json
+"block_attribute_closure": ["example/card", "example/gallery"]
+```
+
+The list is sorted, unique and bounded to 4,096 exact names of at most 128
+bytes. Each name must have a `block_values` map owned by this manifest. Its
+normalized value names plus disjoint legacy `block_attrs` paths form the
+complete allowed roster. Unknown attributes refuse by presence across Capture,
+immutable post/widget compilation, lint and Apply, including empty values.
+The diagnostic displays no unknown field name or value. Site policy cannot
+replace the roster; this feature refines the existing block-values capability.
+
+Before opting in, reconcile the complete exact-artifact schema with native
+Save outputs in every claimed content context. Numeric and boolean defaults
+need explicit rules too; WordPress can inject supported attributes beyond the
+plugin's own registration. An extension may introduce a valid native field
+whose meaning the adapter has not reviewed; declare its correct transport or
+keep that extension unsupported. Qualification of editor controls remains a
+separate native-behavior obligation; a schema roster is not that evidence.
+Do not use a generic plain-data catch-all or infer reference semantics from
+field spelling. Qi's unknown nested `extension.entity` reproduced successful
+Capture, empty lint findings and immutable compilation with a raw source ID.
+The shared closure regression pins this boundary and preserves existing open
+declarations. Nested fields still need their own value contract.
+
+Closed rosters also validate original comment bytes through the pure block
+attribute reader before WordPress parses them. Its parser can silently discard
+malformed JSON. Capture and Apply must refuse that input instead; parser-free
+post/widget Lint exercises the same boundary while retaining existing parser
+deferrals for other reference findings.
+
 ### Objects that mix selectors, flags and query text
 
 A query object is not one reference leaf. Visual Portfolio's native `postsQuery`

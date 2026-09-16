@@ -204,6 +204,7 @@ final class AdapterContractGrammar {
         // Exact name products refine group spelling only; normalization still
         // yields the same closed block_values map and certificate arm.
         BlockValueGrammar::ATTRIBUTE_PRODUCT_FEATURE => ['since' => 3, 'keys' => []],
+        BlockValueGrammar::CLOSURE_FEATURE => ['since' => 3, 'keys' => [BlockValueGrammar::CLOSURE_FIELD => 'non_surface']],
         BlockValueGrammar::CONTRACT_FEATURE => ['since' => 3, 'keys' => []],
         RecordFields::FEATURE => ['since' => 3, 'keys' => []],
         RecordFields::OBJECT_FEATURE => ['since' => 3, 'keys' => []],
@@ -601,6 +602,9 @@ final class AdapterContractGrammar {
             if ($name === BlockValueGrammar::ATTRIBUTE_PRODUCT_FEATURE) {
                 $rows[$name]['value_constraint'] = BlockValueGrammar::attribute_product_grammar();
             }
+            if ($name === BlockValueGrammar::CLOSURE_FEATURE) {
+                $rows[$name]['value_constraint'] = BlockValueGrammar::closure_grammar();
+            }
             if ($name === BlockValueGrammar::CONTRACT_FEATURE) {
                 $rows[$name]['value_constraint'] = BlockValueGrammar::contract_grammar();
             }
@@ -669,6 +673,7 @@ final class AdapterContractGrammar {
         $grammars = [
             StoragePrerequisiteGrammar::SECTION => StoragePrerequisiteGrammar::section_grammar(),
             BlockValueGrammar::SECTION => BlockValueGrammar::section_grammar(),
+            BlockValueGrammar::CLOSURE_FIELD => BlockValueGrammar::closure_grammar(),
             BlockContentGrammar::SECTION => BlockContentGrammar::section_grammar(),
             BlockMediaDerivativeGrammar::SECTION => BlockMediaDerivativeGrammar::section_grammar(),
             AttrIdCodecGrammar::SECTION => AttrIdCodecGrammar::section_grammar(),

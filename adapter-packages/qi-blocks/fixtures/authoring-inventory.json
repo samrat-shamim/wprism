@@ -569,5 +569,18 @@
     "manifest_lines_before_name_products": 2092,
     "manifest_lines_with_name_products": 1901,
     "source": "Canonical block_values map before lossless grouping and exact name products; reference/media ownership must remain identical."
+  },
+  "closed_attribute_roster": {
+    "groups": 196,
+    "attribute_name_products": 109,
+    "attribute_product_bases": 1834,
+    "attribute_product_names": 5502,
+    "expanded_attributes": 21505,
+    "expanded_blocks": 49,
+    "manifest_bytes": 148069,
+    "manifest_lines": 2619,
+    "closed_blocks": 49,
+    "added_attributes": 14008,
+    "native_schema_roster_sha256": "4da1ec9b8d759138a6c90c57e0ca20d09cfbcd0312f993c56d18f9b39e638350"
   }
 }

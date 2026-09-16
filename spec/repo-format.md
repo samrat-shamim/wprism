@@ -5017,3 +5017,32 @@ The declaration supplies no missing member, expression or enable flag, and the
 engine does not interpret the plugin's expression language. Existing string
 declarations retain their byte-identical meaning and accept empty maps. An
 object form without this feature refuses at manifest load by feature name.
+
+### v3.51 `block-attribute-closure/v1` — closed native attribute rosters
+
+A v3 manifest declaring `block-attribute-values/v1` and this feature may add
+`block_attribute_closure`, a nonempty sorted unique list of at most 4,096 exact
+block names, each at most 128 bytes. Each block must have its own `block_values`
+map in that manifest, including maps normalized from exact groups and name
+products. Closure admits precisely those attribute names plus disjoint exact
+`block_attrs` paths from the same owner. It supplies no default rule.
+
+Any undeclared top-level attribute refuses by presence, including `null`, empty
+text and empty containers. Capture and direct Apply reject it before returning
+content; immutable compilation rejects it in post bodies and block widgets;
+lint reports it without relying on numeric-ID or URL heuristics. Closure
+diagnostics name the trusted block and content location, never the unknown
+field name or value. Nested authored objects retain their existing value
+contracts; closing the block does not recursively assign meaning to them.
+Original closed comment bytes are validated through the pure attribute reader
+before WordPress parses them, since its parser may discard malformed JSON.
+Post/widget Lint performs this closure review even without the native parser,
+while other reference checks retain their existing parser deferral.
+
+`BlockValueGrammar::project()` annotates the effective rule rows with internal
+`closed_attributes` metadata. Legacy authored rules cannot declare that field,
+and site policy cannot replace the closure roster. This declaration refines
+the existing block-values surface and adds no independent capability arm,
+plugin executable, runtime schema lookup or prefix ownership. Unselected
+blocks and existing manifests retain their exact open behavior. Opting in
+changes adapter identity and requires recapture, compilation and new pins.

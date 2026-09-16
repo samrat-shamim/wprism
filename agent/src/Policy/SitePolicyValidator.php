@@ -81,6 +81,9 @@ final class SitePolicyValidator {
         if (array_key_exists(BlockValueGrammar::SECTION, $site['policy'] ?? [])) {
             throw new \RuntimeException('wprism: block_values is a manifest-owned block grammar, not a site policy override');
         }
+        if (array_key_exists(BlockValueGrammar::CLOSURE_FIELD, $site['policy'] ?? [])) {
+            throw new \RuntimeException('wprism: block attribute closure is manifest-owned, not a site policy override');
+        }
         BlockContentGrammar::project([], $site['policy'] ?? []);
         // WP-5.5. SHAPE only: whether a resolution decides anything is a fact
         // about the file AND the pin set, so it is asserted where the pin set

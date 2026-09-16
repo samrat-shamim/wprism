@@ -71,7 +71,7 @@
     "conformance_corpus": {
       "script": "tests/offline/regress_conformance_corpus.php",
       "exit": 0,
-      "assertions": 103,
+      "assertions": 107,
       "native_block_types": 47,
       "native_instances": 50,
       "native_selector_frames": 84,
@@ -86,7 +86,7 @@
     "native_apply_evidence": {
       "script": "tests/offline/regress_native_apply_evidence.php",
       "exit": 0,
-      "assertions": 93,
+      "assertions": 111,
       "scope": "Complete product block materialization plus hostile native, HTTP, command-receipt and transport admission. Both shared-conformance CLI admissions execute with the block parser and validate the native postimage and fixed point."
     },
     "native_media": {
@@ -106,6 +106,22 @@
       "exit": 0,
       "assertions": 91,
       "scope": "Complete native six-widget family and three native widget/page/template style values through SidebarState Capture, immutable compilation and checked widget/option materialization. All six widget IDs diverge, native storage types remain exact, late style failure rolls back widget allocation and writes, and retry/repeat/recapture pass. Template body has content-only compiler coverage; native template discovery and rendering remain separate obligations."
+    },
+    "native_schema": {
+      "script": "tests/offline/regress_native_schema.php",
+      "exit": 0,
+      "assertions": 360,
+      "scope": "Exact artifact-derived schema reconciliation, original 7497-rule preservation, every added scalar field and every closed owner, Capture/Apply/public parser-free Lint and target-free compiler refusals. Native type predicates and unobserved native controls remain unqualified.",
+      "closed_blocks": 49,
+      "expanded_rules": 21505,
+      "added_rules": 14008
+    },
+    "block_attribute_closure": {
+      "script": "sandbox/tests/offline/grammar/regress_block_attribute_closure.php",
+      "exit": 0,
+      "assertions": 102,
+      "reused_product_assertions": 328,
+      "scope": "Negotiation, identity/ownership, presence refusal, malformed raw comments, parser-free post/widget Lint, immutable compiler, actual SQL rollback/retry and exact native recapture. Existing open declarations keep their effective rows and behavior."
     }
   },
   "quality_gates": {
@@ -632,5 +648,23 @@
       "Repeat Apply reports all 26 entities unchanged with zero create, update, adoption, action, warning or write. The complete Visual Portfolio native observation stays byte-identical, its gallery/archive/download/storage consumers pass again, and the complete Qi postimage remains stable."
     ],
     "scope": "Exact free Qi Blocks 1.5.2 plus Visual Portfolio 3.8.1 on WordPress 7.1 through the shared agent-apply-roundtrip. No production authorization, other version, recovery fault, premium code or other participant combination is claimed."
+  },
+  "native_all_picker_asymmetric_apply": {
+    "source_engine_commit": "a6ccdf54ae15c5f585df024c6f5353fffadf0a58",
+    "pair": "qicomplete916a",
+    "versions": {
+      "wordpress": "7.1",
+      "qi-blocks": "1.5.2"
+    },
+    "driver": "tests/live/regress_native_apply.sh",
+    "driver_exit": 0,
+    "log_sha256": "95976c7fdad34b02b0bdc7b5537482b22b65871340cd52f72cebe93f900d9b89",
+    "checks": [
+      "All six retained native picker fragments are required exactly once; three galleries, Author Info signature and both progress patterns render target-local image URLs.",
+      "Four native Qi source crop writers use a deterministic spatial 1200x800 PNG with five required exact original samples; all decoded target crop RGBA pixels and dimensions match.",
+      "Initial seven-entity Apply, each content-only update and repeat preserve complete native state, canonical recapture and media ownership; repeat writes nothing."
+    ],
+    "teardown": "Sole final REGRESS_QI_NATIVE_APPLY PASSED; owned pair, lease, both databases, volumes and site repositories removed.",
+    "scope": "Run predates block-attribute-closure/v1. Retained native REST Save and frontend transport; no new target browser Save/reopen, multi-image, lifecycle, host or version qualification."
   }
 }

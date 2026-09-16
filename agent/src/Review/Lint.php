@@ -444,11 +444,7 @@ final class Lint {
         // have rewritten a shortcode ref there either; same gate both scans share).
         if ($body !== '' && $policy->body_mode($postType) === 'blocks') {
             self::scan_html_media($body, $rel, 'body', $env, $findings);
-            if ($env->parses_blocks()) {
-                self::scan_blocks(parse_blocks($body), $blockRules, $rel, $home, $env, $findings);
-            } else {
-                $env->defer(self::BLOCK_DEFERRAL);
-            }
+            self::scan_blocks($body, $blockRules, $rel, $home, $env, $findings);
             self::scan_shortcodes($body, $shortcodeRules, $rel, $env, $findings);
         }
 
@@ -540,11 +536,7 @@ final class Lint {
         LintEnvironment $env,
         array &$findings
     ): void {
-        if (!$env->parses_blocks()) {
-            $env->defer(self::BLOCK_DEFERRAL);
-            return;
-        }
-        self::scan_blocks(parse_blocks($value), $blockRules, $rel, $home, $env, $findings);
+        self::scan_blocks($value, $blockRules, $rel, $home, $env, $findings);
     }
 
     private static function bare_id_note(array $hit): string {
@@ -598,14 +590,22 @@ final class Lint {
     // ------------------------------------------------------------ blocks
 
     private static function scan_blocks(
-        array $blocks,
+        string $body,
         array $blockRules,
         string $rel,
         string $home,
         LintEnvironment $env,
         array &$findings
     ): void {
-        foreach (BlockReferenceScanner::scan($blocks, $blockRules, $rel, $home, $env->resolver()) as $finding) {
+        foreach (BlockReferenceScanner::scan_closed_document($body, $blockRules, $rel) as $finding) $findings[] = $finding;
+        if (!$env->parses_blocks()) {
+            $env->defer(self::BLOCK_DEFERRAL);
+            return;
+        }
+        foreach (BlockReferenceScanner::scan(parse_blocks($body), $blockRules, $rel, $home, $env->resolver()) as $finding) {
+            // Raw comments own closure diagnostics on both host and WordPress.
+            // The parsed scan still suppresses unreviewed keys and values.
+            if ($finding['class'] === 'undeclared_block_attribute') continue;
             $findings[] = $finding;
         }
     }
