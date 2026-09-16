@@ -2,11 +2,12 @@
 # Capsule-owned baseline for native Apply and dependency/failure consumers.
 # This sourced script owns its pair and retains complete input/postimage bytes.
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+: "${PACKAGE_ROOT:?canonical caller capsule authority required}" "${WPRISM_ARTIFACT_PACKAGE:?canonical caller artifact scope required}"
+[ "$PACKAGE_ROOT" = "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)" ] \
+  && [ "$WPRISM_ARTIFACT_PACKAGE" = "${PACKAGE_ROOT##*/}" ] || fail 'Qi baseline requires its canonical caller capsule authority and artifact scope'
 REPO_ROOT="$(cd "$PACKAGE_ROOT/../.." && pwd -P)"
 cd "$REPO_ROOT/sandbox"
-fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 PAIR="${QI_APPLY_PAIR:?unique owned pair required}"
 PORT1="${QI_APPLY_PORT1:?even port required}"
 PORT2="${QI_APPLY_PORT2:?successor port required}"

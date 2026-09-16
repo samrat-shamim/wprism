@@ -5,6 +5,9 @@
 target IDs divergent, the complete standalone corpus, seven compiled entities,
 native HTTP/CSS, canonical recapture and zero-write repeat. It does not repeat
 unrelated global-control, picker or crop sweeps.
+Each live caller retains its canonical first-three-statement package authority;
+the shared baseline validates that ownership before requiring or mutating a
+pair. A sourced fixture does not substitute for the caller's preamble.
 
 The dependency phase exercises six distinct target premises through public
 content-only agent Apply:

@@ -2,6 +2,8 @@
 # One exact-source pair; reuse the standalone baseline rather than unrelated
 # global/picker/crop sweeps. Every refusal retains complete pre/postimages.
 set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 prior_zip="${QI_DEPENDENCY_PRIOR_ZIP:?locked local Qi 1.5.1 archive required}"
 [[ "$prior_zip" = /* ]] && [ -f "$prior_zip" ] || { printf 'absolute prior Qi archive required\n' >&2; exit 1; }
 [ "$(shasum -a 256 "$prior_zip" | cut -d ' ' -f 1)" = 9a9971ae6328cbcbdecb4beaabc90c61de6df5e7ba16bc523ee1dd20a1176ca2 ] \

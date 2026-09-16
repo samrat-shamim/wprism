@@ -115,7 +115,11 @@ PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 ```
 
-Put path normalization and other setup after this preamble. Create the ignored
+Keep this preamble in each live entry point when extracting setup into a
+sourced fixture. The fixture may validate the caller's capsule authority, but
+must not replace it: `regress_fetch_artifact.sh` checks the caller's first three
+statements independently of the fixture's execution. Put path normalization and
+other setup after this preamble. Create the ignored
 `sandbox/tmp` parent before allocating evidence below it; a fresh worktree does
 not contain that directory. Source shared helpers through the reviewed paths
 and capsule hooks through their `BASH_SOURCE`-relative paths, as enforced by

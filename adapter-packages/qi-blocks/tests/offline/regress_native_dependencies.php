@@ -137,6 +137,24 @@ foreach (['plugins', 'uploads'] as $name) {
         'stable malformed native hash inventory cannot prove no mutation: ' . $name);
 }
 wprism_check_throws(static fn() => QiNativeDependencyEvidence::profile('unknown'), RuntimeException::class, 'no generic refusal cause fallback');
+foreach (['regress_native_apply.sh', 'regress_native_dependencies.sh'] as $name) {
+    $statements = array_values(array_filter(array_map('trim', explode("\n", file_get_contents($capsule . '/tests/live/' . $name))),
+        static fn(string $line): bool => $line !== '' && !str_starts_with($line, '#')));
+    wprism_check_same(['set -euo pipefail', 'PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"',
+        'export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"'], array_slice($statements, 0, 3),
+        'live caller declares canonical artifact authority before branches or sources: ' . $name);
+}
+$prefixProbe = <<<'SH'
+set -euo pipefail
+PACKAGE_ROOT="$1" WPRISM_ARTIFACT_PACKAGE="$2"
+. "$3/fixtures/native-apply/setup.sh"
+SH;
+foreach ([[$capsule, 'qi-blocks', 'QI_APPLY_PAIR'], [$capsule, 'core', 'canonical caller capsule authority'],
+    [$root, 'qi-blocks', 'canonical caller capsule authority']] as [$selectedRoot, $selectedScope, $message]) {
+    [$status, $out, $err] = WPrismTest\ShellProbe::run($prefixProbe, [$selectedRoot, $selectedScope, $capsule], $root);
+    wprism_check($status !== 0 && $out === '' && str_contains($err, $message),
+        'actual sourced baseline validates caller ownership before requiring or mutating a pair: ' . $selectedScope . ' ' . $message);
+}
 $capture = ['counts' => ['post' => 4, 'term' => 1, 'menu' => 0, 'sidebar' => 1, 'options' => 1, 'deletion' => 0],
     'media' => 1, 'notes' => [], 'warnings' => [], 'initial_code_baseline' => null];
 QiNativeApplyEvidence::capture_result($capture);

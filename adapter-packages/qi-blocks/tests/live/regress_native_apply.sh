@@ -2,6 +2,8 @@
 # One disposable exact-source pair. Native REST writers, full divergent-ID
 # Apply, repeat, recapture and HTTP CSS; browser/editor evidence is separate.
 set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 . "$(dirname "${BASH_SOURCE[0]}")/../../fixtures/native-apply/setup.sh"
 # Replay all seven complete native global-control saves; attributes alone
 # would not prove the retained HTML, CSS, media and target-local state.
