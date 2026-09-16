@@ -37,7 +37,7 @@ final class ScalarValueConstraint {
         if (($rule['class'] ?? null) !== 'authored') self::refuse($where, 'requires class authored');
         foreach (['ref', 'cast', 'json_refs', 'key_refs', 'json_encoded', 'plain_data', 'php_containers', 'record_fields',
             'sub_keys', 'repeated_rows', 'order_preserving', 'native_value_validation', 'text_encoding',
-            'object_fields', 'enum', 'on_unmapped', 'ref_same_local_id_as', 'ref_taxonomy'] as $field) {
+            'object_fields', 'enum', 'on_unmapped', 'one_of', 'scalar_type', 'ref_same_local_id_as', 'ref_taxonomy'] as $field) {
             if (array_key_exists($field, $rule)) self::refuse($where, "cannot combine with $field");
         }
         $constraint = $rule[self::FIELD];

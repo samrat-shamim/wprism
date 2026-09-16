@@ -8,6 +8,7 @@ require_once __DIR__ . '/RecordFields.php';
 require_once __DIR__ . '/EncodedText.php';
 require_once __DIR__ . '/ValueContractGrammar.php';
 require_once __DIR__ . '/BlockAttributeReader.php';
+require_once __DIR__ . '/ValueShapeContract.php';
 
 /** Exact block attributes reuse the option/meta value grammar without changing legacy path semantics. */
 final class BlockValueGrammar {
@@ -35,7 +36,7 @@ final class BlockValueGrammar {
             'authored' => ['class' => 'authored', 'optional' => ['ref', 'cast', 'json_refs', 'key_refs', 'plain_data', RecordFields::FIELD, EncodedText::FIELD, ...ReferenceRules::BLOCK_CONTRACT_FIELDS]],
             'derived' => ['class' => 'derived'],
             'ownership' => 'one manifest per block when block_values is present; no overlapping block_attrs or whole-block codec',
-            'values' => 'exactly one of ref, json_refs/key_refs, plain_data:true, negotiated text_encoding, object_fields, or enum; CSV refs require an array ref',
+            'values' => 'exactly one of ref, json_refs/key_refs, plain_data:true, negotiated text_encoding, object_fields, enum, or negotiated one_of; negotiated scalar_type refines plain_data; CSV refs require an array ref',
             'validated_by' => 'WPrism\\BlockValueGrammar::validate()',
         ];
     }
@@ -57,7 +58,8 @@ final class BlockValueGrammar {
             $base && in_array(RecordFields::FEATURE, $manifest['engine_features'] ?? [], true),
             $base && in_array(EncodedText::FEATURE, $manifest['engine_features'] ?? [], true),
             'block',
-            objectRecords: $base && in_array(RecordFields::OBJECT_FEATURE, $manifest['engine_features'] ?? [], true)
+            objectRecords: $base && in_array(RecordFields::OBJECT_FEATURE, $manifest['engine_features'] ?? [], true),
+            valueShapes: $base && in_array(ValueShapeContract::FEATURE, $manifest['engine_features'] ?? [], true)
         );
         foreach ($registry as $block => $attributes) {
             if (!is_string($block) || preg_match('/^[a-z][a-z0-9_-]*\/[a-z][a-z0-9_-]*$/D', $block) !== 1
@@ -84,6 +86,7 @@ final class BlockValueGrammar {
             'on_unmapped' => 'refuse; reference codecs only; missing capture identities and target user bindings refuse instead of dropping references or using a default author',
             'reference_keyspaces' => 'json_refs/key_refs resolve durable identities; user login identities require ref:user or ref:user[] leaves, including within object_fields',
             'composition' => 'object_fields may compose negotiated object-record-fields/v1 with its surface record feature and an identical retained field set; enum remains exclusive; nested members cannot be derived',
+            'shapes' => ValueShapeContract::declaration_grammar(),
             'max_fields_per_object' => self::MAX_OBJECT_FIELDS, 'max_object_depth' => self::MAX_OBJECT_DEPTH,
             'max_expanded_contract_rules' => self::MAX_CONTRACT_RULES,
             'authority' => 'v3 manifest declaring block-attribute-values/v1 and block-value-contracts/v1; no option, metadata or site-policy transport',
@@ -179,7 +182,13 @@ final class BlockValueGrammar {
     /** @return list<array{blockName:string,attrs:array,offset:int}> */
     public static function read_closed_attributes(string $body, array $rules): array {
         $names = [];
-        foreach ($rules as $name => $rows) if (($rows[0]['closed_attributes'] ?? false) === true) $names[] = $name;
+        foreach ($rules as $name => $rows) {
+            // Negotiated shapes also need original framing: WordPress can
+            // erase corrupt JSON before its value codec ever sees the field.
+            $selected = ($rows[0]['closed_attributes'] ?? false) === true;
+            foreach ($rows as $row) if (isset($row['value']) && ValueShapeContract::uses($row['value'])) $selected = true;
+            if ($selected) $names[] = $name;
+        }
         return BlockAttributeReader::read($body, $names);
     }
 

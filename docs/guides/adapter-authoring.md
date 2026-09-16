@@ -661,6 +661,45 @@ malformed JSON. Capture and Apply must refuse that input instead; parser-free
 post/widget Lint exercises the same boundary while retaining existing parser
 deferrals for other reference findings.
 
+### Literal flags, closed objects and strict scalar fields
+
+Some native attributes alternate between a literal flag and a closed object.
+WordPress 7.1 visibility controls save `metadata.blockVisibility:false` for an
+omitted block and a nonempty viewport object for responsive hiding. Its rename
+control writes a string name and removes the metadata object when the final
+member is cleared. The exact Qi native saves are retained in
+`adapter-packages/qi-blocks/fixtures/native-global-controls/`; an empty-container
+exception is not needed for those resets.
+
+Negotiate `block-value-shapes/v1` alongside the block value and contract
+features. An authored `one_of` contains exactly an `enum` rule and an
+`object_fields` rule. For example:
+
+```json
+{"class":"authored", "one_of":[
+  {"class":"authored", "enum":[false]},
+  {"class":"authored", "object_fields":{
+    "viewport":{"class":"authored", "object_fields":{
+      "mobile":{"class":"authored", "enum":[false]}
+    }}
+  }}
+]}
+```
+
+Selection follows JSON shape; invalid active values refuse without trying the
+other rule. Both alternatives receive complete recursive validation and count
+toward the existing contract budget. Alternative order grants no precedence.
+An authored `plain_data:true` rule may also declare `scalar_type` as `string`,
+`number` or `boolean`, admitting that exact JSON type without coercion. Use this
+for a reviewed text field such as the native block name instead of allowing an
+arbitrary object to occupy its string coordinate. Unknown object members still
+refuse, absence stays absent, and privacy clearance is unchanged.
+
+Original shape-bearing comment bytes and public post/widget Lint share pure
+validation even without WordPress parsing. Native Save/reopen, frontend
+visibility and other injected metadata remain separate evidence obligations;
+do not use these contracts to admit unreviewed bindings, notes or pattern IDs.
+
 ### Objects that mix selectors, flags and query text
 
 A query object is not one reference leaf. Visual Portfolio's native `postsQuery`

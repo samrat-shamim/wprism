@@ -488,6 +488,19 @@ if (($argv[1] ?? '') === '--closed-attributes') {
     $manifest['block_values']['fixture/media']['localCounter'] = ['class' => 'authored', 'plain_data' => true];
     $policy = FrozenPolicy::policy([$manifest], $site);
 }
+// Reuse immutable post/widget compilation and the real SQL/fault/recapture
+// sequence with a disjoint literal/object rule and strict scalar leaves.
+if (($argv[1] ?? '') === '--value-shapes') {
+    $manifest['engine_features'][] = WPrism\ValueShapeContract::FEATURE;
+    sort($manifest['engine_features'], SORT_STRING);
+    $string = ['class' => 'authored', 'plain_data' => true, 'scalar_type' => 'string'];
+    $number = ['class' => 'authored', 'plain_data' => true, 'scalar_type' => 'number'];
+    $manifest['block_values']['fixture/media']['styles'] = ['class' => 'authored', 'one_of' => [
+        ['class' => 'authored', 'enum' => [false]],
+        ['class' => 'authored', 'object_fields' => ['background' => $string, 'width' => $number, 'value' => $string]],
+    ]];
+    $policy = FrozenPolicy::policy([$manifest], $site);
+}
 $scratch = sys_get_temp_dir() . '/wprism-block-values-' . bin2hex(random_bytes(8));
 mkdir($scratch . '/state/posts/page', 0700, true);
 $remove = static function (string $path) use (&$remove): void {

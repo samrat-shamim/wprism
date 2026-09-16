@@ -11,6 +11,7 @@ require_once __DIR__ . '/EncodedText.php';
 require_once __DIR__ . '/FieldLabelMap.php';
 require_once __DIR__ . '/FieldTemplateMap.php';
 require_once __DIR__ . '/InputFileBinding.php';
+require_once __DIR__ . '/ValueShapeContract.php';
 
 /** Surface owners negotiate capabilities; this pure grammar owns their shared recursive value shape. */
 final class ValueContractGrammar {
@@ -30,11 +31,13 @@ final class ValueContractGrammar {
         private readonly bool $fieldTemplates = false,
         private readonly bool $inputFiles = false,
         private readonly bool $objectRecords = false,
-        private readonly bool $fieldTemplateRequirements = false
+        private readonly bool $fieldTemplateRequirements = false,
+        private readonly bool $valueShapes = false
     ) {}
 
     /** Object members reuse the authored leaf grammar; absence never creates a default. */
     public function validate(array $rule, string $where, int $depth = 0): void {
+        ValueShapeContract::assert_negotiated($rule, $where, $this->valueShapes);
         $contract = array_intersect(array_keys($rule), [...ReferenceRules::BLOCK_CONTRACT_FIELDS, FieldLabelMap::FIELD, FieldTemplateMap::FIELD, InputFileBinding::FIELD]) !== [];
         $negotiated = $this->contracts;
         if (($contract || $depth > 0) && (!$negotiated || $depth > self::MAX_OBJECT_DEPTH
@@ -52,6 +55,16 @@ final class ValueContractGrammar {
             || array_diff(array_keys($rule), ['class', 'ref', 'cast', 'json_refs', 'key_refs', 'plain_data',
                 RecordFields::FIELD, EncodedText::FIELD, FieldLabelMap::FIELD, FieldTemplateMap::FIELD, InputFileBinding::FIELD, ...ReferenceRules::BLOCK_CONTRACT_FIELDS])) {
             throw new \RuntimeException("wprism: $where has an unsupported value disposition or field");
+        }
+        if (array_key_exists(ValueShapeContract::ALTERNATIVES_FIELD, $rule)) {
+            foreach (ValueShapeContract::alternatives($rule, $where) as $kind => $child) {
+                $this->validate($child, "$where.one_of.$kind", $depth);
+            }
+            return;
+        }
+        if (array_key_exists(ValueShapeContract::SCALAR_FIELD, $rule)) {
+            ValueShapeContract::assert_scalar_rule($rule, $where);
+            return;
         }
         if (array_key_exists(InputFileBinding::FIELD, $rule)) {
             if ($depth === 0) throw new \RuntimeException("wprism: $where input files require an exact nested object field");

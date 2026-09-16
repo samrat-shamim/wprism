@@ -37,7 +37,7 @@ final class ReferenceRules {
      */
     public const JSON_REF_REQUIRED = ['kind', 'path'];
     public const JSON_REF_OPTIONAL = ['cast'];
-    public const BLOCK_CONTRACT_FIELDS = ['object_fields', 'enum', 'on_unmapped'];
+    public const BLOCK_CONTRACT_FIELDS = ['object_fields', 'enum', 'on_unmapped', 'one_of', 'scalar_type'];
 
     /** One source of truth for attached EAV key ownership and behavior. */
     public static function attached_meta_key(array $declaration, string $key): array {

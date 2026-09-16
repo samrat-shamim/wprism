@@ -6,6 +6,7 @@ require_once __DIR__ . '/LintFinding.php';
 require_once __DIR__ . '/../Grammar/AuthoredValueCodec.php';
 require_once __DIR__ . '/AuthoredValueReferenceScanner.php';
 require_once __DIR__ . '/../Kernel/BlockValueGrammar.php';
+require_once __DIR__ . '/../Kernel/ValueShapeContract.php';
 
 /**
  * Manifest-declared Gutenberg block-reference scanning behind Lint's facade.
@@ -33,6 +34,16 @@ final class BlockReferenceScanner {
                 BlockValueGrammar::assert_closed_attributes($block['blockName'], $block['attrs'], $rules[$block['blockName']]);
             } catch (\RuntimeException $e) {
                 $findings[] = LintFinding::make('undeclared_block_attribute', $rel, 'blocks.' . $block['blockName'] . '.attrs', null, null, $e->getMessage());
+                continue;
+            }
+            foreach ($rules[$block['blockName']] as $row) {
+                if (!isset($row['value']) || !ValueShapeContract::uses($row['value']) || !array_key_exists($row['path'], $block['attrs'])) continue;
+                $locator = 'blocks.' . $block['blockName'] . '.attrs.' . $row['path'];
+                try {
+                    AuthoredValueCodec::assert_value($block['attrs'][$row['path']], $row['value'], true, $locator);
+                } catch (\RuntimeException $e) {
+                    $findings[] = LintFinding::make('invalid_block_value', $rel, $locator, '<declared-value>', null, $e->getMessage());
+                }
             }
         }
         return $findings;

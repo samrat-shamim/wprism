@@ -2,6 +2,18 @@
   "format": "wprism-engine-gaps/v1",
   "_comment": "The engine-gap ledger: plugin state shapes the generic grammar could not represent, typed so demand is COUNTABLE. tools/engine-gap-doc.php projects docs/guides/adapter-authoring-limitations.md from this file and `make release-gate` byte-compares the result, so the prose and the data cannot disagree. `primitives` is a CLOSED vocabulary -- the projector refuses a coordinate naming a primitive that is not declared here, and refuses a declared primitive nothing demands. That closure is the whole point: two candidates blocked on the same missing thing must name the SAME primitive id, so the open-demand ranking counts one primitive with two candidates rather than two lookalike wishlist lines. Adding a row is a review act, not a note-to-self: every `closed_by`/`evidence` path is checked to exist on disk, so a closed gap whose implementation moved fails the gate instead of quietly becoming a claim about nothing. CLOSURE IS PER COORDINATE (WP-6.1): `closed_by` sits on the coordinate whose primitive shipped, and a candidate's `disposition` is derived from its coordinates and merely checked -- `closed` exactly when every one of them carries `closed_by`. WP-6.1 forced that split by shipping a primitive that unblocked part of a row and none of the rest, which row-level closure could only state as one of two false sentences.",
   "primitives": {
+    "closed_block_value_shapes": {
+      "title": "strict scalar and disjoint literal/object block values",
+      "status": "shipped",
+      "definition": "Negotiated block-value-shapes/v1 refines authored plain-data scalar types and composes exactly one literal enum with one closed object rule. Both alternatives reuse recursive grammar, identity codecs, immutable post/widget validation, publication clearance and actual transactional materialization. Original comment framing and parser-free Lint share the pure contract; no runtime schema lookup, plugin executable or trial fallback is introduced.",
+      "evidence": [
+        "agent/src/Kernel/ValueShapeContract.php",
+        "agent/src/Kernel/ValueContractGrammar.php",
+        "agent/src/Grammar/AuthoredValueCodec.php",
+        "agent/src/Review/BlockReferenceScanner.php",
+        "sandbox/tests/offline/grammar/regress_block_value_shapes.php"
+      ]
+    },
     "structured_post_body_reference_paths": {
       "title": "structured post-body reference paths",
       "status": "shipped",
@@ -1259,6 +1271,45 @@
       "blocked_adapters": [
         "users-customers-import-export-for-wp-woocommerce"
       ]
+    },
+    {
+      "id": "qi-blocks-native-global-shapes",
+      "candidate": "Qi Blocks with WordPress global block controls",
+      "versions_probed": [
+        "1.5.2"
+      ],
+      "disposition": "closed",
+      "blocked_adapters": [
+        "qi-blocks"
+      ],
+      "coordinates": [
+        {
+          "coordinate": "block_values.qi-blocks/single-image.metadata.blockVisibility",
+          "cannot_represent": "Actual WordPress 7.1 editor saves use literal false for omission and a nonempty viewport object for mobile hiding. Existing exclusive enum/object_fields rules cannot represent both; plain_data would assign no reviewed meaning or nested type boundary.",
+          "primitive_required": "closed_block_value_shapes",
+          "closed_by": [
+            "agent/src/Kernel/ValueShapeContract.php",
+            "agent/src/Kernel/ValueContractGrammar.php",
+            "agent/src/Grammar/AuthoredValueCodec.php",
+            "agent/src/Review/BlockReferenceScanner.php",
+            "sandbox/tests/offline/grammar/regress_block_value_shapes.php"
+          ]
+        },
+        {
+          "coordinate": "block_values.qi-blocks/single-image.metadata.name",
+          "cannot_represent": "Actual rename saves a string and clears the final metadata member by omission. An unrestricted plain_data leaf also admits hostile objects carrying unreviewed source IDs at this string coordinate.",
+          "primitive_required": "closed_block_value_shapes",
+          "closed_by": [
+            "agent/src/Kernel/ValueShapeContract.php",
+            "agent/src/Kernel/ValueContractGrammar.php",
+            "agent/src/Grammar/AuthoredValueCodec.php",
+            "agent/src/Review/BlockReferenceScanner.php",
+            "sandbox/tests/offline/grammar/regress_block_value_shapes.php"
+          ]
+        }
+      ],
+      "closing": "The negotiated shared shape contract closes representability and admission through actual block Capture/Apply, target-free post/widget compiler, parser-free public Lint, recursive keyspaces and budgets, and the reused full SQL/fault/rollback/retry/recapture proof. Native source observations are retained separately. Qi global-control target editing, rendering and production readiness still require capsule evidence.",
+      "probed_on": "2026-09-16"
     }
   ]
 }

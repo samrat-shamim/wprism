@@ -5,6 +5,7 @@ require_once __DIR__ . '/../Kernel/StoragePrerequisiteGrammar.php';
 require_once __DIR__ . '/../Kernel/ColumnValueCases.php';
 require_once __DIR__ . '/../Kernel/FieldTemplateMap.php';
 require_once __DIR__ . '/../Kernel/InputFileBinding.php';
+require_once __DIR__ . '/../Kernel/ValueShapeContract.php';
 
 require_once __DIR__ . '/../Kernel/ScalarValueConstraint.php';
 
@@ -206,6 +207,7 @@ final class AdapterContractGrammar {
         BlockValueGrammar::ATTRIBUTE_PRODUCT_FEATURE => ['since' => 3, 'keys' => []],
         BlockValueGrammar::CLOSURE_FEATURE => ['since' => 3, 'keys' => [BlockValueGrammar::CLOSURE_FIELD => 'non_surface']],
         BlockValueGrammar::CONTRACT_FEATURE => ['since' => 3, 'keys' => []],
+        ValueShapeContract::FEATURE => ['since' => 3, 'keys' => []],
         RecordFields::FEATURE => ['since' => 3, 'keys' => []],
         RecordFields::OBJECT_FEATURE => ['since' => 3, 'keys' => []],
         EncodedText::FEATURE => ['since' => 3, 'keys' => []],
@@ -607,6 +609,9 @@ final class AdapterContractGrammar {
             }
             if ($name === BlockValueGrammar::CONTRACT_FEATURE) {
                 $rows[$name]['value_constraint'] = BlockValueGrammar::contract_grammar();
+            }
+            if ($name === ValueShapeContract::FEATURE) {
+                $rows[$name]['value_constraint'] = ValueShapeContract::declaration_grammar();
             }
             if ($name === RecordFields::FEATURE) {
                 $rows[$name]['value_constraint'] = RecordFields::declaration_grammar();

@@ -597,7 +597,12 @@ final class Lint {
         LintEnvironment $env,
         array &$findings
     ): void {
-        foreach (BlockReferenceScanner::scan_closed_document($body, $blockRules, $rel) as $finding) $findings[] = $finding;
+        $rawCounts = [];
+        foreach (BlockReferenceScanner::scan_closed_document($body, $blockRules, $rel) as $finding) {
+            $findings[] = $finding;
+            $key = $finding['class'] . ':' . $finding['locator'];
+            $rawCounts[$key] = ($rawCounts[$key] ?? 0) + 1;
+        }
         if (!$env->parses_blocks()) {
             $env->defer(self::BLOCK_DEFERRAL);
             return;
@@ -606,6 +611,9 @@ final class Lint {
             // Raw comments own closure diagnostics on both host and WordPress.
             // The parsed scan still suppresses unreviewed keys and values.
             if ($finding['class'] === 'undeclared_block_attribute') continue;
+            $key = $finding['class'] . ':' . $finding['locator'];
+            if (($rawCounts[$key] ?? 0) > 0) { $rawCounts[$key]--;
+            continue; }
             $findings[] = $finding;
         }
     }

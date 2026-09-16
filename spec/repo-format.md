@@ -5046,3 +5046,42 @@ the existing block-values surface and adds no independent capability arm,
 plugin executable, runtime schema lookup or prefix ownership. Unselected
 blocks and existing manifests retain their exact open behavior. Opting in
 changes adapter identity and requires recapture, compilation and new pins.
+
+### v3.52 `block-value-shapes/v1` — strict scalars and disjoint literal/object values
+
+A v3 manifest declaring `block-attribute-values/v1`,
+`block-value-contracts/v1` and this feature may refine an authored
+`plain_data:true` rule with `scalar_type`, exactly `string`, `number` or
+`boolean`. These three fields are the complete rule. Both native and canonical
+values must have the declared JSON type; `number` admits integers and finite
+floats. No coercion, default or additional reference meaning is supplied.
+
+An authored rule may instead declare exactly `one_of`, a two-member list of
+authored value rules: one `enum` and one `object_fields`. The existing enum
+grammar admits strict scalar literals only. The existing object grammar admits
+nonempty exact objects only, including negotiated object-record projection.
+Their domains are disjoint. JSON arrays select the object rule and still refuse
+if empty or a list; other JSON values select the enum. Selection does not try
+another codec after refusal and is independent of alternative order.
+
+Both alternatives receive complete declaration, keyspace and feature
+validation. Each contributes to the existing 65,536-rule recursive contract
+budget, including inactive alternatives; alternatives do not create another
+object nesting level. The existing four-level object, field, enum, plain-JSON
+and encoded-text fragment limits remain unchanged. Nested object fields may
+compose these shapes with the ordinary reference and text codecs.
+
+Capture, immutable post/widget compilation, native Apply and Lint use the same
+pure shape validation. Original comments for shape-bearing owners are read
+before WordPress parses them, since malformed JSON may otherwise disappear.
+Post/widget host Lint reviews these values without the native parser and emits
+one finding per invalid occurrence when parsed checks also run. Other declared
+references retain their existing parser deferrals. Literal siblings keep
+privacy and secret clearance; selecting an object does not clear its siblings.
+
+This feature refines `block_values`; it has no new capability arm, option or
+column transport, site override, runtime plugin lookup or executable adapter
+hook. It does not close undeclared attributes on its own; use the independent
+closure feature for that authority. Existing declarations retain their exact
+meaning. Opting in changes adapter identity and requires new compilation and
+pins; `WPRISM_SPEC_VERSION` remains `3`.
