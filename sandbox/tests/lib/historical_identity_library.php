@@ -26,7 +26,9 @@ final class WPrismHistoricalIdentityLibrary {
             || ($record['archive_sha256'] ?? null) !== self::ARCHIVE_SHA256) {
             throw new RuntimeException('historical identity input fixture has an invalid declaration');
         }
-        $scratch = $repo . '/sandbox/tmp/historical-identity-' . bin2hex(random_bytes(12));
+        // Fresh source checkouts have no ignored sandbox/tmp. Extraction owns
+        // its private system-temp root independently of repository setup.
+        $scratch = sys_get_temp_dir() . '/wprism-historical-identity-' . bin2hex(random_bytes(12));
         if (!mkdir($scratch, 0700)) throw new RuntimeException('cannot allocate historical identity input root');
         register_shutdown_function(static fn() => self::remove($scratch));
         // The archive is byte-pinned before tar sees it. Its closed per-file
@@ -51,7 +53,10 @@ final class WPrismHistoricalIdentityLibrary {
     }
 
     private static function remove(string $path): void {
-        if (!is_dir($path) || is_link($path)) { unlink($path); return; }
+        if (!is_dir($path) || is_link($path)) {
+            unlink($path);
+            return;
+        }
         foreach (new FilesystemIterator($path, FilesystemIterator::SKIP_DOTS) as $entry) self::remove($entry->getPathname());
         rmdir($path);
     }

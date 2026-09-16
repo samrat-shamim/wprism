@@ -30,7 +30,6 @@ require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterRegistry.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/ArtifactPolicyIdentity.php';
 
-use WPrism\AdapterLibrary;
 use WPrism\ArtifactPolicyIdentity;
 use WPrism\Canon;
 use WPrism\ManifestDispositions;
@@ -267,5 +266,29 @@ wprism_check_same(
     [$restored['agent_version'] ?? null, $restored['spec_version'] ?? null],
     'the unmodified WPrism platform boundary loads, proving the two refusals are mutation-specific'
 );
+
+echo "\nPART 5 — retained input materialization needs no repository scratch\n";
+$cleanRoot = sys_get_temp_dir() . '/wprism-identity-clean-root-' . bin2hex(random_bytes(12));
+if (!mkdir($cleanRoot . '/sandbox/tests/lib', 0700, true)) {
+    throw new RuntimeException('cannot allocate clean-root identity control');
+}
+register_shutdown_function(static fn() => $removeTree($cleanRoot));
+foreach (['historical_identity_library.php', 'ShellProbe.php', 'check.php'] as $file) {
+    if (!copy($repo . '/sandbox/tests/lib/' . $file, $cleanRoot . '/sandbox/tests/lib/' . $file)) {
+        throw new RuntimeException('cannot copy clean-root identity test dependency');
+    }
+}
+if (!symlink($repo . '/agent', $cleanRoot . '/agent')
+    || !symlink($repo . '/sandbox/tests/fixtures', $cleanRoot . '/sandbox/tests/fixtures')) {
+    throw new RuntimeException('cannot bind clean-root read-only identity dependencies');
+}
+wprism_check(!file_exists($cleanRoot . '/sandbox/tmp'), 'the clean-root control begins without ignored repository scratch');
+[$status, $stdout, $stderr] = WPrismTest\ShellProbe::run(
+    'exec php -r \'require $argv[1] . "/sandbox/tests/lib/historical_identity_library.php"; echo count(WPrismHistoricalIdentityLibrary::materialize()->packages()), "\\n";\' "$1"',
+    [$cleanRoot], $cleanRoot
+);
+wprism_check_same([0, "21\n", ''], [$status, $stdout, $stderr],
+    'the actual historical helper admits every byte-pinned subject in a fresh root without diagnostics');
+wprism_check(!file_exists($cleanRoot . '/sandbox/tmp'), 'historical extraction has no repository setup side effect');
 
 wprism_check_summary('spec v3 digest neutrality');
