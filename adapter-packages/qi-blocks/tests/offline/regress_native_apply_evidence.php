@@ -213,7 +213,8 @@ foreach ([['{"result":"ok"}', 'unexpected diagnostic'], ['{"result":"ok"}', '', 
 
 // Execute the runner's actual snapshot body with distinct per-site catalogs.
 // This pin fails if a target snapshot accidentally copies source/media again.
-$runner = file_get_contents($capsule . '/tests/live/regress_native_apply.sh');
+$runner = file_get_contents($capsule . '/fixtures/native-apply/setup.sh') . "\n"
+    . file_get_contents($capsule . '/tests/live/regress_native_apply.sh');
 wprism_check_same(1, preg_match('/snapshot\(\) \{\n.*?\n\}/s', $runner, $match), 'live runner has one testable snapshot operation');
 foreach (['source', 'target'] as $side) {
     mkdir("$scratch/$side/state", 0700, true);
