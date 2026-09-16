@@ -3,14 +3,16 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../conformance/corpus.php';
 
-/** Replay the three real full-response gallery fragments; simple-media controls have separate evidence. */
+/** Replay every retained picker writer; empty registry defaults missed all six selections. */
 final class QiNativeControlsCorpus {
     public const GALLERIES = ['qi-blocks/image-gallery', 'qi-blocks/image-gallery-pinterest', 'qi-blocks/image-slider'];
+    public const SIMPLE = ['qi-blocks/author-info', 'qi-blocks/progress-bar-horizontal', 'qi-blocks/progress-bar-vertical'];
 
     public static function saved(string $saved, string $controls): string {
         $replacements = [];
         foreach (parse_blocks($controls) as $block) {
-            if (!in_array($block['blockName'], self::GALLERIES, true)) continue;
+            if ($block['blockName'] === null) continue;
+            if (!in_array($block['blockName'], [...self::GALLERIES, ...self::SIMPLE], true)) throw new RuntimeException('Unexpected native picker fixture owner');
             if (isset($replacements[$block['blockName']]) || $block['innerBlocks'] !== []) throw new RuntimeException('Native gallery fixture owner is ambiguous');
             $text = static fn(string $value): string => preg_replace('/(?<![A-Za-z0-9_-])wp-image-1(?![0-9])/', 'wp-image-8',
                 str_replace('http://localhost:9176', QiConformanceCorpus::SOURCE_HOME, $value));
@@ -24,7 +26,7 @@ final class QiNativeControlsCorpus {
             unset($fragment);
             $replacements[$block['blockName']] = $block;
         }
-        if (count($replacements) !== 3) throw new RuntimeException('Native gallery fixture requires all three full-response writers');
+        if (count($replacements) !== 6) throw new RuntimeException('Native picker fixture requires all six retained writers');
         $blocks = parse_blocks($saved); $seen = [];
         foreach ($blocks as &$block) if (isset($replacements[$block['blockName']])) {
             if (isset($seen[$block['blockName']])) throw new RuntimeException('Native corpus gallery owner is duplicated');
@@ -32,7 +34,7 @@ final class QiNativeControlsCorpus {
             $block = $replacements[$block['blockName']];
         }
         unset($block);
-        if (count($seen) !== 3) throw new RuntimeException('Native corpus lost a gallery owner');
+        if (count($seen) !== 6) throw new RuntimeException('Native corpus lost a picker owner');
         return serialize_blocks($blocks);
     }
 }

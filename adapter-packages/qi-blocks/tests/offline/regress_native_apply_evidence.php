@@ -331,14 +331,31 @@ foreach (['body', 'cache', 'row', 'upload', 'option', 'identity', 'format'] as $
     wprism_check_throws(static fn() => $galleryAdmission($gallerySource, $bad), RuntimeException::class, 'gallery native admission rejects ' . $fault);
 }
 $galleryHtml = '';
-foreach (QiNativeControlsCorpus::GALLERIES as $name) {
-    $galleryHtml .= '<div class="wp-block-' . str_replace('/', '-', $name) . '"><img src="' . $galleryTarget['attachment']['url'] . '" /></div>';
-}
+foreach (parse_blocks($galleryTarget['page_body']) as $block) if (in_array($block['blockName'],
+    [...QiNativeControlsCorpus::GALLERIES, ...QiNativeControlsCorpus::SIMPLE], true)) $galleryHtml .= $block['innerHTML'];
 QiNativeControlsEvidence::images($galleryHtml, $galleryTarget);
-wprism_check(true, 'gallery frontend admission requires all three native owners and their selected image');
+wprism_check(true, 'picker frontend admission requires galleries, signature and both progress patterns');
 foreach (['', $galleryHtml . $galleryHtml, str_replace('tmp-qi-image.png', 'wrong.png', $galleryHtml)] as $badHtml) {
     wprism_check_throws(static fn() => QiNativeControlsEvidence::images($badHtml, $galleryTarget), RuntimeException::class,
         'gallery frontend admission rejects absent, duplicated or incorrectly selected images');
 }
+foreach (['signature' => 'qodef-m-signature', 'horizontal pattern' => 'data-pattern=', 'vertical pattern' => 'data-pattern='] as $label => $marker) {
+    $badHtml = $label === 'vertical pattern'
+        ? substr_replace($galleryHtml, 'data-unproved=', strrpos($galleryHtml, $marker), strlen($marker))
+        : preg_replace('/' . preg_quote($marker, '/') . '/', 'unproved=', $galleryHtml, 1);
+    wprism_check_throws(static fn() => QiNativeControlsEvidence::images($badHtml, $galleryTarget), RuntimeException::class,
+        'picker frontend admission rejects a lost ' . $label);
+}
+$controls = file_get_contents($capsule . '/fixtures/native-controls/blocks.html');
+$pickerBlocks = array_values(array_filter(parse_blocks($controls), static fn(array $block): bool => $block['blockName'] !== null));
+foreach ($pickerBlocks as $index => $picker) {
+    $incomplete = $pickerBlocks; unset($incomplete[$index]);
+    wprism_check_throws(static fn() => QiNativeControlsCorpus::saved($saved, serialize_blocks(array_values($incomplete))), RuntimeException::class,
+        'picker corpus rejects a missing retained writer ' . $picker['blockName']);
+    wprism_check_throws(static fn() => QiNativeControlsCorpus::saved($saved, serialize_blocks([...$pickerBlocks, $picker])), RuntimeException::class,
+        'picker corpus rejects an ambiguous retained writer ' . $picker['blockName']);
+}
+wprism_check_throws(static fn() => QiNativeControlsCorpus::saved($saved, $controls . '<!-- wp:qi-blocks/unreviewed /-->'), RuntimeException::class,
+    'picker corpus rejects an unreviewed native writer');
 if (wprism_check_failed() > 0) exit(1);
 echo 'PASS: Qi native Apply evidence (' . wprism_check_stats()['passed'] . " assertions)\n";

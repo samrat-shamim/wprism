@@ -104,7 +104,8 @@ capture render-repeat1 capture candidate 1 capture --repo=/siterepo --out=/siter
 snapshot render-source "$R1" "$R1/.tmp-qi-render-repeat"
 php "$PACKAGE_ROOT/fixtures/native-apply/evidence.php" --admit "$sink" "$PAIR"
 # The picker saves response metadata absent from the registry's empty defaults.
-# Replay all three native gallery shapes before any custom crop work.
+# Replay all six retained picker shapes, including signature and both patterns,
+# before custom crop work. Empty defaults cannot qualify selected controls.
 dest="$PAIR_LIVE_OWNERSHIP_SITE1/.tmp-qi-native"
 mkdir "$dest/native-controls" "$dest/conformance"
 cp "$PACKAGE_ROOT/fixtures/native-controls/"*.php "$PACKAGE_ROOT/fixtures/native-controls/blocks.html" "$dest/native-controls/"

@@ -47,6 +47,14 @@ final class QiNativeControlsEvidence {
                 QiNativeApplyEvidence::check($images->length === 1 && $images->item(0)->getAttribute('src') === $native['attachment']['url'],
                     'frontend gallery does not render its selected original attachment');
             }
+            $signatures = $xpath->query('//*[contains(concat(" ", normalize-space(@class), " "), " wp-block-qi-blocks-author-info ")]//*[contains(concat(" ", normalize-space(@class), " "), " qodef-m-signature ")]/img');
+            QiNativeApplyEvidence::check($signatures->length === 1 && $signatures->item(0)->getAttribute('src') === $native['attachment']['url'],
+                'frontend author signature does not render its selected original attachment');
+            foreach (['horizontal', 'vertical'] as $direction) {
+                $patterns = $xpath->query('//*[contains(concat(" ", normalize-space(@class), " "), " wp-block-qi-blocks-progress-bar-' . $direction . ' ")]//*[@data-pattern]');
+                QiNativeApplyEvidence::check($patterns->length === 1 && $patterns->item(0)->getAttribute('data-pattern') === $native['attachment']['url'],
+                    'frontend progress pattern does not select its original attachment');
+            }
         } finally {
             libxml_clear_errors();
             libxml_use_internal_errors($previous);
@@ -90,6 +98,6 @@ if (($argv[1] ?? null) === '--admit-controls') {
         if ($side !== 'controls-source') WPrismTest\RepositoryConvergence::assertSame($compiled['controls-source'], $compiled[$side]);
     }
     echo json_encode(['format' => 'wprism-qi-native-gallery-admission/v1', 'result' => 'pass', 'galleries' => 3,
-        'compiled_entities' => 7, 'applied' => 1, 'repeat_applied' => 0,
-        'scope' => 'Three real picker gallery fixtures through native REST Save, cross-ID Apply, full recapture, HTTP images/CSS and native-state preservation. Browser interaction and other media controls are separate.'], JSON_THROW_ON_ERROR), "\n";
+        'simple_media_controls' => 3, 'compiled_entities' => 7, 'applied' => 1, 'repeat_applied' => 0,
+        'scope' => 'All six retained picker fixtures through native REST Save, cross-ID Apply, full recapture, HTTP images/CSS, signature/pattern selection and native-state preservation. Browser interaction is separate.'], JSON_THROW_ON_ERROR), "\n";
 }
