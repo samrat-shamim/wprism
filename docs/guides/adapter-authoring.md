@@ -3335,6 +3335,18 @@ separate from literal destination values. It composes beneath `object_fields`
 and the appropriate import `value_cases` arm; export labels retain their own
 contract. Do not classify import expressions as field labels.
 
+When the native consumer requires a functional member, also negotiate
+`column-field-template-requirements/v1` and use the compact object form. A
+`brace` map declares `{"format":"brace","required_nonempty":["field"]}`;
+a `brace_enabled` map declares
+`{"format":"brace_enabled","required_enabled":["field"]}`. The lists are
+bounded, sorted and exact. Capture, compilation and Apply all refuse a missing
+or empty required expression; `required_enabled` also refuses a native flag
+other than integer `1`. This asserts only the member contract established by
+the native producer and consumer. It does not add a default or synthesize an
+expression. Importer 2.7.5 uses it for `user_pass`: the plugin otherwise saves
+a disabled mapping and later warns twice while merging an existing user.
+
 Prove the producer's persisted tuple shape and consumer's exact brace dialect.
 Importer 2.7.5 Save sanitizes definitions to two slots; its consumer substitutes
 nonempty brace bodies, trims header names and interprets date/arithmetic syntax.

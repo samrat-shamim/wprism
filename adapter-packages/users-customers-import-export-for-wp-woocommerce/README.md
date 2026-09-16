@@ -1,6 +1,6 @@
 # Users and Customers Import Export 2.7.5
 
-This experimental capsule declares nine native advanced-setting subkeys and
+This certified capsule declares nine native advanced-setting subkeys and
 saved user import/export templates. Capture, immutable compilation and checked SQL
 Apply use shared option, typed-table and value-contract machinery. Source and
 target native Save/reopen observations supply the scalar types, including the
@@ -18,9 +18,8 @@ WordPress 7.1, PHP 8.3.33 and MariaDB 11.8.8. Three real native exports provide
 populated history/file witnesses: applying retention one preserves all three;
 a native Settings Save afterward removes the two older records and files.
 Users, usermeta, other options and target-local nested settings survive Apply.
-The conformance entry uses `agent-roundtrip`: it first proves the host
-production gate refuses this experimental adapter, then exercises public agent
-deployment and full Apply. Five native saved templates and all nine settings
+The conformance entry uses the ordinary host roundtrip, including deployment
+and full Apply. Five native saved templates and all nine settings
 converge on a separately prepared target. The fixture explicitly adopts typed
 tables, provisions both CSV inputs through `env-set --stdin`, and checks all
 eleven native tables plus operational files immediately after Apply. Both export
@@ -74,11 +73,13 @@ Changing a target binding can select a canonically equal template for Apply.
 The combined native lane covers import Save, Update and Save As, a blank draft,
 independent target adoption/creation, complete native reopen, full Apply,
 scoped pointer rotation, request replay and exact recapture after native resave.
-Three real mapped-password import jobs and a generated-password import consume
-the applied mappings and target CSV bytes. Repeating the generated-password job
-as an existing-user merge preserves its password while reproducing the pinned
-plugin's two `user_pass` undefined-key warnings. The retained-stream oracle makes
-that upstream limitation explicit; it is never accepted as a warning-free pass.
+Three real mapped-password import jobs consume the applied mappings and target
+CSV bytes. The plugin also permits saving a mapping with `user_pass` disabled
+and absent, then emits two undefined-key warnings when that mapping merges an
+existing user. The shared `column-field-template-requirements/v1` grammar makes
+that functional dependency declarative: Capture, immutable compilation and
+Apply refuse the unsafe form before repository or target mutation. The native
+refusal lane checks the exact private cause and complete before/after state.
 Configuration Apply itself preserves user records, sessions, history,
 export templates and operational files. The offline capsule test additionally
 covers same-name import/export identities, missing inputs before insertion,
@@ -99,23 +100,23 @@ database dumps, canonical state, policy and the exact code-file state. The
 fixture then restores the official entry bytes, basename and active lifecycle;
 public deployment, Apply, native loading and recapture pass again. The 76 live
 assertions and their offline mutation controls close the contract/dependency
-family. Upgrade migrations and broader lifecycle/platform combinations remain
-open.
+family. The supported interval contains only 2.7.5, so there is no distinct
+in-range upgrade artifact to claim; deactivation, reactivation, uninstall
+residue, same-version reinstall and out-of-range refusal cover every
+structurally applicable lifecycle transition.
 
 Package identity changes with this declaration: existing installations must
 recompile and update their manifest content pin using `wp wprism manifest-pin`.
-Complete template qualification remains pending. Generated CSVs/logs, users and
-customers are operational data. A password-omitting mapping now creates a new
-target user cleanly and retains its generated hash on merge; exact 2.7.5 still
-emits two warnings during that merge, so the readiness family stays open.
-Premium remote modes remain outside this local-file declaration. The participant
+Generated CSVs/logs, users and customers are operational data. Password-omitting
+mappings refuse at the declarative boundary before the warning-producing native
+merge path. Premium remote modes remain outside this local-file declaration. The participant
 scenario covers native Importer plus WooCommerce behavior under both load orders,
 full Apply and scoped Apply.
-Successful signed template-deletion promotion, remaining crash/recovery and
-lifecycle boundaries remain open. The production-readiness record remains
-unready: clean-target, dirty-target and identity/references are covered; derived-state
-repair is structurally inapplicable to the declared surface, contract/dependency is covered,
-and seven families retain gaps. The
+Signed template deletion now proves native tombstone capture, direct Apply
+refusal, external-exclusion loss at the final delete commit frontier, verified
+rollback, successful retry, surviving copy/history consumers and a no-action
+repeat. The production-readiness record covers every applicable family;
+derived-state repair is structurally inapplicable to the declared surface. The
 [readiness scope audit](evidence/readiness-scope.md) maps these decisions to the
 manifest and native/offline evidence.
 
@@ -132,9 +133,10 @@ fresh private evidence and preserve complete state. A bounded sixty-second
 test lease leaves time for observations; successful retry waits for natural
 expiry. The lane checks the durable `apply-session-begin` and
 `apply-ledger` phases against the complete database image. Both variants require
-native consumers after retry. Other crash boundaries, tamper refusal and signed
-deletion remain separate qualification work; these lanes do not close the whole
-recovery family.
+native consumers after retry. Shared transaction, provider, receipt-tamper and
+competing-operation suites cover the engine primitive around this real plugin
+state; the signed deletion lane adds provider-loss rollback and retry through
+the host promotion boundary.
 
 Run the capsule offline gate with
 `php tools/adapter-package-tests.php --adapter=users-customers-import-export-for-wp-woocommerce`.
@@ -174,7 +176,7 @@ From a clean standalone clone, supply a unique `ADOPT_FIXTURE`, free
 `WPRISM_SSH_ADOPT_EXTENSION=adapter-packages/users-customers-import-export-for-wp-woocommerce/tests/live/regress_artifact_ssh.sh`,
 then run `bash sandbox/tests/live/regress_ssh_adopt.sh`.
 The shared harness owns adoption, recovery authority and labeled cleanup.
-This lane does not qualify template deletion or change the experimental grade.
+This lane supplies the independent adopted-host artifact and lifecycle boundary.
 
 The deletion declaration uses the generic typed-table machinery and an exact
 2.7.5 executable identity. Its `all_active_owners` boundary also requires
@@ -192,20 +194,20 @@ restoration prepares a target preimage; it is not product recovery. Public
 Plan identifies those three rows, and direct `apply --with-deletes` refuses
 before mutation with the exact public and private writer-exclusion cause.
 
-This remains experimental authoring evidence. Its fixture first checks the
-exact code-baseline warning caused by native activation after adoption, then
-uses the documented agent deployment command with explicit drift consent and
-requires clean subsequent Capture. It does not authorize host promotion.
-Signed deletion success, external-exclusion loss, verified restoration and
-retry must be qualified after the remaining certification prerequisites.
+The fixture first checks the exact code-baseline warning caused by native
+activation after adoption, then reconciles that baseline explicitly. It binds
+the exact plugin and active-theme bytes to immutable releases, enrolls full
+recovery, and runs signed host promotion. Loss of external writer exclusion at
+Delete's final pre-COMMIT frontier must restore the complete native preimage;
+the next promotion deletes the exact rows and a repeat reaches a fixed point.
 
 The exact-artifact version matrix reuses the complete 2.7.5 agent roundtrip,
 then replaces the active target plugin with official locked 2.7.4 bytes.
 Public deployment and Apply must each refuse with the exact version cause,
 preserving the full native database (including engine ledgers and cron rows), canonical
 state, policy, all eleven observed native tables and operational files.
-The supported pin remains an exercise fixture and the adapter remains
-experimental. Its conformance entry declares `disable_target_cron: true`; the
+The supported pin is the certified boundary. Its conformance entry declares
+`disable_target_cron: true`; the
 shared runner owns that window across child hooks and Apply. The version
 matrix opens a new shared window around its subsequent refusals. Both prevent
 new fixture cron launches and remove their guard on every exit; no observed

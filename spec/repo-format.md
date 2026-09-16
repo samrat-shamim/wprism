@@ -4996,3 +4996,24 @@ compilation, lint, Apply, reference-keyspace checks and media-derivative
 ownership. Raw manifest bytes remain the adapter identity input, so adopting
 this syntax changes the adapter digest and requires fresh site pins even when
 the expanded map is byte-identical.
+
+### v3.50 `column-field-template-requirements/v1` — required functional map members
+
+A v3 manifest declaring `column-field-templates/v1` and this feature may use a
+closed object instead of the existing string `field_templates` value. A
+`brace` map declares exactly `{"format":"brace","required_nonempty":[...]}`;
+a `brace_enabled` map declares exactly
+`{"format":"brace_enabled","required_enabled":[...]}`. Each list contains
+1–256 sorted, unique, nonempty UTF-8 field names of at most 128 bytes.
+
+Every named member must be present and its native expression must be nonempty.
+The canonical expression must likewise contain at least one normalized
+fragment. A `required_enabled` member must additionally carry the exact native
+integer flag `1`; other scalars and integer `0` refuse. These checks run before
+transformation during Capture, immutable compilation and Apply. The existing
+map, expression, fragment, JSON-depth and node budgets remain unchanged.
+
+The declaration supplies no missing member, expression or enable flag, and the
+engine does not interpret the plugin's expression language. Existing string
+declarations retain their byte-identical meaning and accept empty maps. An
+object form without this feature refuses at manifest load by feature name.

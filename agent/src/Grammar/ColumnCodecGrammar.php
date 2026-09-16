@@ -184,6 +184,7 @@ final class ColumnCodecGrammar {
             'input_file' => ['feature' => InputFileBinding::FEATURE, 'shape' => 'authored input_file:{directory,extensions}',
                 'refines' => 'ordinary typed rows; content-relative directory, literal filename; canonical dependency marker or empty draft; target-local env-set intent and readable regular file; no file transport'],
             'field_templates' => ['feature' => FieldTemplateMap::FEATURE, 'formats' => FieldTemplateMap::FORMATS,
+                'requirements_feature' => FieldTemplateMap::REQUIREMENTS_FEATURE,
                 'max_expression_bytes' => FieldTemplateMap::MAX_BYTES, 'max_fragments' => FieldTemplateMap::MAX_FRAGMENTS,
                 'refines' => 'authored field-code map; native brace expressions or [expression, integer 0 or 1]; canonical text/field fragment lists; only literals use text transport and destination privacy roles'],
             'field_labels' => ['feature' => self::FIELD_LABELS_FEATURE, 'formats' => FieldLabelMap::FORMATS,
@@ -237,7 +238,8 @@ final class ColumnCodecGrammar {
             in_array(self::FIELD_LABELS_FEATURE, (array) ($manifest['engine_features'] ?? []), true),
             in_array(FieldTemplateMap::FEATURE, (array) ($manifest['engine_features'] ?? []), true),
             in_array(InputFileBinding::FEATURE, (array) ($manifest['engine_features'] ?? []), true),
-            in_array(RecordFields::OBJECT_FEATURE, (array) ($manifest['engine_features'] ?? []), true));
+            in_array(RecordFields::OBJECT_FEATURE, (array) ($manifest['engine_features'] ?? []), true),
+            in_array(FieldTemplateMap::REQUIREMENTS_FEATURE, (array) ($manifest['engine_features'] ?? []), true));
         foreach ($section as $table => $columns) {
             $table = (string) $table;
             $where = "$label column_codecs.$table";

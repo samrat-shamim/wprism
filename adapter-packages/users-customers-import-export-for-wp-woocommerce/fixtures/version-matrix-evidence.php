@@ -17,10 +17,10 @@ final class ImporterVersionMatrixEvidence {
             && preg_match('/(?:^|\s)(?:Warning|Notice|Deprecated|Fatal error|Parse error|Error|FAIL):/mi', $plain) !== 1,
             'successful matrix transcript has no diagnostics');
         $lines = array_values(array_filter(explode("\n", trim($plain)), static fn(string $line): bool => trim($line) !== ''));
-        $terminal = '✔ AGENT ROUNDTRIP PASSED (users-customers-import-export-for-wp-woocommerce; production promotion withheld)';
+        $terminal = '✔ CONFORMANCE PASSED (users-customers-import-export-for-wp-woocommerce)';
         ImporterSettingsEvidence::check($kind === 'positive' && end($lines) === $terminal
-            && count(array_keys($lines, $terminal, true)) === 1 && !str_contains($plain, '✔ CONFORMANCE PASSED'),
-            'complete experimental roundtrip keeps production promotion withheld');
+            && count(array_keys($lines, $terminal, true)) === 1 && !str_contains($plain, 'production promotion withheld'),
+            'complete certified roundtrip reaches the ordinary host workflow');
     }
 
     public static function transport(string $pair): string {

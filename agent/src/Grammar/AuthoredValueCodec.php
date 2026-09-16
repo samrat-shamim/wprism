@@ -228,10 +228,10 @@ final class AuthoredValueCodec {
             return ['present' => true, 'value' => FieldLabelMap::pii_subject($value)];
         }
         if (isset($rule[FieldTemplateMap::FIELD])) {
-            $format = $rule[FieldTemplateMap::FIELD];
+            $declaration = $rule[FieldTemplateMap::FIELD];
             return ['present' => true, 'value' => $purpose === 'text'
-                ? FieldTemplateMap::text_subject($value, $format)
-                : FieldTemplateMap::sensitivity_subject($value, $format, $canonical, $where)];
+                ? FieldTemplateMap::text_subject($value, $declaration)
+                : FieldTemplateMap::sensitivity_subject($value, $declaration, $canonical, $where)];
         }
         if (isset($rule['object_fields'])) {
             $subject = [];

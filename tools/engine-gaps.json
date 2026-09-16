@@ -40,6 +40,18 @@
         "adapter-packages/users-customers-import-export-for-wp-woocommerce/fixtures/expressions-native.php"
       ]
     },
+    "column_field_template_requirements": {
+      "title": "required functional members inside typed-column field-template maps",
+      "status": "shipped",
+      "definition": "A feature-gated field-template declaration can require named brace expressions to be nonempty, or named brace-enabled definitions to be both nonempty and enabled. The shared value contract enforces the same bounded sorted declaration during Capture, immutable compilation, lint and Apply; it adds no defaults and interprets no plugin expressions.",
+      "evidence": [
+        "agent/src/Kernel/FieldTemplateMap.php",
+        "agent/src/Kernel/ValueContractGrammar.php",
+        "agent/src/Grammar/AuthoredValueCodec.php",
+        "sandbox/tests/offline/grammar/regress_column_field_templates.php",
+        "adapter-packages/users-customers-import-export-for-wp-woocommerce/tests/offline/regress_import_templates.php"
+      ]
+    },
     "column_field_labels": {
       "title": "explicit field-definition maps inside typed columns",
       "status": "shipped",
@@ -1184,6 +1196,33 @@
       ],
       "probed_on": "2026-09-14",
       "closing": "The generic object composition retains typed children while projecting the cursor; deterministic column and block paths cover references, target bindings, canonical refusals and discarded-field privacy. The bounded native file-consumer lane exercises public Capture, Plan, Apply and independent canonical verification with cursor projection. Complete saved-template enrollment, native jobs and adapter qualification remain separate followup work.",
+      "blocked_adapters": [
+        "users-customers-import-export-for-wp-woocommerce"
+      ]
+    },
+    {
+      "id": "user-importer-required-password-mapping",
+      "candidate": "Users and Customers Import Export",
+      "versions_probed": [
+        "2.7.5"
+      ],
+      "disposition": "closed",
+      "coordinates": [
+        {
+          "primitive_required": "column_field_template_requirements",
+          "closed_by": [
+            "agent/src/Kernel/FieldTemplateMap.php",
+            "agent/src/Kernel/ValueContractGrammar.php",
+            "agent/src/Grammar/AuthoredValueCodec.php",
+            "sandbox/tests/offline/grammar/regress_column_field_templates.php",
+            "adapter-packages/users-customers-import-export-for-wp-woocommerce/tests/offline/regress_import_templates.php"
+          ],
+          "coordinate": "column_codecs.wt_iew_mapping_template.data.mapping_form_data.mapping_fields.user_pass and mapping_selected_fields.user_pass",
+          "cannot_represent": "The pinned native importer accepts a saved mapping with user_pass disabled and absent, then emits two undefined-key warnings when that template merges an existing user. The field-template map grammar validates every member it sees but cannot require a functional member to be present, nonempty and enabled."
+        }
+      ],
+      "probed_on": "2026-09-16",
+      "closing": "A generic feature-gated requirement form preserves the existing compact map declaration while adding sorted bounded functional-member constraints. Shared product-path controls prove load-time negotiation plus Capture, compilation and Apply refusal. The Importer now excludes passwordless mappings from its declared portable surface before native mutation.",
       "blocked_adapters": [
         "users-customers-import-export-for-wp-woocommerce"
       ]

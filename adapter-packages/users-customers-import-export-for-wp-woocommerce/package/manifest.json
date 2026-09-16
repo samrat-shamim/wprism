@@ -8,6 +8,7 @@
   },
   "engine_features": [
     "column-field-labels/v1",
+    "column-field-template-requirements/v1",
     "column-field-templates/v1",
     "column-input-files/v1",
     "column-record-fields/v1",
@@ -363,11 +364,17 @@
                     "object_fields": {
                       "mapping_fields": {
                         "class": "authored",
-                        "field_templates": "brace_enabled"
+                        "field_templates": {
+                          "format": "brace_enabled",
+                          "required_enabled": ["user_pass"]
+                        }
                       },
                       "mapping_selected_fields": {
                         "class": "authored",
-                        "field_templates": "brace"
+                        "field_templates": {
+                          "format": "brace",
+                          "required_nonempty": ["user_pass"]
+                        }
                       }
                     }
                   },

@@ -10,20 +10,40 @@ require_once __DIR__ . '/UrlQueryReferenceCodec.php';
 final class FieldTemplateMap {
     public const FIELD = 'field_templates';
     public const FEATURE = 'column-field-templates/v1';
+    public const REQUIREMENTS_FEATURE = 'column-field-template-requirements/v1';
     public const FORMATS = ['brace', 'brace_enabled'];
     public const MAX_BYTES = 1048576;
     public const MAX_FRAGMENTS = 16384;
+    public const MAX_REQUIRED_FIELDS = 256;
 
-    public static function assert_rule(array $rule, string $where, bool $negotiated = false): void {
+    public static function assert_rule(
+        array $rule,
+        string $where,
+        bool $negotiated = false,
+        bool $requirements = false
+    ): void {
         if (!array_key_exists(self::FIELD, $rule)) return;
         if (!$negotiated) throw new \RuntimeException("wprism: $where.field_templates requires negotiated column field templates");
-        if (count($rule) !== 2 || ($rule['class'] ?? null) !== 'authored'
-            || !in_array($rule[self::FIELD] ?? null, self::FORMATS, true)) {
+        if (count($rule) !== 2 || ($rule['class'] ?? null) !== 'authored') {
             throw new \RuntimeException("wprism: $where.field_templates requires authored brace or brace_enabled and no other codec");
         }
+        $declaration = $rule[self::FIELD];
+        if (is_string($declaration)) {
+            if (!in_array($declaration, self::FORMATS, true)) {
+                throw new \RuntimeException("wprism: $where.field_templates requires authored brace or brace_enabled and no other codec");
+            }
+            return;
+        }
+        if (!$requirements) {
+            throw new \RuntimeException(
+                "wprism: $where.field_templates requirements require negotiated " . self::REQUIREMENTS_FEATURE
+            );
+        }
+        self::assert_requirement_declaration($declaration, $where);
     }
 
-    public static function assert_value(mixed $value, string $format, bool $canonical, int &$budget, string $where): void {
+    public static function assert_value(mixed $value, mixed $declaration, bool $canonical, int &$budget, string $where): void {
+        [$format, $required, $requiredEnabled] = self::declaration($declaration, $where);
         if (!in_array($format, self::FORMATS, true) || !is_array($value) || ($value !== [] && array_is_list($value))) {
             throw new \RuntimeException("wprism: $where requires a field-template map");
         }
@@ -39,6 +59,19 @@ final class FieldTemplateMap {
             if ($canonical) self::assert_fragments($definition, true, $budget, $where);
             elseif (is_string($definition)) self::assert_boundaries(self::parse($definition, $budget, $where), $where);
             else throw new \RuntimeException("wprism: $where native field templates require strings");
+        }
+        foreach ($required as $field) {
+            if (!array_key_exists($field, $value)) {
+                throw new \RuntimeException("wprism: $where requires nonempty field template '$field'");
+            }
+            $definition = $value[$field];
+            $expression = $format === 'brace_enabled' ? $definition[0] : $definition;
+            if (($canonical && $expression === []) || (!$canonical && $expression === '')) {
+                throw new \RuntimeException("wprism: $where requires nonempty field template '$field'");
+            }
+            if ($requiredEnabled && $definition[1] !== 1) {
+                throw new \RuntimeException("wprism: $where requires enabled field template '$field'");
+            }
         }
     }
 
@@ -68,7 +101,8 @@ final class FieldTemplateMap {
     }
 
     /** Caller validates the complete root value before transformation. Only literal text reaches Tokens. */
-    public static function transform(array $value, string $format, bool $capture, callable $text, string $where): array {
+    public static function transform(array $value, mixed $declaration, bool $capture, callable $text, string $where): array {
+        [$format] = self::declaration($declaration, $where);
         $budget = 0;
         foreach ($value as &$definition) {
             $expression = $format === 'brace_enabled' ? $definition[0] : $definition;
@@ -92,7 +126,8 @@ final class FieldTemplateMap {
      * literals inherit destination roles; joining closes split-literal evasion,
      * and disabled definitions retain the same clearance as enabled ones.
      */
-    public static function sensitivity_subject(array $value, string $format, bool $canonical, string $where): array {
+    public static function sensitivity_subject(array $value, mixed $declaration, bool $canonical, string $where): array {
+        [$format] = self::declaration($declaration, $where);
         $subject = [];
         $budget = 0;
         foreach ($value as $field => $definition) {
@@ -107,7 +142,8 @@ final class FieldTemplateMap {
     }
 
     /** Opaque header identities must not be linted as environment URLs. */
-    public static function text_subject(array $value, string $format): array {
+    public static function text_subject(array $value, mixed $declaration): array {
+        [$format] = self::declaration($declaration, 'field template text projection');
         $subject = [];
         foreach ($value as $definition) {
             $parts = $format === 'brace_enabled' ? $definition[0] : $definition;
@@ -176,5 +212,49 @@ final class FieldTemplateMap {
 
     private static function assert_length(int $length, string $where): void {
         if ($length > self::MAX_BYTES) throw new \RuntimeException("wprism: $where exceeds the field-template expression byte budget");
+    }
+
+    private static function assert_requirement_declaration(mixed $declaration, string $where): void {
+        if (!is_array($declaration) || array_is_list($declaration)) {
+            throw new \RuntimeException("wprism: $where.field_templates requirements must be a closed object");
+        }
+        $format = $declaration['format'] ?? null;
+        $requirement = $format === 'brace' ? 'required_nonempty' : 'required_enabled';
+        $keys = array_keys($declaration);
+        sort($keys, SORT_STRING);
+        $expected = ['format', $requirement];
+        sort($expected, SORT_STRING);
+        if (!in_array($format, self::FORMATS, true) || $keys !== $expected) {
+            throw new \RuntimeException(
+                "wprism: $where.field_templates requirements require exactly format plus "
+                . 'required_nonempty for brace or required_enabled for brace_enabled'
+            );
+        }
+        $fields = $declaration[$requirement];
+        if (!is_array($fields) || !array_is_list($fields) || $fields === [] || count($fields) > self::MAX_REQUIRED_FIELDS) {
+            throw new \RuntimeException("wprism: $where.field_templates.$requirement requires a bounded nonempty field list");
+        }
+        $sorted = $fields;
+        sort($sorted, SORT_STRING);
+        if ($fields !== $sorted || count(array_unique($fields, SORT_STRING)) !== count($fields)) {
+            throw new \RuntimeException("wprism: $where.field_templates.$requirement requires sorted unique fields");
+        }
+        foreach ($fields as $field) {
+            if (!is_string($field) || $field === '' || strlen($field) > 128
+                || preg_match('/^[^\x00-\x1f\x7f]+$/Du', $field) !== 1) {
+                throw new \RuntimeException("wprism: $where.field_templates.$requirement requires bounded UTF-8 field names");
+            }
+        }
+    }
+
+    /** @return array{0:string,1:list<string>,2:bool} */
+    private static function declaration(mixed $declaration, string $where): array {
+        if (is_string($declaration) && in_array($declaration, self::FORMATS, true)) {
+            return [$declaration, [], false];
+        }
+        self::assert_requirement_declaration($declaration, $where);
+        $format = $declaration['format'];
+        $requiredEnabled = $format === 'brace_enabled';
+        return [$format, $declaration[$requiredEnabled ? 'required_enabled' : 'required_nonempty'], $requiredEnabled];
     }
 }

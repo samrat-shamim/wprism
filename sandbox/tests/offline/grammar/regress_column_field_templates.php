@@ -62,6 +62,50 @@ foreach ([['class' => 'authored', 'field_templates' => null], ['class' => 'autho
     $bad['column_codecs']['authored_templates']['data']['value'] = $rule;
     wprism_check_throws(static fn() => $load($bad), RuntimeException::class, 'expression declaration has one closed authored owner');
 }
+$requiredLeaf = ['class' => 'authored', 'field_templates' => [
+    'format' => 'brace',
+    'required_nonempty' => ['user_pass'],
+]];
+$requiredEnabledLeaf = ['class' => 'authored', 'field_templates' => [
+    'format' => 'brace_enabled',
+    'required_enabled' => ['user_pass'],
+]];
+$requirementsManifest = $manifest;
+$requirementsManifest['engine_features'][] = FieldTemplateMap::REQUIREMENTS_FEATURE;
+sort($requirementsManifest['engine_features'], SORT_STRING);
+$requirementsManifest['column_codecs']['authored_templates']['data']['value'] = $requiredLeaf;
+$load($requirementsManifest);
+wprism_check(true, 'feature-gated field-template requirements load through the real policy grammar');
+$missingFeature = $requirementsManifest;
+$missingFeature['engine_features'] = array_values(array_diff(
+    $missingFeature['engine_features'],
+    [FieldTemplateMap::REQUIREMENTS_FEATURE]
+));
+wprism_check_throws(static fn() => $load($missingFeature), RuntimeException::class,
+    'field-template requirements require their own negotiated feature', FieldTemplateMap::REQUIREMENTS_FEATURE);
+foreach ([
+    null,
+    ['format' => 'brace'],
+    ['format' => 'brace', 'required_enabled' => ['user_pass']],
+    ['format' => 'brace_enabled', 'required_nonempty' => ['user_pass']],
+    ['format' => 'unknown', 'required_enabled' => ['user_pass']],
+    ['format' => 'brace', 'required_nonempty' => []],
+    ['format' => 'brace', 'required_nonempty' => ['user_pass', 'display_name']],
+    ['format' => 'brace', 'required_nonempty' => ['user_pass', 'user_pass']],
+    ['format' => 'brace', 'required_nonempty' => ['']],
+    ['format' => 'brace', 'required_nonempty' => ["bad\nfield"]],
+    ['format' => 'brace', 'required_nonempty' => ['user_pass'], 'extra' => true],
+] as $declaration) {
+    $bad = $requirementsManifest;
+    $bad['column_codecs']['authored_templates']['data']['value']['field_templates'] = $declaration;
+    wprism_check_throws(static fn() => $load($bad), RuntimeException::class,
+        'field-template requirement declarations are bounded, sorted and format-specific');
+}
+$tooMany = $requirementsManifest;
+$tooMany['column_codecs']['authored_templates']['data']['value']['field_templates']['required_nonempty'] =
+    array_map(static fn(int $index): string => sprintf('field_%03d', $index), range(0, FieldTemplateMap::MAX_REQUIRED_FIELDS));
+wprism_check_throws(static fn() => $load($tooMany), RuntimeException::class,
+    'field-template requirement declarations have an explicit member budget');
 foreach (['options', 'post_meta', 'term_meta', 'user_meta', 'post_types', 'taxonomies'] as $surface) {
     $bad = $manifest;
     $bad[$surface]['fixture'] = $leaf;
@@ -112,6 +156,47 @@ foreach (['brace', 'brace_enabled'] as $format) {
             "$format/$container reaches a fixed point across different environment URLs");
         wprism_check_same($encode([]), ColumnCodecGrammar::capture_value($encode([]), $one, $sourceTokens, 'empty map'), 'empty map is preserved');
     }
+}
+$requiredCodec = ['container' => 'json', 'value' => $requiredLeaf];
+$requiredNative = ['display_name' => '', 'user_pass' => '{Password}'];
+$requiredCanonical = ['display_name' => [], 'user_pass' => [['field' => 'Password']]];
+wprism_check_same(json_encode($requiredCanonical), ColumnCodecGrammar::capture_value(
+    json_encode($requiredNative), $requiredCodec, $sourceTokens, 'required expression map'
+), 'required nonempty member crosses native Capture');
+wprism_check_same(json_encode($requiredNative), ColumnCodecGrammar::apply_value(
+    json_encode($requiredCanonical), $requiredCodec, $targetTokens, 'required expression map'
+), 'required nonempty member crosses canonical Apply');
+foreach ([['display_name' => ''], ['display_name' => '', 'user_pass' => '']] as $invalid) {
+    wprism_check_throws(static fn() => ColumnCodecGrammar::capture_value(
+        json_encode($invalid), $requiredCodec, $sourceTokens, 'required expression map'
+    ), RuntimeException::class, 'Capture refuses a missing or empty required field template', 'user_pass');
+}
+foreach ([['display_name' => []], ['display_name' => [], 'user_pass' => []]] as $invalid) {
+    $bytes = json_encode($invalid, JSON_THROW_ON_ERROR);
+    wprism_check_throws(static fn() => ColumnCodecGrammar::decode_canonical_value(
+        $bytes, $requiredCodec, 'required expression map'
+    ), RuntimeException::class, 'immutable compilation refuses a missing or empty required field template', 'user_pass');
+    wprism_check_throws(static fn() => ColumnCodecGrammar::apply_value(
+        $bytes, $requiredCodec, $targetTokens, 'required expression map'
+    ), RuntimeException::class, 'Apply independently refuses a missing or empty required field template', 'user_pass');
+}
+$requiredEnabledCodec = ['container' => 'json', 'value' => $requiredEnabledLeaf];
+$enabledNative = ['display_name' => ['', 0], 'user_pass' => ['{Password}', 1]];
+$enabledCanonical = ['display_name' => [[], 0], 'user_pass' => [[['field' => 'Password']], 1]];
+wprism_check_same(json_encode($enabledCanonical), ColumnCodecGrammar::capture_value(
+    json_encode($enabledNative), $requiredEnabledCodec, $sourceTokens, 'required enabled expression map'
+), 'required enabled member crosses native Capture');
+wprism_check_same(json_encode($enabledNative), ColumnCodecGrammar::apply_value(
+    json_encode($enabledCanonical), $requiredEnabledCodec, $targetTokens, 'required enabled expression map'
+), 'required enabled member crosses canonical Apply');
+foreach ([
+    ['display_name' => ['', 0]],
+    ['display_name' => ['', 0], 'user_pass' => ['', 1]],
+    ['display_name' => ['', 0], 'user_pass' => ['{Password}', 0]],
+] as $invalid) {
+    wprism_check_throws(static fn() => ColumnCodecGrammar::capture_value(
+        json_encode($invalid), $requiredEnabledCodec, $sourceTokens, 'required enabled expression map'
+    ), RuntimeException::class, 'Capture refuses a missing, empty or disabled required field template', 'user_pass');
 }
 
 // Compare the streaming parser with the independently stated dialect, including
@@ -245,8 +330,10 @@ $child = proc_open([PHP_BINARY, __DIR__ . '/regress_column_value_contracts.php',
     [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
 if (!is_resource($child)) throw new RuntimeException('could not start isolated template compiler');
 fclose($pipes[0]);
-$stdout = stream_get_contents($pipes[1]); $stderr = stream_get_contents($pipes[2]);
-fclose($pipes[1]); fclose($pipes[2]);
+$stdout = stream_get_contents($pipes[1]);
+$stderr = stream_get_contents($pipes[2]);
+fclose($pipes[1]);
+fclose($pipes[2]);
 wprism_check_same(0, proc_close($child), 'template compiler runs outside WordPress');
 wprism_check_same('', $stderr, 'isolated compiler emits no diagnostics');
 wprism_check_same(['entities' => 1, 'wordpress' => false, 'database' => false], json_decode($stdout, true),
@@ -292,8 +379,11 @@ $writer = new WPrism\TypedTableMaterializer(static fn() => ['authored_templates'
 $transaction = static function (callable $action) use (&$mapping): mixed {
     $before = $mapping;
     WPrism\Db::start_repeatable_read('field templates', new WPrism\NativeDatabaseProfile(['wp_authored_templates'], ['wp_authored_templates']));
-    try { $result = $action(); WPrism\Db::commit('field templates'); return $result; }
-    catch (Throwable $failure) { WPrism\Db::rollback_after_failure($failure, 'field templates'); $mapping = $before; throw $failure; }
+    try { $result = $action();
+    WPrism\Db::commit('field templates');
+    return $result; } catch (Throwable $failure) { WPrism\Db::rollback_after_failure($failure, 'field templates');
+    $mapping = $before;
+    throw $failure; }
 };
 $badEntity = $editData($entities[0], ['selected' => ['description' => [['text' => '{Header}']]]]);
 wprism_check_throws(static fn() => $writer->ensureRow($badEntity), RuntimeException::class,
@@ -301,7 +391,8 @@ wprism_check_throws(static fn() => $writer->ensureRow($badEntity), RuntimeExcept
 wprism_check_same([], $wpdb->rows('authored_templates'), 'malformed phase one performs no native insert');
 wprism_check_same([], $mapping, 'malformed phase one publishes no identity');
 $apply = static function () use ($writer, $tree, $targetTokens): void {
-    foreach ($tree as $entity) { $writer->ensureRow($entity); $writer->finalizeRow($targetTokens, $entity); }
+    foreach ($tree as $entity) { $writer->ensureRow($entity);
+    $writer->finalizeRow($targetTokens, $entity); }
 };
 $transaction($apply);
 $targetRows = $wpdb->rows('authored_templates');
@@ -313,7 +404,8 @@ $transaction($apply);
 wprism_check_same($targetRows, $wpdb->rows('authored_templates'), 'repeated Apply retains native bytes and row identity');
 wprism_check_throws(static function () use ($transaction, $writer, $tree, $hostileTarget): void {
     $transaction(static function () use ($writer, $tree, $hostileTarget): void {
-        foreach ($tree as $entity) { $writer->ensureRow($entity); $writer->finalizeRow($hostileTarget, $entity); }
+        foreach ($tree as $entity) { $writer->ensureRow($entity);
+        $writer->finalizeRow($hostileTarget, $entity); }
     });
 }, RuntimeException::class, 'target brace injection refuses through the real write path', 'unambiguous');
 wprism_check_same($targetRows, $wpdb->rows('authored_templates'), 'target expression ambiguity leaves every row intact');
@@ -321,7 +413,8 @@ $changed = $editData($entities[0], ['selected' => ['description' => [['text' => 
 $observed = false;
 wprism_check_throws(static function () use ($transaction, $writer, $changed, $targetTokens, $wpdb, &$observed): void {
     $transaction(static function () use ($writer, $changed, $targetTokens, $wpdb, &$observed): void {
-        $writer->ensureRow($changed); $writer->finalizeRow($targetTokens, $changed);
+        $writer->ensureRow($changed);
+        $writer->finalizeRow($targetTokens, $changed);
         $observed = json_decode($wpdb->rows('authored_templates')[0]['data'], true)['selected']['description'] === 'Changed constant';
         throw new RuntimeException('later failure');
     });
@@ -376,7 +469,8 @@ wprism_check_throws(static fn() => ColumnCodecGrammar::apply_value($queryCanonic
 // numeric prefix. The native field could append digits and name another post.
 $lookups = 0;
 $partialTokens = new Tokens('https://source.test', 'https://source.test/uploads',
-    static function () use (&$lookups, $postUuid): string { ++$lookups; return $postUuid; });
+    static function () use (&$lookups, $postUuid): string { ++$lookups;
+    return $postUuid; });
 foreach (['p', 'page_id', 'attachment_id'] as $parameter) {
     foreach (['', '%', '%3', '%31', '-', 'x', 'e', '?p=4%'] as $suffix) {
         foreach (['https://source.test/', 'https://external.test/', '/relative'] as $prefix) {

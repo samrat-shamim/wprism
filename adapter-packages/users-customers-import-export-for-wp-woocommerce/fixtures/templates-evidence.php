@@ -2,7 +2,6 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/settings-evidence.php';
-require_once __DIR__ . '/omitted-password-evidence.php';
 require_once __DIR__ . '/template-apply-evidence.php';
 require_once dirname(__DIR__, 3) . '/sandbox/tests/lib/check.php';
 $sink = $argv[1];
@@ -116,8 +115,6 @@ $targetSetup = $read('imports-setup2');
 wprism_check($sourceSetup['user'] !== $targetSetup['user'] && $sourceSetup['original'] !== $targetSetup['original'], 'import users and template row IDs differ across environments');
 wprism_check($sourceSetup['copy'] !== null && $sourceSetup['draft'] !== null && $targetSetup['copy'] === null && $targetSetup['draft'] === null,
     'native Save As and blank draft exercise creation beside an existing target');
-wprism_check(is_int($sourceSetup['generated']) && $sourceSetup['generated'] > 0 && $targetSetup['generated'] === null,
-    'password-omitting template is independently created from source intent');
 $source = $read('imports-source');
 $before = $read('imports-before');
 $after = $read('imports-after');
@@ -128,9 +125,7 @@ foreach ($bindings as $binding) wprism_check(in_array($binding, $missing, true),
 wprism_check_same([], $read('imports-plan', 'plan')['env_missing'], 'independent target CSV bindings clear the public missing checklist');
 $changedIds = [];
 $targetFile = json_decode($importTemplate($before, 'Reusable input mapping')['data'], true, flags: JSON_THROW_ON_ERROR)['method_import_form_data']['wt_iew_local_file'];
-$generatedTargetFile = preg_replace('~/target-input\.csv$~D', '/generated-password-target.csv', $targetFile);
-foreach (['original' => 'Reusable input mapping', 'copy' => 'Reusable input copy', 'draft' => 'Draft input mapping',
-    'generated' => 'Generated password mapping'] as $stem => $name) {
+foreach (['original' => 'Reusable input mapping', 'copy' => 'Reusable input copy', 'draft' => 'Draft input mapping'] as $stem => $name) {
     $from = $importTemplate($source, $name);
     $to = $importTemplate($after, $name);
     $changedIds[] = (int) $to['id'];
@@ -141,15 +136,12 @@ foreach (['original' => 'Reusable input mapping', 'copy' => 'Reusable input copy
     $opened = $read('import-' . $stem . '-reopen');
     wprism_check_same($form, $opened['form'], 'native import wizard reopens the complete applied form: ' . $stem);
     if ($stem === 'draft') wprism_check_same('', $opened['local_file'], 'native blank draft stays empty without a binding');
-    elseif ($stem === 'generated') wprism_check_same($generatedTargetFile, $opened['local_file'], 'native generated-password control holds its independent target CSV');
     else wprism_check_same($targetFile, $opened['local_file'], 'native import control holds the exact independently created target CSV: ' . $stem);
 }
 wprism_check_same($targetSetup['original'], (int) $importTemplate($after, 'Reusable input mapping')['id'], 'explicit import adoption preserves the target ID');
-wprism_check_same(count($before['tables']['wt_iew_mapping_template']) + 3, count($after['tables']['wt_iew_mapping_template']), 'only copy, blank draft and generated-password template are created');
+wprism_check_same(count($before['tables']['wt_iew_mapping_template']) + 2, count($after['tables']['wt_iew_mapping_template']), 'only the copy and blank draft are created');
 $preserved($before, $after, $changedIds);
 foreach (['import-original-consume', 'import-copy-consume'] as $name) wprism_check_same('Target input', $read($name)['display_name'], 'actual mapped-password job consumes the saved target mapping: ' . $name);
-ImporterOmittedPasswordEvidence::result($read('import-generated-new-consume'), false);
-ImporterOmittedPasswordEvidence::admittedLimitation($sink . '/import-generated-existing-consume', $pair);
 $rotationBefore = $read('rotation-before');
 $rotationAfter = $read('rotation-after');
 $rotated = $importTemplate($rotationAfter, 'Reusable input mapping');

@@ -153,9 +153,7 @@ SH;
 $planProbe .= "\n" . substr($source, $planStart, $planEnd - $planStart);
 $plan = array_fill_keys(['create', 'update', 'adopt', 'drift', 'conflict', 'delete_conflict', 'code_mismatch', 'code_drift',
     'provider_problems', 'warnings', 'collision', 'incomplete_apply', 'incomplete_lifecycle', 'missing_user'], []);
-$plan['adapter_dispositions'] = array_map(static fn(string $code): array => ['code' => $code, 'name' => 'users-customers-import-export-for-wp-woocommerce',
-    'status' => 'blocked', 'source' => 'shipped', 'trust_tier' => 'declarative_manifest', 'certification' => 'registry'],
-    ['authored_state_not_certified']);
+$plan['adapter_dispositions'] = [];
 $plan['delete'] = array_map(static fn(string $uuid): array => ['uuid' => $uuid, 'type' => 'wt_iew_mapping_template',
     'deletion_kind' => 'table', 'deletion_type' => 'wt_iew_mapping_template'], ['original-export', 'original-import', 'draft-import']);
 $repository = ['deletions' => array_fill_keys(array_column($plan['delete'], 'uuid'), [])];
@@ -165,10 +163,30 @@ foreach (['valid', 'wrong-type', 'wrong-kind', 'extra-row', 'blocked-row', 'unex
     if ($fault === 'wrong-kind') $bad['delete'][0]['deletion_kind'] = 'post';
     if ($fault === 'extra-row') $bad['delete'][] = array_replace($bad['delete'][0], ['uuid' => 'foreign']);
     if ($fault === 'blocked-row') $bad['delete'][0]['blocked'] = 'unreviewed owner';
-    if ($fault === 'unexpected-disposition') $bad['adapter_dispositions'][0]['code'] = 'missing_dependency';
+    if ($fault === 'unexpected-disposition') $bad['adapter_dispositions'][] = ['code' => 'missing_dependency'];
     if ($fault === 'warning') $bad['warnings'][] = 'unexpected';
     if ($fault === 'unrelated-update') $bad['update'][] = ['uuid' => 'options/core'];
     [$status] = WPrismTest\ShellProbe::run($planProbe, [json_encode($bad, JSON_THROW_ON_ERROR), json_encode($repository, JSON_THROW_ON_ERROR)], $root);
-    wprism_check_same($fault === 'valid', $status === 0, 'actual native plan assertion accepts only exact typed deletions and declared experimental blockers: ' . $fault);
+    wprism_check_same($fault === 'valid', $status === 0, 'actual native plan assertion accepts only exact unblocked typed deletions: ' . $fault);
 }
+$milestones = [
+    'wprism_ssh_enroll_full_recovery importer-deletion',
+    'wprism_ssh_install_locked_plugin "$slug" 2.7.5 certified-boundary inactive',
+    'wprism_ssh_stage_code_inventory "$slug"',
+    'wprism_ssh_stage_generation_releases 2',
+    'provider-state.json.fail-verify-after',
+    'and .status.state == "rolled_back" and .status.terminal == true',
+    'importer_delete_assert same baseline rollback-preserved',
+    'importer_delete_assert removed baseline signed-removed',
+    'Importer signed deletion fixed point',
+];
+$cursor = -1;
+foreach ($milestones as $milestone) {
+    $position = strpos($source, $milestone);
+    wprism_check(is_int($position) && $position > $cursor,
+        'signed deletion retains ordered recovery, rollback, retry and fixed-point milestone: ' . $milestone);
+    $cursor = $position;
+}
+wprism_check_same(3, substr_count($source, 'promote target --with-deletes'),
+    'signed deletion exercises one failed promotion, one retry and one fixed-point repeat');
 wprism_check_summary('Importer template deletion evidence');

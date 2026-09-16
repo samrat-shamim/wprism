@@ -300,6 +300,7 @@ final class AdapterContractGrammar {
         ],
         ColumnValueCases::FEATURE => ['since' => 3, 'keys' => []],
         FieldTemplateMap::FEATURE => ['since' => 3, 'keys' => []],
+        FieldTemplateMap::REQUIREMENTS_FEATURE => ['since' => 3, 'keys' => []],
         InputFileBinding::FEATURE => ['since' => 3, 'keys' => []],
         ColumnCodecGrammar::JSON_FEATURE => [
             'since' => 3,

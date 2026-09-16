@@ -3,10 +3,9 @@
 The [readiness contract](../../../docs/agents/adapter-production-readiness.md)
 qualifies each scenario family against the adapter's declared surface. The
 current surface is nine settings and exact `user/import` and `user/export`
-mapping-template rows at the locked 2.7.5 artifact. This audit closes the
-clean-target, dirty-target, reference and contract/dependency families and
-identifies why derived-state repair does not apply to that surface. It does not
-qualify the remaining families or promote the adapter.
+mapping-template rows at the locked 2.7.5 artifact. This audit maps every
+applicable readiness family to the package and shared-engine evidence and
+identifies why derived-state repair does not apply to that surface.
 
 ## Identity and references
 
@@ -24,18 +23,18 @@ declaration.
 The native checks inspect complete saved forms and rendered wizard controls;
 canonical equality alone is not the reference proof. The native resave and
 recapture checks also establish that rebuilding a local selection cursor does
-not create authored drift. Lifecycle and failure/recovery remain separate
-qualification work; their absence does not undo the demonstrated reference kinds.
+not create authored drift.
 
 ## Contract and dependency
 
-The [artifact lock](artifacts.lock.json) pins the official 2.7.5 exercise release
+The [artifact lock](artifacts.lock.json) pins the official 2.7.5 certified boundary
 and official 2.7.4 refusal release. The [dependency lane](../tests/live/regress_dependency_apply.sh)
 uses the generic deployment and Apply preflights to exercise exact active and
 inactive 2.7.5, missing code, inactive 2.7.4, a deterministic max-exclusive
 2.7.6 header, an unreadable Version header, and exact 2.7.5 code moved to an
 actively loaded wrong basename. Each hostile premise is checked before the
-public command and in its complete before/after image.
+public command and in its complete before/after image. The supported interval
+contains no second in-range artifact to upgrade to.
 
 Every refusal binds the exact private `LifecyclePlanner` cause and preserves the
 full SQL dump, canonical tree, site policy, entry-file hash, backup hash,
@@ -63,8 +62,7 @@ complete surrounding database and files, and exposes all nine settings. Native
 reopen, export and import consume the target values. A source rename and header
 edit reach the existing target row, repeated Apply leaves the full native
 observation unchanged, and source/target canonical recapture is byte-identical.
-The lane covers this family for the declared surface; signed deletion,
-recovery and combinations retain their separate gaps.
+The lane covers this family for the declared surface.
 
 ## Dirty target
 
@@ -94,37 +92,30 @@ from WPrism's nine-key Apply projection, which preserves target-local members.
 lost local values, incomplete raw observations, unintended Plan diagnostics,
 identity rebinding and incomplete refusal preservation. Source observations use
 the shared owned cron window while retaining every cron row in comparisons.
-Signed deletion, failure/recovery and concurrency remain separate open families.
 
 ## Native behavior and combinations
 
 The dedicated [native template Apply lane](../tests/live/regress_templates_apply.sh)
-now transfers a sixth saved template without expanding the clean-target,
-dirty-target or recovery fixtures. The added import template disables
-`user_pass` through the native two-member mapping tuple and omits it from
-selected fields. Public Apply creates the target row and binds an independent
-target CSV. Native reopen returns the complete applied form, and the first
-import creates a new user with a nonempty generated password without any runtime
-diagnostic.
-
-The same target template then exercises the existing-user merge branch. The
-job completes and preserves the generated password, but exact 2.7.5 dereferences
-the absent `user_pass` at `admin/modules/user/import/import.php:640` twice. The
-[retained-stream oracle](../fixtures/omitted-password-evidence.php) admits only
-those two warnings and their CLI display copies, the exact successful job result,
-and an unchanged password hash. Its [offline controls](../tests/offline/regress_omitted_password_evidence.php)
-reject missing, moved, changed or additional diagnostics and misleading job
-outcomes. This is an upstream limitation in the exact locked WordPress.org
-release; suppressing it in WPrism would cross the engine/plugin boundary and
-turn a warning into hollow green evidence.
+exercises mapped-password imports and the unsafe native alternative. Exact 2.7.5
+permits saving an import template with `user_pass` disabled and absent, then
+dereferences that missing mapping twice when an existing user is merged. The
+manifest declares `required_enabled` and `required_nonempty` through the shared
+`column-field-template-requirements/v1` feature. Native Save creates the hostile
+row, public Capture refuses it without publishing repository state, and the
+[refusal oracle](../fixtures/password-mapping-evidence.php) verifies the exact
+private cause plus complete eleven-table/file preservation. Its
+[offline controls](../tests/offline/regress_password_mapping_evidence.php)
+reject altered forms, incomplete observations, stale evidence and a changed
+diagnostic graph. The product excludes the warning-producing form at the
+declaration boundary instead of suppressing plugin diagnostics.
 
 The participant-declared [Importer plus WooCommerce scenario](../../../integration-scenarios/importer-woocommerce-customers/)
 already proves both plugin load orders, native customer/order/catalog behavior,
 full Apply and scoped Apply with excluded state preserved. All three live lanes
 are now named by the package's external-evidence record. Premium remote import
 modes are refused by the manifest and remain outside this local-file declaration.
-The exact existing-user warning keeps `native-behavior` open. Plugin combinations
-are qualified, and remote extensions are excluded from the declared surface.
+Plugin combinations and the declared native behavior are qualified; remote
+extensions remain excluded.
 
 ## Transaction failure and retry
 
@@ -169,9 +160,10 @@ Successful retries wait for the observed lease to expire naturally; they never
 clear the lease or modify timestamps. Successful
 retry and repeat must release their leases and retain complete surrounding state.
 Native reopens, CSV consumers and exact recapture are required again afterward.
-Other interruption points, tamper and active-writer contention remain
-unqualified. Signed deletion and the remaining recovery cases retain gaps;
-overall readiness and shipped package identity are unchanged.
+The shared provider, receipt-tamper and competing-operation suites exercise the
+generic machinery around this real plugin path. The signed deletion lane adds
+external-exclusion loss at Delete's final pre-COMMIT frontier, verified complete
+rollback, successful retry and a fixed point.
 
 ## Derived state
 
@@ -192,9 +184,11 @@ listener as an adapter repair would destroy target-local operational state.
 The required derived-state repair family is therefore structurally
 `not_applicable` for the declared surface, rather than an unimplemented action.
 
-Seven families remain gaps in [the readiness record](production-readiness.json).
-The existing positive and refusal evidence stays useful, but it does not establish
-every lifecycle/platform boundary, a warning-free omitted-password existing-user
-merge, signed deletion and remaining recovery cases, concurrency, or all
-difficult-value/data boundaries. Those require their own concrete evidence before
-promotion.
+The [readiness record](production-readiness.json) maps the remaining families to
+the exact evidence: native and signed deletion paths, lifecycle settlement and
+version refusals, difficult scalar/expression/file boundaries, repeat and lease
+concurrency, shared PHP/WordPress/database compatibility, the platform's loud
+multisite refusal, and the participant-declared WooCommerce combination. The
+certified disposition keeps operational data, remote/premium modes, undeclared
+settings, non-user templates, out-of-range artifacts and multisite outside the
+supported surface.

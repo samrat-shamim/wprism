@@ -2,7 +2,9 @@
 
 Participants: Users/Customers Import Export 2.7.5 and WooCommerce 11.0.1.
 This scenario covers native customer fixtures, settled full Apply of two
-existing user templates, and scoped export Apply with a pending import change. It does not change production readiness.
+existing user templates, and scoped export Apply with a pending import change.
+The Importer readiness record cites these participant-declared lanes for its
+combination and scoped-behavior claims.
 
 The offline gate exercises shipped policies in both pin orders. It captures
 saved export forms using the Importer policy, then materializes them on a target

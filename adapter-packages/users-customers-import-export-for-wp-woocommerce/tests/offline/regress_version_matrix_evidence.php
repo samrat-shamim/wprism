@@ -22,13 +22,13 @@ $remove = static function (string $directory): void {
     rmdir($directory);
 };
 try {
-    $terminal = '✔ AGENT ROUNDTRIP PASSED (users-customers-import-export-for-wp-woocommerce; production promotion withheld)';
+    $terminal = '✔ CONFORMANCE PASSED (users-customers-import-export-for-wp-woocommerce)';
     $stream($sink . '/positive', "native checks passed\n$terminal\n");
     ImporterVersionMatrixEvidence::transcript('positive', $sink . '/positive');
-    wprism_check(true, 'complete experimental roundtrip is admitted without granting a certified result');
+    wprism_check(true, 'complete certified roundtrip is admitted through the ordinary host workflow');
     foreach ([['', '', 0], [$terminal, '', 1], [$terminal, 'Warning: hidden stderr', 0],
         ["Warning: native diagnostic\n$terminal", '', 0], ["$terminal\n$terminal", '', 0],
-        ["$terminal\nfailed child", '', 0], ['✔ CONFORMANCE PASSED (users-customers-import-export-for-wp-woocommerce)', '', 0]] as [$out, $err, $exit]) {
+        ["$terminal\nfailed child", '', 0], ['✔ AGENT ROUNDTRIP PASSED (users-customers-import-export-for-wp-woocommerce; production promotion withheld)', '', 0]] as [$out, $err, $exit]) {
         $stream($sink . '/positive', $out . "\n", $err, $exit);
         wprism_check_throws(static fn() => ImporterVersionMatrixEvidence::transcript('positive', $sink . '/positive'), RuntimeException::class,
             'empty, failed, diagnostic, duplicated, trailing or wrongly graded roundtrip cannot pass');
