@@ -33,7 +33,7 @@ wprism_ssh_adopt_extension() {
     eval-file "$fixture/dependency-native.php" --use-include
   importer_ssh_artifact_capture delete-prior wp_ssh_fixture plugin delete "$slug" --quiet
   importer_ssh_artifact_capture install-supported \
-    wprism_ssh_install_locked_plugin "$slug" 2.7.5 exercise-fixture inactive
+    wprism_ssh_install_locked_plugin "$slug" 2.7.5 certified-boundary inactive
   importer_ssh_artifact_capture supported wp_ssh_fixture --skip-plugins --user=admin \
     eval-file "$fixture/dependency-native.php" --use-include
   importer_ssh_artifact_capture activate wp_ssh_fixture --require="$fixture/admin-context.php" --user=admin \

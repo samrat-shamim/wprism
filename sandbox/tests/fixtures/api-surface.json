@@ -23442,6 +23442,12 @@
                 },
                 "MAX_FRAGMENTS": {
                     "value_repr": 16384
+                },
+                "MAX_REQUIRED_FIELDS": {
+                    "value_repr": 256
+                },
+                "REQUIREMENTS_FEATURE": {
+                    "value_repr": "column-field-template-requirements/v1"
                 }
             },
             "final": true,
@@ -23475,6 +23481,14 @@
                             "name": "negotiated",
                             "type": "bool",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "requirements",
+                            "type": "bool",
+                            "variadic": false
                         }
                     ],
                     "return_type": "void",
@@ -23497,8 +23511,8 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
-                            "name": "format",
-                            "type": "string",
+                            "name": "declaration",
+                            "type": "mixed",
                             "variadic": false
                         },
                         {
@@ -23579,8 +23593,8 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
-                            "name": "format",
-                            "type": "string",
+                            "name": "declaration",
+                            "type": "mixed",
                             "variadic": false
                         },
                         {
@@ -23620,8 +23634,8 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
-                            "name": "format",
-                            "type": "string",
+                            "name": "declaration",
+                            "type": "mixed",
                             "variadic": false
                         }
                     ],
@@ -23645,8 +23659,8 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
-                            "name": "format",
-                            "type": "string",
+                            "name": "declaration",
+                            "type": "mixed",
                             "variadic": false
                         },
                         {
@@ -86577,6 +86591,14 @@
                             "default": false,
                             "has_default": true,
                             "name": "objectRecords",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "fieldTemplateRequirements",
                             "type": "bool",
                             "variadic": false
                         }

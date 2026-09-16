@@ -63,6 +63,54 @@ foreach (['wrong-copy-id', 'old-cursor-selected', 'copy-form-lost', 'history-for
     wprism_check_throws(static fn() => ImporterTemplateDeletionEvidence::reopened($before, $badExport, $badImport, $badHistory, $historyId),
         RuntimeException::class, 'native independence oracle rejects ' . $fault);
 }
+$selectedIds = array_map('intval', array_column(ImporterTemplateDeletionEvidence::selected($rows), 'id'));
+sort($selectedIds, SORT_NUMERIC);
+$map = array_map(
+    static fn(int $id): array => ['uuid' => sprintf('00000000-0000-5000-8000-%012d', $id),
+        'entity_type' => 'wt_iew_mapping_template', 'id_kind' => 'iew_template', 'local_id' => (string) $id],
+    $selectedIds
+);
+usort($map, static fn(array $left, array $right): int => $left['uuid'] <=> $right['uuid']);
+$ledger = ['format' => 'wprism-importer-template-ledger/v1', 'map' => $map,
+    'state' => array_map(static fn(array $row): array => ['uuid' => $row['uuid'],
+        'entity_type' => 'wt_iew_mapping_template', 'content_hash' => hash('sha256', $row['uuid'])], $map)];
+ImporterTemplateDeletionEvidence::ledgerPreimage($ledger, $ledger, $before);
+wprism_check(true, 'exact target map and state preimage survives fixture restoration');
+foreach (['missing-map', 'wrong-local', 'wrong-type', 'wrong-kind', 'duplicate-uuid', 'missing-state',
+    'wrong-state-type', 'wrong-state-hash', 'changed-postimage'] as $fault) {
+    $badBefore = $ledger;
+    $badAfter = $ledger;
+    if ($fault === 'missing-map') array_pop($badBefore['map']);
+    if ($fault === 'wrong-local') $badBefore['map'][0]['local_id'] = '99';
+    if ($fault === 'wrong-type') $badBefore['map'][0]['entity_type'] = 'post';
+    if ($fault === 'wrong-kind') $badBefore['map'][0]['id_kind'] = 'post';
+    if ($fault === 'duplicate-uuid') $badBefore['map'][1]['uuid'] = $badBefore['map'][0]['uuid'];
+    if ($fault === 'missing-state') array_pop($badBefore['state']);
+    if ($fault === 'wrong-state-type') $badBefore['state'][0]['entity_type'] = 'post';
+    if ($fault === 'wrong-state-hash') $badBefore['state'][0]['content_hash'] = 'not-a-hash';
+    if ($fault === 'changed-postimage') $badAfter['state'][0]['content_hash'] = str_repeat('f', 64);
+    wprism_check_throws(static fn() => ImporterTemplateDeletionEvidence::ledgerPreimage($badBefore, $badAfter, $before),
+        RuntimeException::class, 'target ledger preimage oracle rejects ' . $fault);
+}
+$deletePlan = ['delete' => array_map(static fn(array $row): array => ['uuid' => $row['uuid'],
+    'receipt_hash' => hash('sha256', 'delete:' . $row['uuid'])], $map)];
+$terminalLedger = ['format' => 'wprism-importer-template-ledger/v1', 'map' => [],
+    'state' => array_map(static fn(array $row): array => ['uuid' => $row['uuid'], 'entity_type' => 'deletion',
+        'content_hash' => hash('sha256', 'delete:' . $row['uuid'])], $map)];
+ImporterTemplateDeletionEvidence::ledgerTerminal($ledger, $terminalLedger, $deletePlan);
+wprism_check(true, 'terminal ledger removes selected maps and binds exact deletion receipts');
+foreach (['retained-map', 'missing-state', 'wrong-state-type', 'wrong-state-hash', 'wrong-plan-receipt', 'extra-plan-row'] as $fault) {
+    $badTerminal = $terminalLedger;
+    $badPlan = $deletePlan;
+    if ($fault === 'retained-map') $badTerminal['map'][] = $map[0];
+    if ($fault === 'missing-state') array_pop($badTerminal['state']);
+    if ($fault === 'wrong-state-type') $badTerminal['state'][0]['entity_type'] = 'wt_iew_mapping_template';
+    if ($fault === 'wrong-state-hash') $badTerminal['state'][0]['content_hash'] = str_repeat('f', 64);
+    if ($fault === 'wrong-plan-receipt') $badPlan['delete'][0]['receipt_hash'] = str_repeat('e', 64);
+    if ($fault === 'extra-plan-row') $badPlan['delete'][] = $badPlan['delete'][0];
+    wprism_check_throws(static fn() => ImporterTemplateDeletionEvidence::ledgerTerminal($ledger, $badTerminal, $badPlan),
+        RuntimeException::class, 'terminal ledger oracle rejects ' . $fault);
+}
 $warning = <<<'WARNING'
 users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php 2.7.5 is active on this environment but absent from the existing WPrism code-version baseline. Its activation or first version change therefore cannot be distinguished from an out-of-band update. Run 'wprism deploy' to reconcile and record the installed bytes, or remove the undeclared activation before capture/apply. — 'wprism capture' observed this and did NOT accept it as the new baseline: capture reports what it sees, it does not reconcile code. The recorded versions are unchanged, so this finding is still there on the next 'wprism status'.
 WARNING;
@@ -139,9 +187,10 @@ foreach (['json', 'direct'] as $kind) foreach (['valid', 'wrong-exit', 'stderr',
     wprism_check_same($fault === 'valid', $status === 0, 'actual deletion capture admits exact ' . $kind . ' streams and exit: ' . $fault);
     if ($fault === 'valid') wprism_check(str_contains($out, 'ok: importer-delete-probe'), 'actual deletion capture reaches positive admission');
 }
-$planStart = strpos($source, "  jq -e --slurpfile repo ");
+$planCapture = strpos($source, 'importer_delete_capture plan json');
+$planStart = strpos($source, "  jq -e --slurpfile repo ", $planCapture);
 $planEnd = strpos($source, "  importer_delete_capture direct-baseline", $planStart);
-if ($planStart === false || $planEnd === false) throw new RuntimeException('native deletion plan assertion boundaries changed');
+if ($planCapture === false || $planStart === false || $planEnd === false) throw new RuntimeException('native deletion plan assertion boundaries changed');
 $planProbe = <<<'SH'
 set -euo pipefail
 fail() { exit 1; }
@@ -153,9 +202,7 @@ SH;
 $planProbe .= "\n" . substr($source, $planStart, $planEnd - $planStart);
 $plan = array_fill_keys(['create', 'update', 'adopt', 'drift', 'conflict', 'delete_conflict', 'code_mismatch', 'code_drift',
     'provider_problems', 'warnings', 'collision', 'incomplete_apply', 'incomplete_lifecycle', 'missing_user'], []);
-$plan['adapter_dispositions'] = array_map(static fn(string $code): array => ['code' => $code, 'name' => 'users-customers-import-export-for-wp-woocommerce',
-    'status' => 'blocked', 'source' => 'shipped', 'trust_tier' => 'declarative_manifest', 'certification' => 'registry'],
-    ['authored_state_not_certified']);
+$plan['adapter_dispositions'] = [];
 $plan['delete'] = array_map(static fn(string $uuid): array => ['uuid' => $uuid, 'type' => 'wt_iew_mapping_template',
     'deletion_kind' => 'table', 'deletion_type' => 'wt_iew_mapping_template'], ['original-export', 'original-import', 'draft-import']);
 $repository = ['deletions' => array_fill_keys(array_column($plan['delete'], 'uuid'), [])];
@@ -165,10 +212,87 @@ foreach (['valid', 'wrong-type', 'wrong-kind', 'extra-row', 'blocked-row', 'unex
     if ($fault === 'wrong-kind') $bad['delete'][0]['deletion_kind'] = 'post';
     if ($fault === 'extra-row') $bad['delete'][] = array_replace($bad['delete'][0], ['uuid' => 'foreign']);
     if ($fault === 'blocked-row') $bad['delete'][0]['blocked'] = 'unreviewed owner';
-    if ($fault === 'unexpected-disposition') $bad['adapter_dispositions'][0]['code'] = 'missing_dependency';
+    if ($fault === 'unexpected-disposition') $bad['adapter_dispositions'][] = ['code' => 'missing_dependency'];
     if ($fault === 'warning') $bad['warnings'][] = 'unexpected';
     if ($fault === 'unrelated-update') $bad['update'][] = ['uuid' => 'options/core'];
     [$status] = WPrismTest\ShellProbe::run($planProbe, [json_encode($bad, JSON_THROW_ON_ERROR), json_encode($repository, JSON_THROW_ON_ERROR)], $root);
-    wprism_check_same($fault === 'valid', $status === 0, 'actual native plan assertion accepts only exact typed deletions and declared experimental blockers: ' . $fault);
+    wprism_check_same($fault === 'valid', $status === 0, 'actual native plan assertion accepts only exact unblocked typed deletions: ' . $fault);
 }
+$fixedProbe = <<<'SH'
+set -euo pipefail
+fail() { exit 1; }
+assert_wprism_required_environment() { :; }
+DIAG_DIR=$(umask 077; mktemp -d)
+trap 'rm -rf -- "$DIAG_DIR"' EXIT
+. "$2/tests/live/regress_template_deletion_ssh.sh"
+printf '%s' "$3" > "$DIAG_DIR/importer-delete-converged-plan.stdout"
+printf '%s' "$4" > "$DIAG_DIR/importer-delete-deletion-repository.stdout"
+importer_delete_assert_converged_plan converged-plan
+printf 'ACCEPTED\n'
+SH;
+$fixedRepository = ['deletions' => []];
+foreach (array_column($plan['delete'], 'uuid') as $uuid) {
+    $fixedRepository['deletions'][$uuid] = ['hash' => hash('sha256', 'delete:' . $uuid)];
+}
+$fixed = array_fill_keys(['create', 'update', 'adopt', 'drift', 'conflict', 'collision', 'delete', 'delete_conflict',
+    'code_mismatch', 'code_drift', 'provider_problems', 'warnings', 'incomplete_apply', 'incomplete_lifecycle',
+    'missing_user', 'skipped_user_meta', 'adapter_dispositions', 'selected_actions', 'regen_pending', 'regen_context'], []);
+$fixed['env_missing'] = [];
+$fixed['deleted'] = array_map(static fn(array $row): array => ['uuid' => $row['uuid'],
+    'type' => 'wt_iew_mapping_template', 'deletion_kind' => 'table', 'deletion_type' => 'wt_iew_mapping_template',
+    'receipt_hash' => $fixedRepository['deletions'][$row['uuid']]['hash']], $plan['delete']);
+$fixedFaults = ['valid', 'create', 'collision', 'code-mismatch', 'code-drift', 'provider-problem', 'warning',
+    'incomplete-apply', 'incomplete-lifecycle', 'missing-user', 'skipped-user-meta', 'adapter-disposition',
+    'selected-action', 'regen-pending', 'regen-context', 'required-env', 'missing-deleted', 'wrong-deleted-type',
+    'wrong-deleted-receipt'];
+foreach ($fixedFaults as $fault) {
+    $bad = $fixed;
+    if ($fault === 'create') $bad['create'][] = ['uuid' => 'unresolved'];
+    if ($fault === 'collision') $bad['collision'][] = ['uuid' => 'unresolved'];
+    if ($fault === 'code-mismatch') $bad['code_mismatch'][] = ['issue' => 'missing_in_code'];
+    if ($fault === 'code-drift') $bad['code_drift'][] = ['issue' => 'version_drift'];
+    if ($fault === 'provider-problem') $bad['provider_problems'][] = ['reason' => 'unavailable'];
+    if ($fault === 'warning') $bad['warnings'][] = 'unresolved warning';
+    if ($fault === 'incomplete-apply') $bad['incomplete_apply'][] = ['uuid' => 'unresolved'];
+    if ($fault === 'incomplete-lifecycle') $bad['incomplete_lifecycle'][] = ['plugin' => 'unresolved'];
+    if ($fault === 'missing-user') $bad['missing_user'][] = ['login' => 'missing'];
+    if ($fault === 'skipped-user-meta') $bad['skipped_user_meta'][] = ['login' => 'missing'];
+    if ($fault === 'adapter-disposition') $bad['adapter_dispositions'][] = ['adapter' => 'unreviewed'];
+    if ($fault === 'selected-action') $bad['selected_actions'][] = ['id' => 'unresolved'];
+    if ($fault === 'regen-pending') $bad['regen_pending'][] = ['uuid' => 'unresolved'];
+    if ($fault === 'regen-context') $bad['regen_context'][] = ['uuid' => 'unresolved'];
+    if ($fault === 'required-env') $bad['env_missing'][] = ['name' => 'required', 'required' => true];
+    if ($fault === 'missing-deleted') array_pop($bad['deleted']);
+    if ($fault === 'wrong-deleted-type') $bad['deleted'][0]['type'] = 'post';
+    if ($fault === 'wrong-deleted-receipt') $bad['deleted'][0]['receipt_hash'] = str_repeat('f', 64);
+    [$status, $out] = WPrismTest\ShellProbe::run($fixedProbe,
+        [$root, $capsule, json_encode($bad, JSON_THROW_ON_ERROR), json_encode($fixedRepository, JSON_THROW_ON_ERROR)], $root);
+    wprism_check_same($fault === 'valid', $status === 0 && str_contains($out, 'ACCEPTED'),
+        'actual fixed-point assertion closes every action and diagnostic bucket: ' . $fault);
+}
+$milestones = [
+    'wprism_ssh_enroll_full_recovery importer-deletion',
+    'wprism_ssh_install_locked_plugin "$slug" 2.7.5 certified-boundary inactive',
+    'wprism_ssh_stage_code_inventory "$slug"',
+    'wprism_ssh_stage_generation_releases 3',
+    'importer-delete-baseline-ledger',
+    'importer_delete_assert ledger-preimage baseline-ledger restored-ledger baseline',
+    'provider-state.json.fail-verify-after',
+    'and .status.state == "rolled_back" and .status.terminal == true',
+    'importer_delete_assert same baseline rollback-preserved',
+    'importer_delete_assert same baseline-ledger rollback-ledger',
+    'importer_delete_assert removed baseline signed-removed',
+    'importer_delete_assert ledger-terminal baseline-ledger signed-ledger plan',
+    'Importer signed deletion fixed point',
+    'importer_delete_assert same signed-ledger repeat-ledger',
+];
+$cursor = -1;
+foreach ($milestones as $milestone) {
+    $position = strpos($source, $milestone);
+    wprism_check(is_int($position) && $position > $cursor,
+        'signed deletion retains ordered recovery, rollback, retry and fixed-point milestone: ' . $milestone);
+    $cursor = $position;
+}
+wprism_check_same(3, substr_count($source, 'promote target --with-deletes'),
+    'signed deletion exercises one failed promotion, one retry and one fixed-point repeat');
 wprism_check_summary('Importer template deletion evidence');

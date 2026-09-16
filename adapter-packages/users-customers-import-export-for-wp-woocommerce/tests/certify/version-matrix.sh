@@ -15,11 +15,11 @@ version_matrix_preflight() {
     || fail 'Importer version matrix requires the clean exact candidate'
   export WPRISM_SOURCE_ROOT="$IMPORTER_MATRIX_ROOT" WPRISM_ARTIFACT_LIBRARY_ROOT="$IMPORTER_MATRIX_ROOT"
   export WPRISM_ARTIFACT_PACKAGE="$VMATRIX_PLUGIN_SLUG"
-  jq -e '.status == "experimental"' "$IMPORTER_MATRIX_PACKAGE/package/disposition.json" >/dev/null \
-    || fail 'Importer version matrix requires its reviewed experimental boundary'
-  jq -e '.entry.mode == "agent-roundtrip" and .entry.plugins == [{"slug":"users-customers-import-export-for-wp-woocommerce","version":"2.7.5"}]' \
+  jq -e '.status == "certified"' "$IMPORTER_MATRIX_PACKAGE/package/disposition.json" >/dev/null \
+    || fail 'Importer version matrix requires its reviewed certified boundary'
+  jq -e '(.entry.mode // "roundtrip") == "roundtrip" and .entry.plugins == [{"slug":"users-customers-import-export-for-wp-woocommerce","version":"2.7.5"}]' \
     "$IMPORTER_MATRIX_PACKAGE/tests/conformance/entry.json" >/dev/null \
-    || fail 'Importer version matrix requires its exact 2.7.5 agent roundtrip'
+    || fail 'Importer version matrix requires its exact 2.7.5 ordinary host roundtrip'
 }
 
 importer_matrix_capture() { # <unique stage> <expected exit> <command...>
@@ -89,7 +89,7 @@ version_matrix_workflow() {
   IMPORTER_MATRIX_SINK=$(umask 077; mktemp -d "$IMPORTER_MATRIX_ROOT/sandbox/tmp/importer-version-matrix-$PAIR.XXXXXX")
   local result=0 suffix
   for suffix in stdout stderr exit; do (umask 077; set -C; : >"$IMPORTER_MATRIX_SINK/positive.$suffix"); done
-  say 'Importer 2.7.5: complete experimental agent roundtrip and native CSV consumers'
+  say 'Importer 2.7.5: complete certified roundtrip and native CSV consumers'
   bash "$IMPORTER_MATRIX_ROOT/sandbox/conformance/run.sh" "$VMATRIX_PLUGIN_SLUG" 2>&1 \
     | tee "$IMPORTER_MATRIX_SINK/positive.stdout" || result=$?
   printf '%s\n' "$result" >"$IMPORTER_MATRIX_SINK/positive.exit"

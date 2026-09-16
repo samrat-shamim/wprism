@@ -29,7 +29,8 @@ final class ValueContractGrammar {
         private readonly bool $fieldLabels = false,
         private readonly bool $fieldTemplates = false,
         private readonly bool $inputFiles = false,
-        private readonly bool $objectRecords = false
+        private readonly bool $objectRecords = false,
+        private readonly bool $fieldTemplateRequirements = false
     ) {}
 
     /** Object members reuse the authored leaf grammar; absence never creates a default. */
@@ -58,7 +59,7 @@ final class ValueContractGrammar {
             return;
         }
         if (array_key_exists(FieldTemplateMap::FIELD, $rule)) {
-            FieldTemplateMap::assert_rule($rule, $where, $this->fieldTemplates);
+            FieldTemplateMap::assert_rule($rule, $where, $this->fieldTemplates, $this->fieldTemplateRequirements);
             return;
         }
         if (array_key_exists(FieldLabelMap::FIELD, $rule)) {

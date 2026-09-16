@@ -1,15 +1,15 @@
 {
   "plugins": {
     "users-customers-import-export-for-wp-woocommerce": {
-      "2.7.5": {
-        "url": "https://downloads.wordpress.org/plugin/users-customers-import-export-for-wp-woocommerce.2.7.5.zip",
-        "sha256": "6b7bd053960bee782e900688dac0cfed9df2519a2a0cdf72f65cf47d4b77e4a2",
-        "role": "exercise-fixture"
-      },
       "2.7.4": {
         "url": "https://downloads.wordpress.org/plugin/users-customers-import-export-for-wp-woocommerce.2.7.4.zip",
         "sha256": "3437f56048dccb3492ed280662cfbb74dd8d8ae50018624432e7cd26fd4d1221",
         "role": "refusal-fixture"
+      },
+      "2.7.5": {
+        "url": "https://downloads.wordpress.org/plugin/users-customers-import-export-for-wp-woocommerce.2.7.5.zip",
+        "sha256": "6b7bd053960bee782e900688dac0cfed9df2519a2a0cdf72f65cf47d4b77e4a2",
+        "role": "certified-boundary"
       }
     }
   },

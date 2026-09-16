@@ -14,6 +14,8 @@ $check(is_admin() && current_user_can('manage_options') && defined('WT_U_IEW_VER
     'exact native administrator context');
 global $wpdb, $wp_filter;
 $table = $wpdb->prefix . 'wt_iew_mapping_template';
+$mapTable = $wpdb->prefix . 'wprism_map';
+$stateTable = $wpdb->prefix . 'wprism_state';
 $read = static function () use ($wpdb, $table, $check): array {
     $wpdb->last_error = '';
     $rows = $wpdb->get_results("SELECT * FROM `$table` ORDER BY id LIMIT 65", ARRAY_A);
@@ -39,6 +41,41 @@ $select = static function (array $rows) use ($check): array {
         if ($matches !== []) $selected[$label] = $matches[0];
     }
     return $selected;
+};
+$readIdentities = static function (array $localIds) use ($wpdb, $mapTable, $check): array {
+    $localIds = array_values(array_unique(array_map('intval', $localIds)));
+    sort($localIds, SORT_NUMERIC);
+    $check(count($localIds) === 3 && $localIds[0] > 0, 'three bounded positive identity-map keys');
+    $placeholders = implode(',', array_fill(0, count($localIds), '%d'));
+    $wpdb->last_error = '';
+    $rows = $wpdb->get_results($wpdb->prepare(
+        "SELECT uuid, entity_type, id_kind, local_id FROM `$mapTable` WHERE id_kind=%s AND local_id IN ($placeholders) ORDER BY local_id",
+        ['iew_template', ...$localIds]
+    ), ARRAY_A);
+    $check($wpdb->last_error === '' && is_array($rows), 'exact template identity-map read');
+    return $rows;
+};
+$readLedger = static function (array $identities) use ($wpdb, $mapTable, $stateTable, $check): array {
+    $uuids = array_values(array_unique(array_column($identities, 'uuid')));
+    sort($uuids, SORT_STRING);
+    $check(count($uuids) === 3
+        && array_reduce($uuids, static fn(bool $valid, string $uuid): bool => $valid
+            && preg_match('/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/D', $uuid) === 1, true),
+        'three bounded canonical ledger identities');
+    $placeholders = implode(',', array_fill(0, count($uuids), '%s'));
+    $wpdb->last_error = '';
+    $map = $wpdb->get_results($wpdb->prepare(
+        "SELECT uuid, entity_type, id_kind, local_id FROM `$mapTable` WHERE uuid IN ($placeholders) ORDER BY uuid, id_kind",
+        $uuids
+    ), ARRAY_A);
+    $check($wpdb->last_error === '' && is_array($map), 'exact selected identity-map read');
+    $wpdb->last_error = '';
+    $state = $wpdb->get_results($wpdb->prepare(
+        "SELECT uuid, entity_type, content_hash FROM `$stateTable` WHERE uuid IN ($placeholders) ORDER BY uuid",
+        $uuids
+    ), ARRAY_A);
+    $check($wpdb->last_error === '' && is_array($state), 'exact selected identity-state read');
+    return ['format' => 'wprism-importer-template-ledger/v1', 'map' => $map, 'state' => $state];
 };
 if ($phase === 'policy') {
     require_once WPMU_PLUGIN_DIR . '/wprism/src/Delete/ExecutableOwnerBoundary.php';
@@ -79,6 +116,32 @@ if ($phase === 'repository') {
         JSON_THROW_ON_ERROR), "\n";
     return;
 }
+if ($phase === 'identity-ledger') {
+    $selected = $select($read());
+    $ids = array_map(static fn(array $row): int => (int) $row['id'], $selected);
+    sort($ids, SORT_NUMERIC);
+    $identities = $readIdentities($ids);
+    $check(array_map('intval', array_column($identities, 'local_id')) === $ids, 'complete selected identity-map preimage');
+    foreach ($identities as $identity) {
+        $check(array_keys($identity) === ['uuid', 'entity_type', 'id_kind', 'local_id']
+            && preg_match('/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/D', $identity['uuid']) === 1
+            && $identity['entity_type'] === 'wt_iew_mapping_template' && $identity['id_kind'] === 'iew_template',
+            'exact typed template identity-map row');
+    }
+    usort($identities, static fn(array $left, array $right): int => [$left['uuid'], $left['id_kind']] <=> [$right['uuid'], $right['id_kind']]);
+    $ledger = $readLedger($identities);
+    $check($ledger['map'] === $identities && count($ledger['state']) === 3, 'complete selected ledger preimage');
+    echo json_encode($ledger, JSON_THROW_ON_ERROR), "\n";
+    return;
+}
+if ($phase === 'observe-ledger') {
+    $baseline = json_decode((string) stream_get_contents(STDIN), true, 32, JSON_THROW_ON_ERROR);
+    $check(is_array($baseline) && ($baseline['format'] ?? null) === 'wprism-importer-template-ledger/v1'
+        && array_keys($baseline) === ['format', 'map', 'state'] && count($baseline['map']) === 3,
+        'complete selected ledger observation context');
+    echo json_encode($readLedger($baseline['map']), JSON_THROW_ON_ERROR), "\n";
+    return;
+}
 if ($phase === 'seed') {
     $before = $read();
     $check(count($before) === 5, 'native export/import Save and Save As produced five templates');
@@ -109,20 +172,39 @@ if ($phase === 'seed') {
 if ($phase === 'restore-fixture') {
     // This prepares the target preimage after native source Delete/Capture.
     // It is deliberately separate from the signed product rollback proof.
-    $baseline = json_decode((string) stream_get_contents(STDIN), true, 32, JSON_THROW_ON_ERROR);
+    $input = json_decode((string) stream_get_contents(STDIN), true, 32, JSON_THROW_ON_ERROR);
+    $baseline = $input['native'] ?? null;
+    $ledger = $input['ledger'] ?? null;
+    $check(is_array($baseline) && is_array($ledger)
+        && ($ledger['format'] ?? null) === 'wprism-importer-template-ledger/v1'
+        && array_keys($ledger) === ['format', 'map', 'state']
+        && count($ledger['map']) === 3 && count($ledger['state']) === 3, 'complete target preimage input');
     $rows = $baseline['tables']['wt_iew_mapping_template'] ?? [];
     $selected = $select($rows);
     $check(count($rows) === 7 && count($selected) === 3 && $select($read()) === [], 'owned missing-row fixture preimage');
+    $ids = array_map(static fn(array $row): int => (int) $row['id'], $selected);
+    sort($ids, SORT_NUMERIC);
+    $check($readIdentities($ids) === [] && $readLedger($ledger['map'])['map'] === [],
+        'selected local identity bindings are absent after source Capture');
     $check($wpdb->query('START TRANSACTION') !== false, 'fixture restoration transaction');
     try {
         foreach ($selected as $row) $check($wpdb->insert($table, $row) === 1, 'restore one exact owned fixture row');
+        foreach ($ledger['map'] as $row) {
+            $check($wpdb->insert($mapTable, $row, ['%s', '%s', '%s', '%d']) === 1, 'restore one exact target identity binding');
+        }
+        foreach ($ledger['state'] as $row) {
+            $removed = $wpdb->delete($stateTable, ['uuid' => $row['uuid']], ['%s']);
+            $check($removed === 0 || $removed === 1, 'replace at most one selected target state row');
+            $check($wpdb->insert($stateTable, $row, ['%s', '%s', '%s']) === 1, 'restore one exact target state binding');
+        }
         $check($read() === $rows, 'fixture restoration recreates the complete template census');
+        $check($readLedger($ledger['map']) === $ledger, 'fixture restoration recreates the exact target ledger preimage');
         $check($wpdb->query('COMMIT') !== false, 'fixture restoration commit');
     } catch (Throwable $failure) {
         $wpdb->query('ROLLBACK');
         throw $failure;
     }
-    echo json_encode(['restored' => array_keys($selected)], JSON_THROW_ON_ERROR), "\n";
+    echo json_encode(['restored' => array_keys($selected), 'identity_uuids' => array_column($ledger['map'], 'uuid')], JSON_THROW_ON_ERROR), "\n";
     return;
 }
 if ($phase === 'delete') {

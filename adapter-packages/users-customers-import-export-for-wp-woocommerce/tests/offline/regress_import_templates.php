@@ -128,18 +128,37 @@ wprism_check_same(Canon::encode(array_column($entities, 'content', 'uuid')), Can
     'complete import/export recapture reaches the source canonical tree independently of local row order');
 wprism_check_same([false, false, false], $write($tree), 'repeat preserves all identities');
 wprism_check_same($after, $census(), 'repeat preserves the complete native census');
-$omittedPassword = $value;
-$omittedPassword['mapping_form_data']['mapping_fields']['user_pass'] = [[], 0];
-unset($omittedPassword['mapping_form_data']['mapping_selected_fields']['user_pass']);
-$omittedEntity = $original['data'];
-$omittedEntity['columns']['data'] = json_encode($omittedPassword, JSON_THROW_ON_ERROR);
-Canon::write_file($repo . '/state/' . $original['path'], Canon::encode($omittedEntity));
-$omittedTree = RepositoryCompiler::compile($repo, $policy)->tree();
-wprism_check_same([[], 0], json_decode($omittedTree[$uuid]['data']['columns']['data'], true, flags: JSON_THROW_ON_ERROR)
-    ['mapping_form_data']['mapping_fields']['user_pass'], 'disabled password mapping remains an explicit native tuple');
-wprism_check(!isset(json_decode($omittedTree[$uuid]['data']['columns']['data'], true, flags: JSON_THROW_ON_ERROR)
-    ['mapping_form_data']['mapping_selected_fields']['user_pass']), 'omitted password field remains absent from the selected native mapping');
+foreach (['missing-selected', 'empty-selected', 'disabled-definition'] as $fault) {
+    $invalidValue = $value;
+    if ($fault === 'missing-selected') unset($invalidValue['mapping_form_data']['mapping_selected_fields']['user_pass']);
+    if ($fault === 'empty-selected') $invalidValue['mapping_form_data']['mapping_selected_fields']['user_pass'] = [];
+    if ($fault === 'disabled-definition') $invalidValue['mapping_form_data']['mapping_fields']['user_pass'] = [[], 0];
+    $invalid = $original['data'];
+    $invalid['columns']['data'] = json_encode($invalidValue, JSON_THROW_ON_ERROR);
+    Canon::write_file($repo . '/state/' . $original['path'], Canon::encode($invalid));
+    wprism_check_throws(static fn() => RepositoryCompiler::compile($repo, $policy), RuntimeException::class,
+        "compiler refuses $fault password mapping before Apply", 'schema_content_mismatch');
+    wprism_check_same($after, $census(), "$fault compiler refusal preserves complete native state");
+}
 Canon::write_file($repo . '/state/' . $original['path'], $original['content']);
+$nativeRows = $after[$table];
+foreach (['missing-selected', 'empty-selected', 'disabled-definition'] as $fault) {
+    $badRows = $nativeRows;
+    foreach ($badRows as &$row) if ((int) $row['id'] === $localId) {
+        $bad = json_decode($row['data'], true, flags: JSON_THROW_ON_ERROR);
+        if ($fault === 'missing-selected') unset($bad['mapping_form_data']['mapping_selected_fields']['user_pass']);
+        if ($fault === 'empty-selected') $bad['mapping_form_data']['mapping_selected_fields']['user_pass'] = '';
+        if ($fault === 'disabled-definition') $bad['mapping_form_data']['mapping_fields']['user_pass'] = ['', 0];
+        $row['data'] = json_encode($bad, JSON_THROW_ON_ERROR);
+    }
+    unset($row);
+    $db->seedTable($table, $badRows);
+    $beforeBad = $census();
+    wprism_check_throws(static fn() => $capture($targetTokens), RuntimeException::class,
+        "Capture refuses native $fault password mapping", 'user_pass');
+    wprism_check_same($beforeBad, $census(), "$fault Capture refusal preserves complete native state");
+}
+$db->seedTable($table, $nativeRows);
 $edited = $original;
 $editedValue = $value;
 $editedValue['mapping_form_data']['mapping_selected_fields']['display_name'] = [['field' => 'LocalDisplay']];

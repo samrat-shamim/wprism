@@ -1,6 +1,6 @@
 {
-  "status": "experimental",
-  "reason": "Declares nine native settings and scoped user import/export templates through shared option predicates, row-selected typed JSON values, expression/label maps, strict user bindings, record projection and target-local CSV dependencies. Native template Save/reopen, full/scoped Apply and CSV consumption are exercised separately from broader deletion, lifecycle and combination qualification.",
+  "status": "certified",
+  "reason": "Reviewed for exact free Import Export for WooCommerce 2.7.5 on single-site WordPress: nine native advanced settings; saved local-file user import/export templates; divergent template and user identities; native Save, Update, Save As, reopen, export and mapped-password import consumers; required functional password mappings; target-local CSV rebinding and rotation; clean, dirty, scoped and repeated Apply; Importer plus WooCommerce customer/order behavior under both plugin load orders; native deletion with signed rollback and retry; transaction failure, SIGKILL lease recovery and exact recapture; activation, deactivation, uninstall residue and reinstall; and exact 2.7.4 plus synthetic upper-bound refusal controls. Operational jobs/files/users, remote and premium modes, non-user templates, case-variant rows, undeclared settings and multisite remain explicit boundaries.",
   "supported_versions": {
     "plugin": "users-customers-import-export-for-wp-woocommerce/users-customers-import-export-for-wp-woocommerce.php",
     "range": {
@@ -26,7 +26,11 @@
       "delete",
       "recapture"
     ],
-    "lifecycle_phases": [],
+    "lifecycle_phases": [
+      "retire",
+      "activate",
+      "verify"
+    ],
     "deletion_semantics": {
       "supported": [
         "table:wt_iew_mapping_template"
@@ -57,19 +61,29 @@
   },
   "unsupported": [
     {
-      "operation": "apply",
-      "surface": "native-failure-recovery",
-      "reason": "Deterministic settings rollback and native pre-mutation scalar refusals are covered. Native post-write failure/recovery qualification remains open; fixture restoration of a deliberately invalid setting is not product recovery evidence."
-    },
-    {
-      "operation": "deploy",
-      "surface": "host-production",
-      "reason": "The experimental agent roundtrip exercises activation and state reconciliation; host production deployment remains withheld pending complete readiness and participant-declared combination evidence."
-    },
-    {
       "operation": "capture",
       "surface": "non-user and case-variant templates; unnamed advanced setting keys; generated exports/logs; users and customers",
-      "reason": "Only the native free-plugin local CSV input mode is declared. Other module settings and template rows remain local; operational records and user/customer data are not authored configuration. Remote-adapter extensions and broader native import-job qualification remain pending."
+      "reason": "Only exact lowercase user/import and user/export saved templates and nine named advanced settings are authored. Other module settings and template rows stay local; job history, generated files and imported user/customer records are operational data."
+    },
+    {
+      "operation": "capture,apply",
+      "surface": "remote-and-premium-import-export-modes",
+      "reason": "The reviewed free artifact declares local CSV transport only. URL, FTP, scheduled, cloud and paid extension modes need separate artifact and credential-provider evidence."
+    },
+    {
+      "operation": "delete",
+      "surface": "history, users, customers, non-user templates and template rows with unreviewed active executable owners",
+      "reason": "Only declared user/import and user/export mapping-template rows use the reviewed native one-row deletion boundary. Operational history and imported records remain target-owned, and the all-active-owner agreement refuses any executable owner without exact reviewed code identity and rationale."
+    },
+    {
+      "operation": "all",
+      "surface": "version:<2.7.5|>=2.7.6",
+      "reason": "Only official 2.7.5 is source-audited and exercised. The exclusive 2.7.6 maximum prevents a future patch from being admitted without review; official 2.7.4 and synthetic upper-bound code refuse before mutation."
+    },
+    {
+      "operation": "all",
+      "surface": "multisite",
+      "reason": "The platform v1 single-site boundary refuses multisite before adapter or repository mutation; network import/export settings and site-table topology are outside this adapter."
     }
   ]
 }
