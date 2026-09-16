@@ -171,11 +171,11 @@ wprism_ssh_adopt_extension() {
   importer_delete_assert same deletion-repository direct-repository
   [ -z "$(target_ledger_value promotion_lock)" ] || fail 'Importer refused direct deletion retained its target lock'
 
-  # Recovery preparation/claim, lifecycle and upload settlement consume the
-  # first held-exclusion reads. The shared provider's twentieth verify is the
-  # final operation before database COMMIT, as independently exercised by the
-  # WooCommerce signed-deletion lane using the same engine path.
-  ssh_fixture 'printf "20\n" > /home/wprism/recovery-fixture/provider-state.json.fail-verify-after && chmod 600 /home/wprism/recovery-fixture/provider-state.json.fail-verify-after'
+  # Recovery preparation/claim, lifecycle, upload and Apply preflight consume
+  # through verify 20 at executable-owner binding. The three rows then consume
+  # verifies 21-23 in authorize_next_delete(); verify 24 is therefore the final
+  # external-exclusion operation before this transaction's database COMMIT.
+  ssh_fixture 'printf "24\n" > /home/wprism/recovery-fixture/provider-state.json.fail-verify-after && chmod 600 /home/wprism/recovery-fixture/provider-state.json.fail-verify-after'
   if "$WPRISM" --envs-file="$TMP/envs.json" promote target --with-deletes >"$failure_stdout" 2>"$failure_stderr"; then
     failure_code=0
   else
