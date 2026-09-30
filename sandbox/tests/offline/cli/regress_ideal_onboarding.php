@@ -2041,6 +2041,18 @@ file_put_contents(
     json_encode($inventoryWitness, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
 );
 $assertCoreOptionInventory->invoke(null, $inventorySession, $inventoryRoot);
+$freshInventory = $inventoryWitness;
+$freshInventory['missing_exact'] = ['recently_activated'];
+file_put_contents(
+    $inventoryFixture,
+    json_encode($freshInventory, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
+);
+try {
+    $assertCoreOptionInventory->invoke(null, $inventorySession, $inventoryRoot);
+    wprism_check(true, 'fresh core demo accepts the native absence of the plugin-admin runtime option');
+} catch (RuntimeException $error) {
+    wprism_check(false, 'fresh core demo accepts the native absence of the plugin-admin runtime option: ' . $error->getMessage());
+}
 $inventoryProbe = (string) file_get_contents($inventoryCommand);
 wprism_check(
     str_contains($inventoryProbe, 'Policy::load("/siterepo")')
@@ -2064,8 +2076,8 @@ try {
         'an unexpected live option refuses before the demo can claim exact WordPress 7.1 coverage'
     );
 }
-$missingInventory = $inventoryWitness;
-$missingInventory['missing_exact'] = ['blogname'];
+$missingInventory = $freshInventory;
+$missingInventory['missing_exact'] = ['blogname', 'recently_activated'];
 file_put_contents(
     $inventoryFixture,
     json_encode($missingInventory, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)

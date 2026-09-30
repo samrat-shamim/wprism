@@ -1423,8 +1423,12 @@ SH;
         $names = $inventory['names'];
         $profileNames = array_keys(self::coreOptionProfile());
         $missing = array_values(array_diff($profileNames, $names));
+        // WordPress 7.1 creates recently_activated lazily in the Plugins screen
+        // (wp-admin/includes/class-wp-plugins-list-table.php:193-207), not at
+        // install. Its runtime declaration does not require a fresh-site row.
+        $missingExact = array_values(array_diff($inventory['missing_exact'], ['recently_activated']));
         if (count($names) !== self::CORE_OPTION_TOTAL || count(array_unique($names)) !== count($names)
-            || $missing !== [] || $inventory['missing_exact'] !== [] || $inventory['missing_sidebar'] !== []
+            || $missing !== [] || $missingExact !== [] || $inventory['missing_sidebar'] !== []
             || $inventory['missing_dynamic'] !== [] || $inventory['unseen'] !== []) {
             throw new \RuntimeException(
                 'the WordPress 7.1 option inventory moved: total=' . count($names)

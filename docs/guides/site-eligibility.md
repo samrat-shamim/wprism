@@ -11,7 +11,7 @@ verified recovery.
 |---|---|
 | WordPress topology | A single-site installation with the supported content and MU-plugin layout. Multisite and unsupported layouts refuse. |
 | Runtime versions | Compare WordPress, PHP, and the database engine/version with the current [compatibility data](../compatibility-baseline.json). Do not infer support from “PHP 8” or “MySQL compatible.” |
-| Target access | Working WP-CLI, PHP with Sodium and durable filesystem functions, Git, and appropriate filesystem access. SSH adoption also needs SSH/SCP and tar. |
+| Target access | Working WP-CLI, PHP with Sodium and durable filesystem functions, Git, and appropriate filesystem access. Managed Docker tooling can supply WP-CLI and Git for a supported local Compose site. SSH adoption also needs SSH/SCP and tar. |
 | Process and filesystem | The declared local POSIX process/filesystem profile, including the required process functions and disabled CLI OPcache. The compatibility data is authoritative. |
 | Media | Git LFS on the target and on machines cloning a site repository with attachment bytes. |
 | Database mutation | The database account must prove a complete InnoDB foreign-key census, including a direct global `PROCESS` privilege. |
@@ -44,10 +44,12 @@ guide deliberately does not maintain a second plugin/version matrix.
 5. Rehearse the intended change in a disposable environment and review
    [release](release.md) and [recovery](recovery.md) before production use.
 
-The connect probes issue no explicit target mutation, but their WordPress
-bootstrap can run site startup code. Onboarding installs the control plane;
-it is not a purely read-only assessment. The quickstart names each mutation
-and confirmation point.
+The connect probes issue no explicit WordPress mutation, but their bootstrap
+can run site startup code. Managed Docker connection also builds helper tooling
+and creates a private Compose overlay and repository volume. Onboarding installs
+the control plane; explicitly selected Docker database setup grants the census
+privilege to the site's database account. These are not purely read-only
+assessments. The quickstart names each mutation and confirmation point.
 
 A reviewed adapter does not imply that every feature of its plugin, every
 co-installed plugin, or the whole site is supported. Orders, inventory,

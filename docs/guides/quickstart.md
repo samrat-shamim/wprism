@@ -10,7 +10,7 @@ registry by hand.
 
 ## Try WPrism without connecting a site
 
-From a source checkout with PHP 8+, Docker with Compose, Git, and `jq`
+From a full Git checkout with PHP 8.3, Docker with Compose, Git, and `jq`
 available:
 
 ```sh

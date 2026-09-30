@@ -295,3 +295,8 @@ b19caf7c3f28513b894ea50fd6ba8c2c5d3da0bb:sandbox/tests/regress_woocommerce_delet
 
 # sandbox/tests/spike_f_core_loop.sh
 6e6a03d91052c5f6d139f87018761a7bf7e6fecc:sandbox/tests/spike_f_core_loop.sh:stripe-access-token:148
+
+# Reviewed synthetic canaries on the fetched main and historical remote branches.
+41e394ddc3c68f4afa7bf25cd26b3c71ae4888fe:sandbox/tests/offline/capture/regress_capture_safety_gates.php:stripe-access-token:142
+9128a69ad3cf7e54c118cfe641eaad4b87e815c3:sandbox/conformance/checks/yoast-duplicate-post.sh:generic-api-key:416
+1b8aa9e55fb1c270ba45fe0d5f6ff59f8b8edb02:sandbox/conformance/checks/code-snippets.sh:generic-api-key:338
