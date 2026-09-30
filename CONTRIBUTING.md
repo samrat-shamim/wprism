@@ -17,7 +17,7 @@ decides changes.
   [Issues](https://github.com/duotronic-ai/wprism/issues).
 - Small fixes can start as pull requests. Discuss substantial architecture,
   public-contract, or adapter-scope changes in an issue first.
-- For plugin work, start with [your first adapter contribution](docs/guides/first-adapter.md).
+- For plugin work, start with [your first adapter contribution](docs/guides/adapter-authoring.md).
 - Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
 
 A bug report should include the exact WPrism commit, relevant runtime/plugin
@@ -60,6 +60,11 @@ refusal contracts, and lock ordering. Do not mass-format the repository.
 An adapter's identity-bearing package bytes are deployed contract inputs;
 changing them requires deliberate compatibility and migration review.
 Scratch belongs in `sandbox/tmp/` or a temporary directory.
+
+For documentation changes, run `bash tools/check-docs.sh` to check command
+citations and local links. It also runs as part of `make release-gate`.
+Review flags and workflow meaning separately; the checker resolves command
+names, not every invocation's arguments.
 
 ## Add evidence with the change
 

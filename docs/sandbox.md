@@ -1,13 +1,10 @@
-# Sandbox redesign (task #74): one pair template + one shared MariaDB
+# Sandbox: test ownership and live pairs
 
-*Replaces the pattern (not the file — see "what stays on the legacy
-mega-compose" below) of `sandbox/docker-compose.yml`: one dedicated MariaDB
-container per env pair, ~10 pairs hand-duplicated as compose profiles. That
-mega-file wedged the OrbStack daemon under three concurrent stacks this
-session — the incident that motivated this redesign. New surface:
-`sandbox/pair.yml`, `sandbox/db.yml`, three override files
-(`sandbox/pair.{http,journal,codebind}.yml`), and the lifecycle tool
-`sandbox/bin/pair.sh`.*
+Use the shared offline corpus for deterministic regressions, then select the
+minimal live evidence needed for a changed mechanism.
+`sandbox/bin/pair.sh` manages current live pairs; capsule-owned tests and
+explicit integration scenarios share that infrastructure. Retained legacy
+Compose harnesses are listed below.
 
 ## The model
 
@@ -39,25 +36,17 @@ and `tools/capability-doc.php` cross-checks it against
 candidate-bound run leaves it unset and therefore uses
 `wordpress:7.1-php8.3-apache`.
 
-Why one server instead of one-per-pair: a clean-room reset becomes `DROP
-DATABASE` + `CREATE DATABASE` against a server that's already initialized
-and warm, instead of removing a volume and paying MariaDB's full InnoDB
-bootstrap again on next boot. Measured on this machine, warm image cache,
-nothing else contending for resources (see "Measured reset time" below):
-**~0.75s for the new reset vs ~7.8s for the old volume-cycle** — and the old
-number excludes the `docker compose rm -sf` step the real
-`sandbox/conformance/run.sh` also pays before its `docker volume rm -f`, so
-real-world old-flow resets cost more than that baseline.
+Why one server instead of one per pair: a clean-room reset uses `DROP` and
+`CREATE DATABASE` for only that pair's schemas. It avoids recreating a database
+server and preserves concurrent pairs. The historical reset measurement below
+explains that choice; it is not a current performance guarantee.
 
-### The MySQL evidence lane (second shared server, no claim)
+### The MySQL evidence lane
 
-`sandbox/db.mysql.yml` brings up a **second** long-lived server —
-`mysql:8.4` as `wprism-shared-mysql`, its own compose project `wprism-db-mysql`,
-its own volume `wprism-db-mysql-data`, loopback port `127.0.0.1:3326` (distinct
-from db.yml's 3316 because both servers are up at once during a matrix run).
-It **attaches** to db.yml's `wprism-shared` network with `external: true`, so
-`db.yml` must have been brought up at least once first; it never creates that
-network and never touches db.yml's container, volume, or image.
+`sandbox/db.mysql.yml` brings up a second shared server, `mysql:8.4`, as
+`wprism-shared-mysql` in compose project `wprism-db-mysql`. It uses its own
+volume and loopback port `127.0.0.1:3326`, distinct from MariaDB's port 3316.
+It attaches to db.yml's `wprism-shared` network, so bring up db.yml first.
 
 Select it per invocation with `WPRISM_DB_ENGINE`:
 
@@ -97,29 +86,23 @@ publication removes any pre-fix database entry. Legacy default callers retain
 pin mounts through `pair_identity_export_source_mounts()`; their exported
 context outranks the source-path fallback throughout direct and host calls.
 
-**What this server now proves — and what it does not yet.**
-`platform/adapter-library/capabilities/platform.json`'s database axis is an engine-keyed map
-(`compatibility.database.engines`) that names `MySQL [8.4.0, 8.5.0)` beside
-`MariaDB [11.0.0, 12.0.0)`, so a pair pointed at `wprism-shared-mysql` is no
-longer refused on the engine axis: `wp wprism ...` runs, and this lane is what
-decides whether it should. Until the live matrix has run, the claim's own
-database note says PENDING in as many words, and the remedy on failure is
-named there — drop the MySQL entry and restore a MariaDB-only engines map,
-never a fallback or a widened bound around the failure. The dialect audit
-that made the widening reviewable at all is
-[docs/mysql-dialect-audit.md](mysql-dialect-audit.md); its five probe groups
-are `sandbox/tests/live/regress_core_scope_database.sh`'s assertions, and §5
-(the `caching_sha2_password` handshake) runs FIRST because the whole lane is
-blocked before any dialect question is reachable if it fails.
+**Claims and evidence.** The source-owned database boundary names MariaDB 11
+and MySQL 8.4. Its note records the completed 2026-08-24 live qualification:
+`regress_core_scope_database.sh` on both engines, plus
+`regress_core_data_boundary.sh` and `conformance-core` on MySQL. See the
+[database dialect audit](mysql-dialect-audit.md) for the original five probe
+groups and diagnostic limits. A newly run pair is evidence only for the suite
+and source revision actually exercised; it does not widen that boundary.
 
 Moving those bytes is a fleet-visible act, in three separate ways, and all
 three belong in the same commit as the claim:
 
 - every deployed site holding a compiled artifact needs a recompile and a new
   `wp wprism manifest-pin` (AGENTS.md rule 2);
-- `docs/compatibility-baseline.json` and the regenerated `docs/capabilities.md`
-  are byte-compared against platform.json by `make release-gate`, so they move
-  with it or the gate refuses;
+- `docs/compatibility-baseline.json` and the capability source checks must
+  agree with platform.json at `make release-gate`; the public capability page
+  explains the claim model, while `tools/capability-doc.php render` computes
+  current rows;
 - **site-adapter certificates are invalidated only if you moved a bound
   compatibility cell.** Since spec/repo-format.md § v3.6 a signed statement
   binds `spec_version`, `site_mode` and a per-axis digest of the exercised
@@ -547,15 +530,16 @@ plus `grind_ecommerce_developer.matrix.json` — a data file whose two readers
 are offline suites, kept here with the harness whose stem it shares.
 `certify/` is live certification-style evidence, one mechanism apiece: the
 merge, version-skew-merge, deletion, version and adversarial matrices and the
-two SSH adoption/rollback proofs. `spike/` (10) is the hand-run family — the
-exploratory `spike_*.sh` seeds, the three docker smokes whose own headers
-require an already-booted spike-E pair (`cli_smoke.sh`, `cli_triage_smoke.sh`,
-`lint_smoke.sh`), and the two scripts with no `Makefile` target at all.
-`check_guide_commands.sh` is hermetic and could have been an offline suite; it
-is here because its header (`:37`) claims exactly this kinship — "deliberately
-has no Makefile target: same precedent as `cli_status_truth.sh`" — and
-`offline/` is reserved for what the merge gate executes. Nothing in the gate
-runs it; `php tools/offline.php --extras` does, opt-in.
+two SSH adoption/rollback proofs. Package-local `tests/spike/` contains
+retained exploratory evidence, including ACF's `spike_e_acf.sh`: its path is
+cited by identity-bearing package source. Early shared spikes A–D and Docker
+smokes were superseded by named conformance, certification, and offline suites
+and have been removed.
+
+Documentation checks live in `tools/`: `bash tools/check-docs.sh` checks current
+entry points, guides, and references for command names and repository links.
+It runs in `make release-gate`; `tools/offline.php --extras` also offers the
+command-name check alongside developer self-tests.
 
 `sandbox/tests/` itself holds no suites, only `fixtures/`, `lib/`, `support/`
 and the corpus wrapper `offline_diagnostics_guard.sh`. The split is enforced,
@@ -563,24 +547,36 @@ not conventional: `regress_suite_wiring.php`'s clause 4 refuses a suite wired
 to a target of any class but its own directory's, and refuses a recipe of one
 class that names a helper sitting in another's.
 
-## What stays on the legacy `sandbox/docker-compose.yml` this round
+## Retained legacy Compose harnesses
 
-Untouched, on purpose: the mega-compose file itself, every pair it defines
-(`a`/`b`, `c`, `e1`/`e2`, `f1`/`f2`, `conf1`/`conf2`, `fx1`/`fx2`, `g1`/`g2`,
-`r1a*`, `r1b*`, `r1c*`), `sandbox/setup.sh`, every
-`sandbox/tests/spike/spike_*.sh` and `sandbox/tests/grind/grind_*.sh` script,
-and `sandbox/conformance/run.sh`'s *env
-provisioning* only gets migrated once tasks #72/#73/#75 (the sibling
-engine-gap work using the conformance pair concurrently) are all complete —
-see the git history / task board around task #74 for the migration status
-of `run.sh` specifically. Migrating the spike/grind scripts themselves to
-pair.sh, and deleting the mega-compose file, are explicitly **follow-up**
-work for a later round, not this one. Nothing here removes or renames
-anything in `docker-compose.yml`.
+`sandbox/docker-compose.yml` and `sandbox/setup.sh` remain for harnesses that
+still invoke their named profiles, including the ACF spike and round-one
+`grind_r1a_forms.sh`, `grind_r1b_shop.sh`, and `grind_r1c_agency.sh` suites.
+Use each harness's own prerequisites and cleanup instructions. The shared
+conformance runner already provisions its pair through `pair.sh`.
+
+The legacy Compose file is infrastructure used by those tests. Remove a
+profile only with its last active caller and supporting evidence; an old name
+alone does not make a fixture disposable.
+
+## Scratch and research cleanup
+
+Put generated logs, downloads, verification checkouts, and one-off research in
+`sandbox/tmp/` or a system temporary directory. Keep fixtures and package-owned
+evidence with their test owner. Neither a file named `recon` nor a `spike/`
+directory is enough reason to delete it: package comments and current evidence
+records may depend on those paths.
+
+Before deleting scratch, check running processes, open files, and container
+mounts. Release or destroy a test pair through its lifecycle tool rather than
+removing mounted files. Retain final source bundles and evidence needed to
+review a release. Archive unknown local work, verify the archive against the
+source, and record its restore command before removing the original directory.
+Never include credentials or private site dumps in a public source archive.
 
 ## Measured reset time: DROP/CREATE vs the old volume cycle
 
-Measured back-to-back on this machine, warm image cache, no other load —
+Historical measurement from the initial pair redesign, warm image cache, no other load —
 i.e. a best case for the *old* approach, since the incident this redesign
 responds to was specifically about behavior *under contention*:
 
@@ -589,8 +585,7 @@ responds to was specifically about behavior *under contention*:
 | new (`pair.sh reset`) | ensure shared db healthy (already warm) + `DROP`/`CREATE DATABASE` ×2 + `rm -rf`/`mkdir -p` site-repo dirs | **0.75s** |
 | old (per-pair volume cycle) | `docker rm -f` container + `docker volume rm -f` + fresh `docker run` + poll until the MariaDB healthcheck reports healthy | **7.83s** |
 
-The old number is a lower bound on what `conformance/run.sh` actually pays
-today — it excludes the `docker compose rm -sf` step that precedes the
+The old number was a lower bound on what the legacy conformance flow paid — it excludes the `docker compose rm -sf` step that precedes the
 volume removal in the real script, and excludes any contention with other
 running stacks. The ~10x gap is entirely the InnoDB bootstrap
 (`mariadb-install-db` + system-table creation) that a brand-new, empty
@@ -598,7 +593,7 @@ datadir must pay and an already-initialized, already-warm server does not.
 
 ## Self-test evidence
 
-Exercised end-to-end against scratch pairs (`sbx1`/`sbx2`/`sbx3`, ports
+Initial redesign evidence exercised end-to-end against scratch pairs (`sbx1`/`sbx2`/`sbx3`, ports
 8830–8835, all destroyed afterward) before this was considered done: plain
 `up`; idempotent re-`up` on an already-installed pair (correctly skipped
 reinstall); `--journal` (confirmed `WPRISM_JOURNAL` actually defined via `wp
@@ -620,7 +615,8 @@ The subject-certification apparatus this section used to describe — the
 `wprism-subject-certification-bundle/v1` records, `sandbox/certification/`, the
 `certify-subject-bundle` / `certify-subjects-parallel` runners, and the
 registry import that published them — is retired. No content-addressed bundle
-stands behind a product claim any more, and no byte change expires anything.
+stands behind a product claim. Adapter identity still binds shipped package
+bytes; it does not bind a reviewed claim to a particular evidence run.
 
 What stands behind a claim now is the adapter capsule's reviewed
 `package/disposition.json` plus live conformance that is run continuously

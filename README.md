@@ -58,7 +58,7 @@ cleanup, and troubleshooting.
 | Connect and adopt an existing site | [Quickstart](docs/guides/quickstart.md) |
 | Work on an adopted site | [Daily workflow](docs/guides/daily-workflow.md), [release](docs/guides/release.md), [recovery](docs/guides/recovery.md) |
 | Report a bug or contribute | [Contributing](CONTRIBUTING.md) |
-| Add support for a plugin | [Your first adapter contribution](docs/guides/first-adapter.md) |
+| Add support for a plugin | [Your first adapter contribution](docs/guides/adapter-authoring.md) |
 | Use an AI agent to operate WPrism | [Portable WPrism skill](skills/wprism/) |
 
 `cli/wprism --help` shows the main workflows. Use `cli/wprism help release`

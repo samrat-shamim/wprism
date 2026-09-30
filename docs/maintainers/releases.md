@@ -20,7 +20,7 @@ Required validation:
 composer check
 make regress-offline-all
 make release-gate
-bash sandbox/tests/spike/check_guide_commands.sh
+bash tools/check-docs.sh
 ```
 
 Lint each touched PHP file and syntax-check each touched shell script.

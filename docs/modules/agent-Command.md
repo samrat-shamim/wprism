@@ -17,6 +17,6 @@
 **Known debts.**
 
 - `Cli.php` references 37 other files and is the whole surface layer. It carries the undocumented `wp wprism` verbs (verify-canonical, identity-export/import, journal-report/reset, orphans, promotion-begin/abort, code-preflight/stage/finalize, refresh-export, policy-to-manifest, manifest-pin, adapter-survey).
-- `sandbox/tests/spike/check_guide_commands.sh` reads this file by path; the move must update it.
+- `tools/check-guide-commands.sh` reads the agent command registration by path; a move must update that tool.
 
 **Sub-namespace plan.** Target `WPrism\Command\`. Not in this round: the move keeps `namespace WPrism;` flat so that manifest interpreters/providers can keep naming `\WPrism\Policy`, `\WPrism\ProviderSdk`, `\WPrism\Providers` and `\WPrism\Canon` by FQCN — those hook files are `hash_file`'d into every adapter's identity row (`ArtifactPolicyIdentity::manifest_rows()`), so renaming the namespace moves each `adapter_digest` and forces a recompile plus a reviewed re-pin on every deployed site. Kernel migrates first (no inbound FQCN from manifests); Policy, Adapter and Canon migrate last, behind a hook-file change.

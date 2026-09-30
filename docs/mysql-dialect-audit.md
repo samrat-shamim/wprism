@@ -5,14 +5,17 @@ MariaDB 11 and MySQL 8.4 (the evidence lane's server). Line numbers are
 re-verified against the branch that widened the claim, not copied from the
 plan documents — several had moved.
 
-**Status: this document is a hard prerequisite of the MySQL claim, not a
-retrospective.** `platform/adapter-library/capabilities/platform.json`'s database axis now
-names MySQL 8.4 alongside MariaDB 11, with a PENDING note saying the live
-proof has not run. The five probe groups below are the assertions
-`sandbox/tests/live/regress_core_scope_database.sh` carries, in the order
-stated at the end of this file, and they are what turns that PENDING into
-evidence — or into the named remedy (drop the MySQL entry, restore a
-MariaDB-only engines map).
+**Current status:** the platform database boundary names MariaDB 11 and
+MySQL 8.4. Its reviewed note records the 2026-08-24 live matrix; the current
+assertions are in `sandbox/tests/live/regress_core_scope_database.sh`. Read
+`platform/adapter-library/capabilities/platform.json` and render the current
+capability sources for supported scope. This audit is the reasoning behind
+those probe groups, not a second compatibility inventory.
+
+The early analysis below preceded qualification. Its open questions describe
+what the probes had to establish; they are not a claim that the live matrix
+still awaits its first run. The 2026-09-05 diagnostic correction records a
+later limitation: no per-statement SQL-warning claim is made.
 
 **Verdict up front: ZERO changes to shipped SQL.** Every candidate rewrite is
 either not provably behaviour-preserving on the MariaDB path, or not pinnable

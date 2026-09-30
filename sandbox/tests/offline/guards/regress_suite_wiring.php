@@ -1,106 +1,18 @@
 <?php
 /**
- * Offline invariant — every Makefile recipe that names a sandbox/tests path is
- * shaped, spelled and located the way the tooling that reads those recipes
- * assumes.
+ * Shared suite wiring must agree with the offline runner and affected selector:
+ * literal recipes identify a readable file, target names agree with basenames,
+ * and execution class agrees with directory placement. Helpers stay with their
+ * consumers and need no independent target.
  *
- * WHY THIS EXISTS
- * ---------------
- * sandbox/tests/offline/guards/regress_bundle_coverage.sh answers one direction: does every
- * suite FILE have a Makefile entry. Nothing answered the other direction, and
- * three consumers depend on it:
+ * Variable recipes can hide fixed temporary paths from the serial-group scan;
+ * a basename mismatch selects no affected suite; a missing file fails only at
+ * invocation. Synthetic self-tests plant each defect before scanning the real
+ * Makefile, so an empty finding list proves the detector still observes them.
  *
- *   1. tools/offline.php:250 extracts each leaf's scripts with the literal
- *      regex `#sandbox/tests/[A-Za-z0-9_./-]+\.(?:sh|php)#` against recipes it
- *      read from `make -p`, which prints them UNEXPANDED. A path written as
- *      `sandbox/tests/$(SUITE_DIR)/regress_x.php` therefore matches nothing at
- *      all -- the regex stops dead at `$` -- so that target reports zero
- *      scripts, and needsSerialGroup() (:280) then scans zero files for the
- *      absolute scratch-path literals under a fixed system temp directory that
- *      force a suite into the mutually exclusive serial group. (Spelling that
- *      path here would put this suite in the serial group itself: that scan
- *      reads comments too.) The suite silently becomes "parallel-safe" and
- *      two `-j8` workers corrupt each other's scratch file. That is a
- *      non-reproducible failure produced by a Makefile edit nothing else
- *      checks, which is why the no-variable rule is asserted here as a shape
- *      rule rather than left to review.
- *   2. tools/affected.php maps a target to its suite file by NAME
- *      (`regress-foo-bar` <-> `regress_foo_bar.{php,sh}`). A recipe whose
- *      target disagrees with its file's basename selects for nothing under
- *      `--changed`, announced only as a NOTICE on stderr.
- *   3. `make <target>` itself, which fails at run time -- not at review time --
- *      if the file the recipe names does not exist.
- *
- * WHY IT IS THE FIRST SUITE IN A SUBDIRECTORY
- * --------------------------------------------
- * Deliberate. The estate is moving from ~330 flat files into
- * sandbox/tests/{offline/<domain>,live,grind,certify,spike}/, and every
- * consumer above enumerated sandbox/tests non-recursively, which fails OPEN:
- * a nested suite was not seen, so it was not checked, and nothing went red.
- * This file living at sandbox/tests/offline/guards/ means the recursion in
- * regress_bundle_coverage.sh and tools/affected.php is exercised by the real
- * corpus on every run, not only by their own synthetic fixtures.
- *
- * Clause 4 (the class invariant) is written to pass against today's
- * entirely flat estate and to bite progressively as files move: a file still
- * at the sandbox/tests ROOT is exempt, and only a file already under
- * offline/, live/, grind/, certify/ or spike/ has to prove it is wired into a
- * target of the matching class. So this guard cannot block the waves, and no
- * wave can land a file in the wrong class.
- *
- * A class directory holds two kinds of file and they cannot be judged by one
- * rule, which W2 is where it first bites. A SUITE is something make runs:
- * `live/regress_widgets.sh` is wired to `regress-widgets`, and if it were not
- * wired at all it would sit in live/ looking like part of the live estate
- * while running nowhere. A HELPER is everything else a suite needs beside it --
- * `grind/grind_ecommerce_developer.matrix.json` is read by two offline suites,
- * `spike/cli_smoke.sh` is a hand-run docker smoke whose target `cli-smoke`
- * predates the class names entirely. Requiring a helper to be wired would
- * refuse the ratified layout; requiring nothing of it would let an offline
- * recipe quietly run a file that sits in live/. So clause 4 splits:
- *
- *   - a suite must be wired, and wired to a target of its own class;
- *   - a helper need not be wired at all, but no recipe of a DIFFERENT
- *     determinable class may name it.
- *
- * A file is a suite when BOTH halves hold, and each half rules out a real
- * member of the ratified layout that the other would misjudge:
- *
- *   - its basename claims a class: `regress_`, `grind_`, `certify_` or
- *     `spike_`, ending in .php or .sh. `spike/cli_status_truth.sh` and
- *     `spike/check_guide_commands.sh` deliberately decline that prefix and
- *     say so in their own headers ("deliberately NOT named regress_* and
- *     deliberately has no Makefile target"); declining the name is how this
- *     estate declines a target, so demanding one of them would refuse a file
- *     for being exactly what it says it is. It is also what keeps
- *     `grind/grind_ecommerce_developer.matrix.json` -- data, not a program --
- *     and the three legacy `cli_*`/`lint_*` smokes out of the suite rules;
- *     `cli-smoke` carries no class prefix and never will.
- *   - no OTHER file's code runs it. `regress_fatal_mutations.php` claims the
- *     name and is still not a suite: `regress_fatal_mutations_unit.sh` runs
- *     it and it has no target of its own, which is why
- *     regress_bundle_coverage.sh:81-134 exempts it. That definition -- a
- *     helper is a file some other file's CODE runs, `php <name>` or
- *     `bash <name>` -- is the estate's single answer, ported here
- *     (wiring_invoked_elsewhere()) for the same reason the prerequisite
- *     expansion is: that suite exposes no reusable interface. Ported, not
- *     re-decided; if the two ever disagree, this one is wrong.
- *
- * WHY THE SELF-TESTS
- * ------------------
- * Same reason regress_bundle_coverage.sh carries its own: a guard that reports
- * "no violations" is indistinguishable from a guard that has stopped looking.
- * Each clause below is first driven against a synthetic Makefile and a
- * synthetic tree carrying exactly that defect, and only then against the real
- * ./Makefile -- so a green line at the bottom means the detector fired on a
- * planted defect minutes earlier, not merely that nothing was found.
- *
- * Pure text scan of a Makefile plus is_file() -- no `make`, no docker, no
- * WordPress. It parses the Makefile itself rather than shelling out to
- * regress_bundle_coverage.sh: that suite's Python check answers a different
- * question and exposes no reusable interface, so the prerequisite-expansion
- * approach is ported here (same continuation handling, same
- * code-half-unit/regress-offline-corpus expansion) rather than invoked.
+ * Historical placement and migration reasoning lives in
+ * docs/history/test-layout-migration.md. Current ownership is AGENTS.md and
+ * docs/sandbox.md; retired hand-run prototypes are not part of this estate.
  */
 declare(strict_types=1);
 
@@ -142,8 +54,8 @@ const WIRING_SHAPE_EXCEPTIONS = [
  * basename.
  *
  * Two groups, both predating the naming rule: the short spike- and grind-
- * names (the file carries a descriptive suffix the target drops -- `spike-a`
- * runs spike_a_round_trip.sh, `grind-ecommerce-developer-live` runs
+ * names (the file carries a descriptive suffix the target drops -- `grind-r1a`
+ * runs grind_r1a_forms.sh, `grind-ecommerce-developer-live` runs
  * grind_ecommerce_developer.sh), and regress-offline-all, whose recipe names
  * the diagnostics guard rather than a suite of its own.
  *
@@ -162,10 +74,6 @@ const WIRING_NAME_EXCEPTIONS = [
     'grind-r3a',
     'grind-r3b',
     'regress-offline-all',
-    'spike-a',
-    'spike-b',
-    'spike-c',
-    'spike-d',
     'spike-e',
 ];
 
@@ -603,10 +511,8 @@ function wiring_violations(string $root, string $makefileText): array
                 $class = substr($relative, 0, (int) strpos($relative, '/'));
 
                 // A helper is judged by the class of the target that runs it,
-                // not by the class rules a suite answers to: `cli-smoke` states
-                // no class, so it may run spike/cli_smoke.sh, while an offline
-                // recipe naming a file that sits in live/ is the drift this
-                // half of the clause exists to refuse.
+                // not by the class rules a suite answers to. An offline recipe
+                // naming a helper under live/ is the drift this clause refuses.
                 if (!isset($suiteFiles[$token])) {
                     $targetClass = wiring_target_class($target, $offlineClosure, $liveNames);
                     if ($targetClass !== null && $targetClass !== $class) {

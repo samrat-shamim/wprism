@@ -48,7 +48,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-plugin-incompatibility
 .PHONY: regress-ssh-adopt-extension
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations-live regress-adapter-contract regress-adapter-sources regress-fetch-artifact regress-adapter-theme-range regress-adapter-plugin-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-stage-unchanged-skip regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-plan-title-render regress-conflict-view regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-transport regress-local-verified-rollback regress-recovery-executor regress-checkpoint-bundle regress-code-release regress-code-source-lock regress-code-lock-compile-gate regress-init-code-split regress-code-classify regress-code-resolve regress-code-import code-half-unit \
+.PHONY: up down clean setup seed spike-e conformance-% grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations-live regress-adapter-contract regress-adapter-sources regress-fetch-artifact regress-adapter-theme-range regress-adapter-plugin-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-stage-unchanged-skip regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-plan-title-render regress-conflict-view regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-transport regress-local-verified-rollback regress-recovery-executor regress-checkpoint-bundle regress-code-release regress-code-source-lock regress-code-lock-compile-gate regress-init-code-split regress-code-classify regress-code-resolve regress-code-import code-half-unit \
 	regress-adopt-rollback regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy regress-taxonomy-object-keyspace \
 	regress-env-options-policy regress-shipped-option-declarations regress-export-manifest-roundtrip regress-manifest-reclassification-policy regress-ecommerce-developer-matrix \
 	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
@@ -95,33 +95,10 @@ clean:
 setup:
 	bash sandbox/setup.sh
 
-spike-a:
-	bash sandbox/tests/spike/spike_a_round_trip.sh
-
-spike-b:
-	bash sandbox/tests/spike/spike_b_merge.sh
-
-spike-c:
-	bash sandbox/tests/spike/spike_c_provenance.sh
-
-spike-d:
-	bash sandbox/tests/spike/spike_d_woo.sh
-
 spike-e: spike-e-acf
-
-spikes: spike-a spike-b spike-c spike-d spike-e
 
 conformance-%:
 	bash sandbox/conformance/run.sh $*
-
-cli-smoke:
-	bash sandbox/tests/spike/cli_smoke.sh
-
-cli-triage-smoke:
-	bash sandbox/tests/spike/cli_triage_smoke.sh
-
-lint-smoke:
-	bash sandbox/tests/spike/lint_smoke.sh
 
 # Grind round R1-C (task #48): the agency stack — Elementor + ACF active
 # together, plus a custom CPT plugin dogfooded through code/ — tested for
@@ -205,7 +182,7 @@ grind-r3a:
 regress-natural-key-rename:
 	php sandbox/tests/offline/repository/regress_natural_key_rename.php
 
-# Certify merge (issue #3228): permanentizes spike_b_merge.sh's divergent-edit
+# Certify merge (issue #3228): exercises the divergent-edit
 # + conflict + resolve + converge flow as a re-runnable LOCAL regression
 # fixture (own sandbox/bin/pair.sh pair, "mergecert" 8860/8861, headless) —
 # extended with a typed-snapshot table-entity conflict
@@ -400,8 +377,8 @@ regress-%: adapter-package-make-force
 	php tools/adapter-package-make-target.php --target-from-make
 
 # Package-owned spikes use the same basename-derived compatibility dispatch as
-# package regressions. Explicit root spikes above win for the shared historical
-# scenarios; `spike-e` deliberately aggregates ACF's capsule-owned
+# package regressions. `spike-e` retains the ACF compatibility alias and
+# deliberately aggregates the capsule-owned
 # spike_e_acf.sh through this rule.
 spike-%: export WPRISM_ADAPTER_PACKAGE_MAKE_TARGET = $@
 spike-%: adapter-package-make-force
@@ -675,6 +652,7 @@ regress-graded-claim:
 # the three evidence records they are arithmetic over (WP-5.4: a grade is
 # re-derived on every run and never stored as a verdict somebody edits).
 release-gate:
+	bash tools/check-docs.sh
 	php tools/capability-doc.php --check
 	php tools/provider-protocol-doc.php --check
 	php tools/engine-gap-doc.php --check

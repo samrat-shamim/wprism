@@ -1,3 +1,7 @@
+# Original v0 design review
+
+Historical review from 2026-08-04. Current architecture lives in [DESIGN.md](../../DESIGN.md); this record preserves the original reasoning and is not an operating guide.
+
 # WPrism — Adversarial Design Review (v0, 2026-08-04)
 
 > Produced by an independent adversarial review of the v0 design before any code was written.

@@ -2,6 +2,11 @@
 
 *Written as a proposal 2026-08-05; promoted to canonical documentation at this path 2026-08-21 because eight shipped source files (nine citation sites), `platform/adapter-library/core/manifest.json`'s own note and a `wprism doctor` warning string cite its § numbers by name. The § numbering is therefore load-bearing — renumber nothing. Status: the implementation ruling below is authoritative for the first functional skeleton. Owner: code-design (Task #18).*
 
+For current operation, follow [code updates](guides/code-updates.md) and
+[recovery](guides/recovery.md). This page preserves numbered design rationale
+and dated implementation rulings for source citations. The original proposal's
+transport choices and demonstration outline are not standalone release instructions.
+
 > **Implementation ruling (2026-08-07).** WPrism's first complete code-half
 > transport is an opt-in, descriptor-hashed `code/wp-content` payload of
 > vendored plugins, themes, and user mu-plugins. It stages additions and
@@ -246,7 +251,7 @@ Materialization success must be self-verifying before anything downstream trusts
 
 ### 2.3 Rollback story
 
-State already has a rollback story (`wp db export` snapshot before apply, per spec/repo-format.md's closing apply-semantics line: *"Snapshot/rollback is the orchestrator's job in v0"* — exercised in spike_a_round_trip.sh). Code rollback should be symmetric and is transport-shaped the same way materialization is:
+The original proposal paired a database export with code rollback. Current promotion recovery uses a verified checkpoint and provider-specific receipts; follow the [recovery runbook](guides/recovery.md). The transport choices below record the original design, not authorization to restore a database or flip a symlink outside that recovery workflow:
 
 - **local/docker**: `git checkout <previous-rev> -- code/` (or the whole repo) + re-run materialization (`composer install` regenerates the exact previous state — deterministic, because `composer.lock` pins exact versions/hashes).
 - **ssh**, with the release-directory refinement from §2.2: if the previous release is still retained on disk, rollback is **just the symlink flip** — instant, no re-resolve, no rsync. If it's been pruned, fall back to full re-materialize-and-rsync of that older revision, the general-case path.
@@ -537,7 +542,7 @@ Following the existing spike scripts' exact shape (helper functions, `say`/`pass
    pass "version drift against a manifest's version_range surfaces as a plan-time warning".
 ```
 
-Each acceptance step asserts on exit codes and specific plan/error content, not just "the command ran," matching the existing spike scripts' own standard (`assert_exit`/explicit `grep -q` assertions in `cli_smoke.sh`, `spike_d_woo.sh`'s explicit BLOCKED/FORCED assertions).
+This outline records the original acceptance design. Current executable coverage lives in `sandbox/tests/offline/code/`, `sandbox/tests/certify/`, and the package-owned conformance suites. Each named suite checks exit codes and resulting behavior; the early shared smoke scripts have been retired.
 
 ---
 

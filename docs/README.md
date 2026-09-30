@@ -1,67 +1,74 @@
-# Map of `docs/`
+# WPrism documentation
 
-One line per top-level document and directory: what it is, and who reads it.
-The normative wire contract is not here — it is
-[`spec/repo-format.md`](../spec/repo-format.md) — and the founding rationale is
-[`DESIGN.md`](../DESIGN.md).
+Start with the task that matches your work. The
+[repository specification](../spec/repo-format.md) is the normative format;
+[DESIGN.md](../DESIGN.md) explains the architecture.
 
-## Start here
+## Use WPrism
 
-| Path | What it is | Who reads it |
-|---|---|---|
-| [guides/](guides/README.md) | Start with the disposable demo and site eligibility, then onboarding, daily workflow, release, and recovery. Adapter authors have a short contribution path and a detailed reference. Commands are mechanically checked against the shipped CLI. | Operators and contributors |
-| [capabilities.md](capabilities.md) | Stable explanation of the reviewed capability model and its package-owned authorities. `php tools/capability-doc.php render` prints the exact current matrix; `make release-gate` validates the same sources without creating a central adapter edit point. | Anyone asking "will WPrism manage this?" |
-| [adapter-grades.md](adapter-grades.md) | Stable definition of the computed evidence grade beside each reviewed status. `php tools/adapter-grade.php render` prints current rows from package-owned evidence; a grade qualifies no status. | Anyone comparing two adapters that share a status |
-| [adoption.md](adoption.md) | The SSH adoption contract in full: installing and upgrading WPrism on an existing WordPress host. | Operators adopting a real host |
-| [product-spec.md](product-spec.md) | The product specification — customer operations, the versionability contract, the vocabularies, safety invariants, non-goals. Carries its own amendment record. | Anyone arguing about what WPrism *is* |
-| [roadmap.md](roadmap.md) | Owner roadmap: thesis, horizons, standing decisions. Changes only by owner commit. | Direction, not detail |
-| [community-roadmap.md](community-roadmap.md) | Public adoption milestones, pilot evidence, and ways to contribute. | Users and contributors |
-
-## Runtime and format references
-
-| Path | What it is |
+| Task | Start here |
 |---|---|
-| [branch-environment-provider.md](branch-environment-provider.md) | **Generated** — the `wprism-branch-environment-provider-request/v2` wire contract every customer's own provider must satisfy: where it is configured, the canonical-JSON framing, the 19 actions with their closed field sets, and every refusal a violation produces. Written by `tools/provider-protocol-doc.php`; `make release-gate` byte-compares it. Never hand-edited. |
-| [wire-surface.md](wire-surface.md) | **Generated** — the irreversibility register: every wire decision that becomes permanent the moment an external party holds a signed artifact (the signature domains and what each covers, the closed statement/authority/receipt key sets, the three disagreeing key-id grammars, expiry, revocation) — plus the three that are permanent without a signature: the flat `id_kind` namespace, the engine-feature vocabulary, and the `spec_version` acceptance window whose floor the checker holds at exactly `WPRISM_SPEC_VERSION - 1`. Each row carries what a change would cost a holder and what it reserves. Written by `tools/wire-surface.php` out of the same constants and refusals the engine consults; `make release-gate` byte-compares it. Never hand-edited. |
-| [recovery-runtime.md](recovery-runtime.md) | The WordPress-independent PHP recovery runtime, its maintenance-exclusion provider contract, and the two-primitive transport boundary it needs. |
-| [checkpoint-bundle.md](checkpoint-bundle.md) · [code-release-runtime.md](code-release-runtime.md) · [upload-bundle.md](upload-bundle.md) · [effect-bundle.md](effect-bundle.md) | The four provider slices of verified SSH rollback: database before-image, code before-image, uploads/media, lifecycle-and-rebuild effects. |
-| [ssh-rollback-certification.md](ssh-rollback-certification.md) | The local certification harness that gates that design. |
-| [assess-vocabulary.md](assess-vocabulary.md) | The six product words `wprism assess`, `.wprism/contract/projection.json`, the frozen authorization plan and a release refusal all speak. `sandbox/tests/offline/assess-contract/regress_assess_projection.php` is the gate on every cell. |
-| [adapter-walk-bundle.md](adapter-walk-bundle.md) | The wire contract for a site-adapter certification bundle: what `wprism adapter certify` must produce and `\WPrism\AdapterCertification` verifies, rule by rule. |
-| [compatibility-baseline.json](compatibility-baseline.json) | **Data, not prose** — read at runtime by `cli/src/Onboarding/Doctor.php`. Do not treat it as a document. |
+| Evaluate a page change on disposable sites | [Try WPrism](guides/try-wprism.md) |
+| Check a real site's host and supported scope | [Site eligibility](guides/site-eligibility.md) |
+| Connect and create the first baseline | [Quickstart](guides/quickstart.md) |
+| Decide and record a site's managed boundary | [Assessment](guides/assess.md) |
+| Capture, review, and reconcile daily work | [Daily workflow](guides/daily-workflow.md) |
+| Prepare, authorize, execute, and verify a release | [Release](guides/release.md) |
+| Rehearse recovery and understand its limits | [Recovery](guides/recovery.md) |
+| Change plugin/theme code or upgrade a fleet | [Code updates](guides/code-updates.md), [flag day](guides/flag-day.md) |
 
-## Working in this repo
+[All task guides](guides/README.md) · [Detailed references](reference/README.md)
+· [CLI help and configuration](../cli/README.md)
 
-| Path | What it is |
+## Contribute and maintain
+
+| Work | Starting point |
 |---|---|
-| [dev-setup.md](dev-setup.md) | Fresh checkout to a green gate: prerequisites, gotchas, measured wall times. |
-| [maintainers/releases.md](maintainers/releases.md) | Publication review, source release preparation, validation, and upgrade policy. |
-| [sandbox.md](sandbox.md) | The test estate — the pair model, the five execution classes under `sandbox/tests/`, and which gate runs what. |
-| [grind/](grind/README.md) | **Live specifications, not history.** Six documents, each specifying a runnable harness and naming its `make` target (`grind-mup`, `grind-adapter-walk`, `grind-adoption`, `grind-code-half-first-sync`, `grind-ecommerce-developer-live`, `regress-adapter-authoring-live`). All live-only; none runs in `make regress-offline-all`. |
-| [modules/](modules/README.md) | The module map for `agent/src` and `cli/src`: the index, the layer ladder and its ratchet, and a one-page charter per module. Projected from [`tools/modules.json`](../tools/modules.json), which is the machine-readable authority. |
-| [agents/](agents/linear-loop.md) | This repo's own dispatch protocol for coding agents: claim gate, evidence scoping, close gate. Internal process, not product. |
+| First contribution and public review | [CONTRIBUTING.md](../CONTRIBUTING.md) |
+| Plugin adapter contribution or site-specific authoring | [Adapter authoring](guides/adapter-authoring.md) |
+| Developer environment and local gates | [Developer setup](dev-setup.md) |
+| Test ownership, live pairs, and scratch cleanup | [Sandbox](sandbox.md) |
+| Publish or support a release | [Release procedure](maintainers/releases.md) |
+| Agency pilots and community priorities | [Community roadmap](community-roadmap.md) |
 
-## Design doctrine
+[Governance](../GOVERNANCE.md), [conduct](../CODE_OF_CONDUCT.md), and
+[security reporting](../SECURITY.md) apply to project spaces. The
+[agent dispatch protocol](agents/linear-loop.md) is an internal workflow for
+explicitly dispatched tasks; contributors do not need an internal tracker.
 
-Living rulings, not history. Both are cited by `§` number from shipped source,
-so their section numbering is load-bearing: extend it, never renumber it.
+## Support and architecture references
 
-| Path | What it is |
+- [Capabilities](capabilities.md) explains declarations, review, and evidence.
+  Render the current matrix with `php tools/capability-doc.php render`.
+- [Adapter grades](adapter-grades.md) explains computed evidence grades.
+  Render current rows with `php tools/adapter-grade.php render`.
+- [Product specification](product-spec.md) governs operations and launch claims;
+  [owner roadmap](roadmap.md) retains standing decisions and engineering history.
+- [Module map](modules/README.md), [adapter packages](architecture/adapter-packages.md),
+  [code design rationale](code-half.md), and [adapter boundary](adapter-boundary.md)
+  explain source ownership and extension contracts.
+- [Adoption](adoption.md), [readiness vocabulary](assess-vocabulary.md), and
+  [recovery runtime](recovery-runtime.md) explain the installed control plane.
+- [Checkpoint](checkpoint-bundle.md), [code](code-release-runtime.md),
+  [upload](upload-bundle.md), [effect](effect-bundle.md), and
+  [SSH rollback certification](ssh-rollback-certification.md) describe recovery
+  provider slices and their evidence.
+
+## Contracts and runtime data
+
+The first three pages are generated: change their source and regenerate them.
+`make release-gate` checks those projections and the compatibility baseline.
+The certification bundle page is a hand-authored wire reference.
+
+| Artifact | Source or role |
 |---|---|
-| [code-half.md](code-half.md) | The `code/` half in full: layout and dependency modes, deploy semantics per transport, the cross-partition invariant (`active_plugins ⊆ plugins in code/`), the plugin-upgrade workflow, engine touchpoints, and the risk register. Nine shipped source citation sites across eight files, `platform/adapter-library/core/manifest.json`'s own note and a `wprism doctor` warning string all cite its § numbers. |
-| [adapter-boundary.md](adapter-boundary.md) | The owner ruling on where engine core stops and an adapter package starts: the four extension surfaces, the provider contract, the trust tiers. Six shipped source sites cite it by name. |
+| [Branch-environment provider contract](branch-environment-provider.md) | `tools/provider-protocol-doc.php` |
+| [Wire-surface register](wire-surface.md) | `tools/wire-surface.php` |
+| [Authoring limitations](guides/adapter-authoring-limitations.md) | `tools/adapter-gap-doc.php` |
+| [Site-adapter certification bundle](adapter-walk-bundle.md) | Wire reference used by the certification runtime. |
+| [Compatibility baseline](compatibility-baseline.json) | Runtime data read by the host doctor. |
 
-## Engineering history
-
-These are records, not instructions. They are kept because deleting the reasoning
-would leave only the conclusions.
-
-| Path | What it is |
-|---|---|
-| [design-review-v0.md](design-review-v0.md) | The independent adversarial review of the v0 design, before any code was written. Findings 1–27 are folded into `DESIGN.md`; this preserves the register verbatim. |
-
-The round diaries that used to sit under `proposals/`, `frontier/` and
-`grind/` were dissolved on 2026-08-21: every finding they carried was promoted
-into the document, manifest note or code comment that needed it, and the
-narrative shells were deleted rather than left as paths that outlive their
-content. `git log` still has them.
+[Active grind specifications](grind/README.md) stay beside runnable harnesses.
+[Historical reviews](history/README.md) preserve earlier reasoning and measurements.
+The [database dialect audit](mysql-dialect-audit.md) explains the retained live
+probe groups; it does not maintain a separate support matrix.

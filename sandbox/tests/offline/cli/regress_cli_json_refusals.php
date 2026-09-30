@@ -879,7 +879,7 @@ namespace {
     check(($evidenceRecord['format'] ?? null) === 'wprism-private-refusal-evidence/v2', 'the record names its bounded private graph format');
     $repoRoot = dirname(__DIR__, 4);
     $privateEvidenceDocs = (string) file_get_contents($repoRoot . '/spec/repo-format.md')
-        . (string) file_get_contents($repoRoot . '/cli/README.md');
+        . (string) file_get_contents($repoRoot . '/docs/reference/cli-commands.md');
     check(
         substr_count($privateEvidenceDocs, 'wprism-private-refusal-evidence/v2') === 2
             && !str_contains($privateEvidenceDocs, 'wprism-private-refusal-evidence/v1')

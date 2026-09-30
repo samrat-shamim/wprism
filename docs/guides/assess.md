@@ -175,7 +175,7 @@ cannot, every surface flips (`whole-contract`)
 verified under a trust root your organization or the agent owns, signed over
 that adapter's exact bytes — customer-organization approval, explicitly **not**
 a WPrism endorsement. It is what `wprism adapter certify` produces; see
-[adapter-authoring.md](adapter-authoring.md#your-organizations-own-approval-wprism-adapter-certify).
+[adapter certification reference](../reference/adapter-trust.md#your-organizations-own-approval-wprism-adapter-certify).
 The evidence block prints `certified by <principal> (<root> trust root);
 contract attestation unsigned` once — the second half matters, because a
 certified *adapter* does not make your application *contract* a signed

@@ -216,7 +216,7 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   EPIPE/SIGPIPE (rc 141) whenever grep matches and closes the pipe before curl
   finishes writing the body, a load-dependent FALSE failure the codebase
   already documents and avoids (sandbox/conformance/checks/elementor.sh,
-  checks/fse.sh, spike_a_round_trip.sh). The grind now buffers the page (and
+  checks/fse.sh). The grind now buffers the page (and
   the ACF read) into a variable before grepping, the same fix those checks
   use. The Elementor-cache provider change stands on its own merit — WPrism's
   apply writes `_elementor_data` with raw SQL, bypassing Elementor's

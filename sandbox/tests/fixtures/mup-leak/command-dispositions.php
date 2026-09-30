@@ -83,7 +83,7 @@ foreach ([$agentCli, $hostCli, $internals] as $required) {
 // ------------------------------------------------- 1. the public commands
 // WP-CLI registers the whole class as `wp wprism`, so every public method is a
 // subcommand: underscores become hyphens unless `@subcommand` names it.
-// Read the same way sandbox/tests/spike/check_guide_commands.sh reads it, so the
+// Read the same way tools/check-guide-commands.sh reads it, so the
 // two checks can never disagree about what the command surface is.
 $agentSource = (string) file_get_contents($agentCli);
 preg_match_all('/^[ \t]*public function ([a-z_]+)/m', $agentSource, $methods);

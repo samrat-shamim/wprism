@@ -398,8 +398,8 @@ final class OfflineCorpus
         $invoked = self::invokedElsewhere($root, array_values(array_unique($claimants)));
 
         // path a recipe names -> the targets that name it. The mapping is
-        // recipe-first, never name-first: `spike-a` runs spike_a_round_trip.sh
-        // and `grind-r1a` runs grind_r1a_forms.sh, so a name-derived map would
+        // recipe-first, never name-first: `grind-r1a` runs grind_r1a_forms.sh,
+        // so a name-derived map would
         // need the same hand-maintained exception list
         // regress_suite_wiring.php carries (WIRING_NAME_EXCEPTIONS) -- and an
         // exception list in a derivation is an exclusion input, which R3 says

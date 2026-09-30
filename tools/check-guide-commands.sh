@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Guide command checker (issue #3323) — proves docs/guides/*.md never cites a
+# Guide command checker — current guides, detailed references and public
+# entry points must never cite a
 # command that does not exist, and that anything it cites which DOESN'T exist
 # is labeled as unshipped at the exact line that mentions it.
 #
@@ -21,7 +22,7 @@
 #      never be named without its label.
 #
 # Scope, stated so nobody mistakes silence for a passing grade. Three
-# limitations, all deliberate — this is a cheap, hand-run truth check, not a
+# limitations, all deliberate — this is a focused local truth check, not a
 # parser:
 #
 #   - Only tokens inside fenced code blocks and inline `code spans` are
@@ -34,24 +35,24 @@
 #     `bin/wprism status`) does not match the extractor and is silently
 #     unchecked — cite commands in one of the three recognized forms.
 #
-# Deliberately NOT named regress_* and deliberately has no Makefile target:
-# same precedent as cli_status_truth.sh. Run it by hand when the guides or the
-# dispatch lists change.
+# Developer entry point, run by tools/check-docs.sh and offline --extras.
+# It reads dispatch vocabularies without contacting a target.
 #
 # Usage:
-#   bash sandbox/tests/spike/check_guide_commands.sh              # check the tree
-#   bash sandbox/tests/spike/check_guide_commands.sh --self-test  # prove it fails
+#   bash tools/check-guide-commands.sh              # check the tree
+#   bash tools/check-guide-commands.sh --self-test  # prove it fails
 #
 # Bash only. No docker, no network, no live environment.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HOST_CLI="$ROOT/cli/wprism"
 HOST_PREFLIGHT="$ROOT/cli/src/Command/EnvironmentCommandPreflight.php"
 AGENT_CLI="$ROOT/agent/src/Command/Cli.php"
 GUIDE_DIR="$ROOT/docs/guides"
+REFERENCE_DIR="$ROOT/docs/reference"
 
 TMPDIR_SELFTEST=""
 cleanup() { [ -n "$TMPDIR_SELFTEST" ] && rm -rf "$TMPDIR_SELFTEST"; return 0; }
@@ -157,9 +158,8 @@ BEGIN { fence = 0 }
 
 # --- the check ---------------------------------------------------------------
 
-# scan_guides <dir> ; prints findings, returns non-zero on any unknown token.
-scan_guides() {
-    local dir="$1"
+# scan_files <file>... ; returns non-zero on any unknown command citation.
+scan_files() {
     local verbs commands
     verbs="$(host_verbs)"
     commands="$(agent_commands)"
@@ -167,7 +167,7 @@ scan_guides() {
     local status=0 checked=0 planned_count=0 files=0
     local f file lineno planned kind token allowed label
 
-    for f in "$dir"/*.md; do
+    for f in "$@"; do
         [ -e "$f" ] || continue
         files=$((files + 1))
         while IFS=$'\t' read -r file lineno planned kind token; do
@@ -202,11 +202,17 @@ scan_guides() {
     done
 
     if [ "$files" -eq 0 ]; then
-        echo "FAIL: no guide files found in $dir" >&2
+        echo "FAIL: no documentation files supplied" >&2
         return 1
     fi
     echo "  checked $checked command citation(s) across $files file(s); $planned_count labeled planned"
     return "$status"
+}
+
+scan_current() {
+    local root="$1"
+    scan_files "$root/README.md" "$root/CONTRIBUTING.md" "$root/cli/README.md" \
+        "$root/docs/guides"/*.md "$root/docs/reference"/*.md
 }
 
 # --- self-test ---------------------------------------------------------------
@@ -216,20 +222,29 @@ scan_guides() {
 self_test() {
     TMPDIR_SELFTEST="$(mktemp -d)"
     local bad="$TMPDIR_SELFTEST/unlabeled" good="$TMPDIR_SELFTEST/labeled"
-    mkdir -p "$bad" "$good"
-    cp "$GUIDE_DIR"/*.md "$bad/"
-    cp "$GUIDE_DIR"/*.md "$good/"
+    local fixture
+    for fixture in "$bad" "$good"; do
+        mkdir -p "$fixture/cli" "$fixture/docs/guides" "$fixture/docs/reference"
+        cp "$ROOT/README.md" "$ROOT/CONTRIBUTING.md" "$fixture/"
+        cp "$ROOT/cli/README.md" "$fixture/cli/"
+        cp "$GUIDE_DIR"/*.md "$fixture/docs/guides/"
+        cp "$REFERENCE_DIR"/*.md "$fixture/docs/reference/"
+    done
 
     printf '\nInjected by --self-test: run `wprism not-a-real-verb` and `wp wprism not-a-real-command`.\n' \
-        >> "$bad/quickstart.md"
+        >> "$bad/docs/guides/quickstart.md"
+    printf '\nInjected by --self-test: run `wprism not-a-real-reference-verb`.\n' \
+        >> "$bad/docs/reference/cli-commands.md"
     printf '\nInjected by --self-test: `wprism not-a-real-verb` is **Planned** — not yet shipped.\n' \
-        >> "$good/quickstart.md"
+        >> "$good/docs/guides/quickstart.md"
+    printf '\nInjected by --self-test: `wprism not-a-real-reference-verb` is **Planned** — not yet shipped.\n' \
+        >> "$good/docs/reference/cli-commands.md"
 
     local out rc
 
     echo "self-test case A: an unlabeled bogus citation must FAIL"
     set +e
-    out="$(scan_guides "$bad" 2>&1)"
+    out="$(scan_current "$bad" 2>&1)"
     rc=$?
     set -e
     if [ "$rc" -eq 0 ]; then
@@ -252,12 +267,17 @@ self_test() {
         printf '%s\n' "$out" >&2
         return 1
     fi
+    if ! grep -q 'cli-commands.md:.*not-a-real-reference-verb' <<<"$out"; then
+        echo "SELF-TEST FAILED: checker did not inspect the moved reference" >&2
+        printf '%s\n' "$out" >&2
+        return 1
+    fi
     printf '%s\n' "$out" | sed 's/^/    /'
-    echo "  ok: rejected, naming the file, the line, and both bogus tokens"
+    echo "  ok: rejected guide and reference citations, naming files, lines, and tokens"
 
     echo "self-test case B: the same bogus verb WITH its planned label must pass"
     set +e
-    out="$(scan_guides "$good" 2>&1)"
+    out="$(scan_current "$good" 2>&1)"
     rc=$?
     set -e
     if [ "$rc" -ne 0 ]; then
@@ -282,10 +302,10 @@ case "${1:-}" in
         exit 1
         ;;
     '')
-        echo "== check_guide_commands: docs/guides =="
+        echo "== check_guide_commands: guides, references, and public entry points =="
         echo "host verbs:     $(host_verbs | tr '\n' ' ')"
         echo "agent commands: $(agent_commands | tr '\n' ' ')"
-        if scan_guides "$GUIDE_DIR"; then
+        if scan_current "$ROOT"; then
             echo "✔ CHECK_GUIDE_COMMANDS PASSED"
             exit 0
         fi
