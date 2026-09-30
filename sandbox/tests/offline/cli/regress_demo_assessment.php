@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../lib/check.php';
 require_once dirname(__DIR__, 4) . '/cli/src/Command/DemoCommand.php';
+require_once dirname(__DIR__, 4) . '/cli/src/Release/AuthorizationPlan.php';
 
+use WPrism\Orchestrator\AuthorizationPlan;
 use WPrism\Orchestrator\DemoCommand;
 use WPrism\Orchestrator\ProjectionVocabulary;
 
@@ -123,4 +125,30 @@ try {
     rmdir($scratch . '/repo');
     rmdir($scratch);
 }
-wprism_check_summary('page demo assessment boundaries');
+$parse = new ReflectionMethod(DemoCommand::class, 'lastJsonDocument');
+$plan = ['format' => AuthorizationPlan::FORMAT, 'scope' => ['surfaces' => ['post_type:page']]];
+$canonical = AuthorizationPlan::encode($plan);
+foreach ([
+    'native multiline formatter' => "authorization plan for demo-target\n" . $canonical,
+    'compact JSON' => "authorization plan for demo-target\n" . json_encode($plan),
+    'earlier JSON diagnostic' => "{\"diagnostic\":true}\n\n" . $canonical,
+] as $name => $output) {
+    try {
+        wprism_check_same($plan, $parse->invoke(null, $output), 'demo reads the final plan from ' . $name);
+    } catch (RuntimeException $error) {
+        wprism_check(false, 'demo reads the final plan from ' . $name . ': ' . $error->getMessage());
+    }
+}
+foreach ([
+    'truncated JSON' => substr(trim($canonical), 0, -1),
+    'trailing diagnostic' => $canonical . "preview did not finish\n",
+    'no JSON' => "authorization plan unavailable\n",
+] as $name => $output) {
+    try {
+        $parse->invoke(null, $output);
+        wprism_check(false, 'demo refuses ' . $name);
+    } catch (RuntimeException $error) {
+        wprism_check(str_contains($error->getMessage(), 'no final JSON document'), 'demo refuses ' . $name);
+    }
+}
+wprism_check_summary('page demo assessment and preview boundaries');

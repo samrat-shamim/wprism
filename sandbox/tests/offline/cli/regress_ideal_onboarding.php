@@ -3424,7 +3424,7 @@ $document = [
     ],
 ];
 echo "authorization preview fixture\n";
-echo json_encode($document, JSON_UNESCAPED_SLASHES) . "\n";
+echo json_encode($document, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) . "\n";
 PHP;
 file_put_contents($planRoot . '/cli/wprism', $planCli);
 chmod($planRoot . '/cli/wprism', 0700);

@@ -930,12 +930,15 @@ final class DemoCommand {
         }
         for ($index = count($lines) - 1; $index >= 0; $index--) {
             $line = trim($lines[$index]);
-            if ($line === '') {
+            if (!str_starts_with($line, '{')) {
                 continue;
             }
-            $document = json_decode($line, true);
+            // ReleaseCommand appends AuthorizationPlan::encode() after its
+            // human preview. Those canonical bytes span multiple lines; parse
+            // a complete suffix so trailing diagnostics still refuse.
+            $document = json_decode(implode("\n", array_slice($lines, $index)), true);
             if (!is_array($document)) {
-                break;
+                continue;
             }
 
             return $document;
