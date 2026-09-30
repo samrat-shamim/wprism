@@ -448,9 +448,14 @@ Usage:
              [--limit=<1..200>] [--format=json]
   wprism census --baseline=<census.json> (--current=<census.json> | --dir=<dir>)
              [--manifests=<dir>] [--limit=<1..200>] [--format=json]
+  wprism help [<command>|all]
+  wprism --help=all
   wprism -h | --help
 
 Verbs:
+  help [<command>|all]    Show the workflow overview, one command's complete
+                         syntax and details, or the full command reference.
+                         Help never loads a site or contacts a target.
   env materialize         Materialize a branch environment from one coherent
     <env> --from=<prod>   provider-owned production DB/media snapshot. The
     --branch=<ref>        semantic B/P/W rebase remains separate from physical
@@ -1578,7 +1583,8 @@ Global flags:
   --envs-file=<path>      Explicitly trust and load the machine-local overlay
                           registry at <path> instead of auto-discovering an
                           untracked .wprism-envs.json at the site/Git root.
-  -h, --help              Show this help.
+  -h, --help              Show the overview, or help for the named command.
+  --help=all              Show the complete command reference.
 
 Environment registry ('envs' key, in site.wprism.json and/or .wprism-envs.json):
   {"envs": {

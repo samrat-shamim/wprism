@@ -552,7 +552,7 @@ TXT
   # (e) the symmetry gate must fail in BOTH directions. It passes today, so
   #     without this it is a `true` with paperwork.
   echo 'self-test E: the host-verb symmetry gate must fail in both directions'
-  php "$ROOT/cli/wprism" > "$scratch/usage.txt" 2>&1
+  php "$ROOT/cli/wprism" help all > "$scratch/usage.txt" 2>&1
   grep -v '^  wprism pending ' "$scratch/usage.txt" > "$scratch/usage-missing.txt"
   out="$(php "$FIX/host-verb-symmetry.php" "$ROOT" --usage="$scratch/usage-missing.txt" 2>&1)"
   rc=$?
@@ -926,7 +926,7 @@ fi
 
 # What it prints INSTEAD has to be real. Take the remedy out of the rendered
 # view, take its verb, and require that verb of `wprism`'s own Usage block —
-# rendered by running `php cli/wprism` with no arguments, not by reading the
+# rendered by running `php cli/wprism help all`, not by reading the
 # heredoc, so a verb that is documented but unreachable cannot satisfy this.
 REMEDY="$(sed -n 's/^wprism: promote: .*recover with: //p' "$TMP/promote-failed.human" | head -1)"
 if [ -n "$REMEDY" ]; then
@@ -940,7 +940,7 @@ case "$REMEDY" in
   *) fail "the remedy is not the documented wprism recover form: $REMEDY" ;;
 esac
 REMEDY_VERB="$(printf '%s\n' "$REMEDY" | awk '{print $2}')"
-php "$ROOT/cli/wprism" > "$TMP/usage.txt" 2>&1
+php "$ROOT/cli/wprism" help all > "$TMP/usage.txt" 2>&1
 if [ -n "$REMEDY_VERB" ] && grep -qE "^  wprism $REMEDY_VERB( |\$)" "$TMP/usage.txt"; then
   pass "the remedy's verb is published in wprism's own Usage block (wprism $REMEDY_VERB)"
 else

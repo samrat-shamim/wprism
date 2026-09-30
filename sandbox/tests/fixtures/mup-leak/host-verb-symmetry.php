@@ -96,14 +96,13 @@ function hvs_code_only(string $path): string {
 }
 
 // ------------------------------------------------------------- the Usage side
-// RENDERED, not parsed out of the heredoc: `wprism` with no arguments prints
-// wprism_usage() (cli/wprism:1096-1098), so a Usage block that could not render is
-// not evidence of anything. `--usage=<path>` lets the suite's self-test point
-// this half at a mutated copy.
+// RENDERED, not parsed out of the heredoc: `help all` owns the complete
+// reference; no arguments intentionally show only the newcomer overview.
+// `--usage=<path>` lets the suite's self-test point at a mutated full reference.
 if ($usageOverride !== null) {
     $usage = (string) file_get_contents($usageOverride);
 } else {
-    $usage = (string) shell_exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($hostCli) . ' 2>/dev/null');
+    $usage = (string) shell_exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($hostCli) . ' help all 2>/dev/null');
 }
 if (trim($usage) === '') {
     fwrite(STDERR, "host-verb-symmetry: the Usage block rendered nothing\n");
