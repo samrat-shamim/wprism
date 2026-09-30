@@ -20,9 +20,12 @@ cli/wprism demo start
 The command verifies and starts the exact WordPress 7.1 image pinned by digest,
 creates two disposable sites and an ordinary Git repository, and publishes the
 URLs and `admin / admin` login only after its managed core capability set
-qualifies and its bounded whole-site release assessment exits ready. Any
-unexpected live option, pending classification, undeclared table, or exit-3
-assessment blocks setup rather than being relabeled as a usable demo.
+qualifies and a complete bounded release assessment proves the page is ready.
+Core runtime options and comment tables retain their explicit preserve-local
+boundaries: the whole-site assessment exits 3 because copying those rows is
+unsupported. The demo accepts only these three reviewed runtime boundaries;
+any other readiness gap, unexpected live option, pending classification,
+undeclared table, or incomplete assessment blocks setup.
 Both HTTP ports bind to `127.0.0.1` only; the disposable weak credentials are
 never published on every host interface.
 It also creates one target-only comment; that is the runtime fact the later

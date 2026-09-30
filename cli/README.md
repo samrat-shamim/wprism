@@ -106,13 +106,15 @@ are rejected when the registry is loaded.
 complete review → capture → Git diff → authorization preview → evaluation apply
 → refusal → teardown loop. The default WordPress-core scenario installs no
 extension, verifies the exact digest-pinned WordPress 7.1 image, and stops only
-after the managed core capability set qualifies and a bounded machine
-assessment exits ready. `demo review --accept-page-only` narrows the generated
+after the managed core capability set qualifies and a complete bounded machine
+assessment proves page readiness. Its three known runtime surfaces remain
+Unsupported for copying, with preserve-local handling; every other readiness
+gap blocks setup. `demo review --accept-page-only` narrows the generated
 contract to the page surface, removes the unused code-lifecycle placeholder,
 and commits only `contract.json` plus `projection.json`; without that exact
 confirmation it mutates nothing. The later apply runs the real plan-only release
 command before raw evaluation apply, proves exact page convergence, and preserves
-a target-only comment. A red assessment blocks this guided journey.
+a target-only comment. No whole-site release readiness is claimed.
 `--scenario=woocommerce` is the advanced adapter journey. Both use the same
 pair budget and digest-pinned artifact resolver as the live test estate;
 `demo stop` removes only the named demo's pair resources and repositories.

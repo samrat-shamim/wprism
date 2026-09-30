@@ -2496,6 +2496,10 @@ regress-environment-driver:
 regress-cli-help:
 	php sandbox/tests/offline/cli/regress_cli_help.php
 
+.PHONY: regress-demo-assessment
+regress-demo-assessment:
+	php sandbox/tests/offline/cli/regress_demo_assessment.php
+
 regress-environment-lifecycle:
 	php sandbox/tests/offline/environment/regress_environment_lifecycle.php
 
