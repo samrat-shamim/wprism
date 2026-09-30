@@ -44,8 +44,11 @@ Before making a private repository public:
   logs for credentials, private host details, or customer information.
 - Check ownership and redistribution rights for code, fixtures, and media.
   Keep third-party notices and identify any copied upstream test sources.
-- Confirm private vulnerability reporting is enabled and notifications reach
-  a maintainer. Verify the route in [SECURITY.md](../../SECURITY.md).
+- Prepare the private-reporting route in [SECURITY.md](../../SECURITY.md) and
+  maintainer notifications. GitHub enables private vulnerability reporting on
+  public repositories; enable and verify it immediately after the visibility
+  change and before announcing the release. See
+  [GitHub's configuration guide](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository).
 - Enable Issues and Discussions and confirm the contribution templates work.
 - Read the README from a fresh-user perspective and verify every local link.
 
@@ -118,10 +121,12 @@ plugin matrix into release notes or maintain a separate certification inventory.
 Publish source changes, release notes, and the candidate assets for review
 before changing repository visibility or publishing a release.
 
-When publication is authorized, tag that exact reviewed commit and publish an
-alpha prerelease with its notes and checksummed bundle. Check public access,
-the clone instructions, Issues, Discussions, and private vulnerability reporting
-from an outside view. Never infer production qualification from the alpha tag.
+When publication is authorized, change repository visibility, enable private
+vulnerability reporting, and verify maintainer notifications. Then tag that
+exact reviewed commit and publish an alpha prerelease with its notes and
+checksummed bundle. Check public access, the clone instructions, Issues,
+Discussions, and the security-reporting route from an outside view. Never infer
+production qualification from the alpha tag.
 
 ## Support and upgrade policy
 
