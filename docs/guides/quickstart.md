@@ -1,5 +1,9 @@
 # Quickstart: getting a site under WPrism
 
+New to WPrism? Start with [the short disposable demo](try-wprism.md).
+Before connecting a real site, read [site eligibility](site-eligibility.md).
+This page is the complete onboarding reference, including lower-level steps.
+
 There are two good first contacts: try WPrism on a disposable pair, or connect an
 existing site. Neither asks you to invent `site.wprism.json` or an environment
 registry by hand.

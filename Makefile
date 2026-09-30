@@ -2492,6 +2492,10 @@ regress-doctor-env-values:
 regress-environment-driver:
 	php sandbox/tests/offline/environment/regress_environment_driver.php
 
+.PHONY: regress-cli-help
+regress-cli-help:
+	php sandbox/tests/offline/cli/regress_cli_help.php
+
 regress-environment-lifecycle:
 	php sandbox/tests/offline/environment/regress_environment_lifecycle.php
 

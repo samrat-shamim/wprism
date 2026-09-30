@@ -566,7 +566,7 @@ PHP;
         && !str_contains($equalsCompatibility['stderr'], 'environment_provider'), 'equals-form materialize flags remain backward compatible without widening privileged inputs');
     $reapFlags = el_cli(['env', 'reap', 'branch', '--force']);
     el_ok($reapFlags['exit'] !== 0 && str_contains($reapFlags['stderr'], 'accepts only optional --format=json'), 'public reap has no force or name-only destruction escape hatch');
-    $help = el_cli(['--help']);
+    $help = el_cli(['help', 'all']);
     el_ok($help['exit'] === 0 && str_contains($help['stdout'], 'wprism env materialize') && str_contains($help['stdout'], 'wprism env reap'), 'public help documents materialize and exact reap');
     el_ok(
         str_contains($help['stdout'], 'auto-discovered .wprism-envs.json must sit beside it')

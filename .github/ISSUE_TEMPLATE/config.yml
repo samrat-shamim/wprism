@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Usage questions and examples
+    url: https://github.com/duotronic-ai/wprism/discussions
+    about: Discuss workflows, eligibility, and pilot evaluations.
+  - name: Report a vulnerability privately
+    url: https://github.com/duotronic-ai/wprism/security/advisories/new
+    about: Follow SECURITY.md. Do not file a public security issue.

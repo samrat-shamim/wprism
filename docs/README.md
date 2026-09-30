@@ -9,12 +9,13 @@ The normative wire contract is not here — it is
 
 | Path | What it is | Who reads it |
 |---|---|---|
-| [guides/](guides/README.md) | Twelve task-shaped operator guides (quickstart → assess → daily-workflow → release → limits; recovery, flag-day, code-updates, adapter-authoring, coverage-cohort, trust-enrollment, internals). Every command in them is mechanically checked against the shipped CLI. | Operators, first |
+| [guides/](guides/README.md) | Start with the disposable demo and site eligibility, then onboarding, daily workflow, release, and recovery. Adapter authors have a short contribution path and a detailed reference. Commands are mechanically checked against the shipped CLI. | Operators and contributors |
 | [capabilities.md](capabilities.md) | Stable explanation of the reviewed capability model and its package-owned authorities. `php tools/capability-doc.php render` prints the exact current matrix; `make release-gate` validates the same sources without creating a central adapter edit point. | Anyone asking "will WPrism manage this?" |
 | [adapter-grades.md](adapter-grades.md) | Stable definition of the computed evidence grade beside each reviewed status. `php tools/adapter-grade.php render` prints current rows from package-owned evidence; a grade qualifies no status. | Anyone comparing two adapters that share a status |
 | [adoption.md](adoption.md) | The SSH adoption contract in full: installing and upgrading WPrism on an existing WordPress host. | Operators adopting a real host |
 | [product-spec.md](product-spec.md) | The product specification — customer operations, the versionability contract, the vocabularies, safety invariants, non-goals. Carries its own amendment record. | Anyone arguing about what WPrism *is* |
 | [roadmap.md](roadmap.md) | Owner roadmap: thesis, horizons, standing decisions. Changes only by owner commit. | Direction, not detail |
+| [community-roadmap.md](community-roadmap.md) | Public adoption milestones, pilot evidence, and ways to contribute. | Users and contributors |
 
 ## Runtime and format references
 
@@ -34,6 +35,7 @@ The normative wire contract is not here — it is
 | Path | What it is |
 |---|---|
 | [dev-setup.md](dev-setup.md) | Fresh checkout to a green gate: prerequisites, gotchas, measured wall times. |
+| [maintainers/releases.md](maintainers/releases.md) | Publication review, source release preparation, validation, and upgrade policy. |
 | [sandbox.md](sandbox.md) | The test estate — the pair model, the five execution classes under `sandbox/tests/`, and which gate runs what. |
 | [grind/](grind/README.md) | **Live specifications, not history.** Six documents, each specifying a runnable harness and naming its `make` target (`grind-mup`, `grind-adapter-walk`, `grind-adoption`, `grind-code-half-first-sync`, `grind-ecommerce-developer-live`, `regress-adapter-authoring-live`). All live-only; none runs in `make regress-offline-all`. |
 | [modules/](modules/README.md) | The module map for `agent/src` and `cli/src`: the index, the layer ladder and its ratchet, and a one-page charter per module. Projected from [`tools/modules.json`](../tools/modules.json), which is the machine-readable authority. |

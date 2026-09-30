@@ -52,7 +52,7 @@ run() {
 # count in this suite two short and none of the assertions would say so.
 surface_rows() { grep -cE '^[a-z_]+:[A-Za-z0-9_:.-]+ +' "$1" || true; }
 
-php "$ROOT/cli/wprism" --help > "$TMP/help.txt" 2> "$TMP/help.txt.err"
+php "$ROOT/cli/wprism" help assess > "$TMP/help.txt" 2> "$TMP/help.txt.err"
 STATUS=$?
 if [ "$STATUS" = 0 ] \
   && grep -Fq 'wprism assess <env> [--operation=<ops>] [--limit=<1..200>] [--cursor=<token>] [--format=json]' "$TMP/help.txt" \

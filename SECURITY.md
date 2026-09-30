@@ -2,9 +2,15 @@
 
 ## Supported versions
 
-WPrism is **pre-1.0 and single-track**: `main` is the only supported line. There
-are no maintenance branches and no backports — a fix lands on `main`, and the
-answer to "am I supported?" is "are you on current `main`?".
+WPrism is **pre-1.0 and single-track**. Before the first tagged alpha release,
+`main` is the evaluation candidate. Once alpha releases are published, the
+latest published alpha is the supported release; older alphas receive no
+backports. Fixes land on `main` and ship in a replacement release. Development
+commits on `main` are not a stability promise.
+
+Include your exact release tag or commit in a report. Release notes state the
+upgrade steps, including any required recompile/re-pin or reassessment. See
+[publication and releases](docs/maintainers/releases.md).
 
 WPrism runs with write access to a WordPress database, filesystem and code tree,
 and reaches production hosts over SSH. Treat findings in `agent/`, `cli/`,

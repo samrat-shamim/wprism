@@ -9,6 +9,8 @@ them — a duplicated flag table is a flag table that goes stale in silence.
 
 | Guide | Read it when |
 |---|---|
+| [try-wprism.md](try-wprism.md) | You want to try a page change on disposable sites first. |
+| [site-eligibility.md](site-eligibility.md) | You need to check hosting, access, and compatibility before adoption. |
 | [quickstart.md](quickstart.md) | You have a WordPress site (or an empty repo) and no WPrism yet. |
 | [assess.md](assess.md) | You need to know what WPrism can honestly do with a site, and to write that decision down as a contract. |
 | [daily-workflow.md](daily-workflow.md) | WPrism is installed and your team needs a day-to-day loop. |
@@ -17,12 +19,13 @@ them — a duplicated flag table is a flag table that goes stale in silence.
 | [flag-day.md](flag-day.md) | You are moving a fleet across an agent/spec bump, or deciding whether you can still roll one back. |
 | [code-updates.md](code-updates.md) | You are updating plugin/theme code, or a code refusal is blocking you. |
 | [adapter-authoring.md](adapter-authoring.md) | A plugin your site depends on has no manifest, or an existing one is short. |
+| [first-adapter.md](first-adapter.md) | You want to make a small, reviewable adapter contribution. |
 | [coverage-cohort.md](coverage-cohort.md) | You are choosing which adapters to build next, and you want the batch graded on whether coverage actually moved. |
 | [trust-enrollment.md](trust-enrollment.md) | You are enrolling a signing key in the platform trust root, rotating one, or burning one after a compromise. |
 | [capabilities-and-limits.md](capabilities-and-limits.md) | You need to know what WPrism will and will not manage, and why a plan is red. |
 | [internals.md](internals.md) | You saw a `wp wprism` command in a log or a receipt and want to know what drives it. You should not be typing these. |
 
-Reading order for someone new: **quickstart → assess → daily-workflow →
+Reading order for someone new: **try-wprism → site-eligibility → quickstart → assess → daily-workflow →
 release → capabilities-and-limits**, then **recovery** before your first
 production release rather than during it, then **code-updates** the first time
 you ship a plugin update, then **adapter-authoring** the first time you hit a

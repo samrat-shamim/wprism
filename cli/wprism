@@ -308,6 +308,7 @@ use WPrism\Orchestrator\RefreshCommand;
 use WPrism\Orchestrator\RebaseCommand;
 use WPrism\Orchestrator\MergeCheckCommand;
 
+/** Keep the full reference in one place; command help selects from these same bytes. */
 function wprism_usage(): string {
     return <<<TXT
 wprism — host-agnostic orchestrator for WPrism environments
@@ -1600,6 +1601,99 @@ requirements, and the explicit --envs-file trust override.
 TXT;
 }
 
+function wprism_help(?string $topic = null): ?string {
+    if ($topic === null || $topic === 'help') {
+        return <<<'TXT'
+wprism — branch supported WordPress content and configuration with Git
+
+Authored changes move between environments; live orders, inventory, comments,
+sessions and secrets stay local. Unsupported operations refuse explicitly.
+
+Start here (from a source checkout):
+  wprism demo start                         Start two disposable WordPress sites
+  wprism demo review --accept-page-only     Accept the demo's page-only scope
+  wprism help demo                          See the complete demo workflow
+
+Evaluate an existing site:
+  wprism connect <env> --workspace=<path> ...  Inspect access and create a workspace
+  wprism onboard <env> --git-url=<empty-remote>
+                                             Install, assess, then initialize
+  wprism assess <env>                       Inspect the supported scope
+  wprism doctor <env>                       Check the target's prerequisites
+
+Work with an adopted site:
+  wprism capture <env>                      Capture authored changes into Git
+  wprism plan <env>                         Review the proposed state changes
+  wprism rehearse <env>                     Rehearse using configured providers
+  wprism release <env> --plan-only          Preview release authorization
+  wprism verify <env>                       Verify the declared outcome
+  wprism recover <env> --help               Read recovery requirements
+
+Explore:
+  wprism envs                              List configured environments
+  wprism capabilities <env>                 Explain the target's exact coverage
+  wprism help adapter                      Inspect or develop adapters
+  wprism help <command>                     Show command syntax and details
+  wprism <command> --help                   Same help, without contacting a target
+  wprism help all                          Show the complete command reference
+  wprism --help=all                        Same complete reference
+
+Guides: docs/guides/README.md   Site eligibility: docs/guides/site-eligibility.md
+Full reference: cli/README.md  Contributions: CONTRIBUTING.md
+TXT;
+    }
+    $reference = wprism_usage();
+    if ($topic === 'all') {
+        return $reference;
+    }
+
+    // The reference already owns each continuation line and refusal caveat.
+    // Selecting whole blocks keeps help from silently losing a flag or boundary
+    // when its documented command grows; it never loads a site or transport.
+    $sections = explode("\nVerbs:\n", $reference, 2);
+    $usage = [];
+    $selected = false;
+    foreach (explode("\n", $sections[0]) as $line) {
+        if (preg_match('/^  wprism ([a-z][a-z0-9-]*)(?:\s|$)/', $line, $match)) {
+            $selected = $match[1] === $topic;
+        } elseif (str_starts_with($line, '  wprism ')) {
+            $selected = false;
+        }
+        if ($selected) {
+            $usage[] = $line;
+        }
+    }
+    if ($usage === []) {
+        return null;
+    }
+    $details = [];
+    $selected = false;
+    foreach (explode("\n", explode("\nGlobal flags:\n", $sections[1])[0]) as $line) {
+        if (preg_match('/^  ([a-z][a-z0-9-]*)(?:\s|$)/', $line, $match)) {
+            $selected = $match[1] === $topic;
+        }
+        if ($selected) {
+            $details[] = $line;
+        }
+    }
+    $help = "wprism $topic\n\nUsage:\n" . rtrim(implode("\n", $usage));
+    if ($details !== []) {
+        $help .= "\n\nDetails:\n" . rtrim(implode("\n", $details));
+    }
+    return $help . "\n\nUse wprism help all for global flags and the environment registry.\n"
+        . 'Guides: docs/guides/README.md; full reference: cli/README.md';
+}
+
+function wprism_print_help(?string $topic = null): int {
+    $help = wprism_help($topic);
+    if ($help === null) {
+        fwrite(STDERR, "wprism: unknown help topic '$topic'; use wprism help or wprism help all\n");
+        return 1;
+    }
+    echo $help . "\n";
+    return 0;
+}
+
 /** @return never */
 function wprism_fail(string $message, int $code = 1) {
     CommandOutput::fail($message, $code);
@@ -1626,10 +1720,14 @@ function main(array $argv): int {
 
     $envsFileOverride = null;
     $showHelp = false;
+    $showAllHelp = false;
     $rest = [];
     foreach ($argv as $a) {
         if ($a === '-h' || $a === '--help') {
             $showHelp = true;
+        } elseif ($a === '--help=all') {
+            $showHelp = true;
+            $showAllHelp = true;
         } elseif (str_starts_with($a, '--envs-file=')) {
             $envsFileOverride = substr($a, strlen('--envs-file='));
         } else {
@@ -1638,15 +1736,21 @@ function main(array $argv): int {
     }
 
     if ($showHelp) {
-        echo wprism_usage() . "\n";
-        return 0;
+        return wprism_print_help($showAllHelp ? 'all' : ($rest[0] ?? null));
     }
     if (count($rest) === 0) {
-        echo wprism_usage() . "\n";
+        wprism_print_help();
         return 1;
     }
 
     $verb = array_shift($rest);
+    if ($verb === 'help') {
+        if (count($rest) > 1) {
+            fwrite(STDERR, "wprism: help accepts one command name or all\n");
+            return 1;
+        }
+        return wprism_print_help($rest[0] ?? null);
+    }
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
     }

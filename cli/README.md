@@ -1,5 +1,11 @@
 # wprism — the orchestrator CLI
 
+New users can start with `wprism --help` and the
+[disposable demo](../docs/guides/try-wprism.md). Use `wprism help <command>` or
+`wprism <command> --help` for one command, and `wprism help all` or
+`wprism --help=all` for the complete built-in reference. Help runs locally
+without loading an environment registry or contacting a target.
+
 `wprism` is the host-agnostic, multi-environment front end for the WPrism agent.
 Git stays git — branching, merging, and history all happen on the site repo
 exactly as before. `wprism` only adds two things on top of the per-environment

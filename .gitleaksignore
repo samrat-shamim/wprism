@@ -1,0 +1,297 @@
+# Exact historical findings reviewed for the public-alpha preparation.
+# These are synthetic secret-canary tests, source SHA-256 pins, and encoded
+# test assertions. No file, directory, rule, or token prefix is excluded.
+# A new occurrence or commit must be reviewed again. See docs/maintainers/releases.md.
+
+# adapter-packages/map-block-gutenberg/tests/offline/regress_map_boundary.php
+42fc5f0194c81f05ff0f138ab36f5bcd4862f7cb:adapter-packages/map-block-gutenberg/tests/offline/regress_map_boundary.php:generic-api-key:125
+
+# adapter-packages/woocommerce/tests/offline/regress_woocommerce_deletion_authority.php
+245c7fd6079c7875b82b3fdfb5215abd691f708c:adapter-packages/woocommerce/tests/offline/regress_woocommerce_deletion_authority.php:stripe-access-token:538
+4f1cb6765040864da6f5fb0798f0bdfee27b819c:adapter-packages/woocommerce/tests/offline/regress_woocommerce_deletion_authority.php:stripe-access-token:1005
+
+# adapter-packages/wpforms-lite/fixtures/location-provider/native-settings.php
+fcaef7362d2ea26b51aaeda7e7a74f8c5fd48af8:adapter-packages/wpforms-lite/fixtures/location-provider/native-settings.php:stripe-access-token:41
+
+# adapter-packages/wpforms-lite/fixtures/location-provider/settings-evidence.php
+fcaef7362d2ea26b51aaeda7e7a74f8c5fd48af8:adapter-packages/wpforms-lite/fixtures/location-provider/settings-evidence.php:stripe-access-token:204
+
+# adapter-packages/wpforms-lite/tests/offline/regress_native_bodies.php
+d6dee0ebc9f8e6c7f83e2f65314a47518ad613a8:adapter-packages/wpforms-lite/tests/offline/regress_native_bodies.php:stripe-access-token:164
+
+# adapter-packages/wpforms-lite/tests/offline/regress_native_settings_evidence.php
+fcaef7362d2ea26b51aaeda7e7a74f8c5fd48af8:adapter-packages/wpforms-lite/tests/offline/regress_native_settings_evidence.php:stripe-access-token:129
+fcaef7362d2ea26b51aaeda7e7a74f8c5fd48af8:adapter-packages/wpforms-lite/tests/offline/regress_native_settings_evidence.php:stripe-access-token:92
+
+# adapter-packages/wpforms-lite/tests/offline/regress_settings_and_embeds.php
+d6dee0ebc9f8e6c7f83e2f65314a47518ad613a8:adapter-packages/wpforms-lite/tests/offline/regress_settings_and_embeds.php:stripe-access-token:124
+d6dee0ebc9f8e6c7f83e2f65314a47518ad613a8:adapter-packages/wpforms-lite/tests/offline/regress_settings_and_embeds.php:stripe-access-token:42
+d6dee0ebc9f8e6c7f83e2f65314a47518ad613a8:adapter-packages/wpforms-lite/tests/offline/regress_settings_and_embeds.php:stripe-access-token:47
+d6dee0ebc9f8e6c7f83e2f65314a47518ad613a8:adapter-packages/wpforms-lite/tests/offline/regress_settings_and_embeds.php:stripe-access-token:66
+d6dee0ebc9f8e6c7f83e2f65314a47518ad613a8:adapter-packages/wpforms-lite/tests/offline/regress_settings_and_embeds.php:stripe-access-token:77
+
+# adapter-packages/wpforms-lite/tests/offline/regress_settings_lint.php
+7f43752c69d8e8923293f7f864c7ece68719cdc9:adapter-packages/wpforms-lite/tests/offline/regress_settings_lint.php:stripe-access-token:87
+
+# adapter-packages/wpforms-lite/tests/offline/regress_settings_ownership.php
+fcaef7362d2ea26b51aaeda7e7a74f8c5fd48af8:adapter-packages/wpforms-lite/tests/offline/regress_settings_ownership.php:stripe-access-token:76
+fcaef7362d2ea26b51aaeda7e7a74f8c5fd48af8:adapter-packages/wpforms-lite/tests/offline/regress_settings_ownership.php:stripe-access-token:82
+
+# sandbox/conformance/checks/acf.sh
+c5be7d44e2a82d3fdd7e28fcb24220a9e51efdf8:sandbox/conformance/checks/acf.sh:generic-api-key:303
+c5be7d44e2a82d3fdd7e28fcb24220a9e51efdf8:sandbox/conformance/checks/acf.sh:generic-api-key:312
+
+# sandbox/conformance/checks/code-snippets.sh
+a1416cce7b418e358908091df6afed3141ecf1b1:sandbox/conformance/checks/code-snippets.sh:generic-api-key:364
+
+# sandbox/conformance/checks/contact-form-7.sh
+3580ff63b5ee07f25acc806020603df4cdc9ed45:sandbox/conformance/checks/contact-form-7.sh:aws-access-token:274
+3580ff63b5ee07f25acc806020603df4cdc9ed45:sandbox/conformance/checks/contact-form-7.sh:aws-access-token:277
+
+# sandbox/conformance/checks/elementor.sh
+6a5010a3490f4e823955acac77dec533965572c4:sandbox/conformance/checks/elementor.sh:aws-access-token:396
+6a5010a3490f4e823955acac77dec533965572c4:sandbox/conformance/checks/elementor.sh:aws-access-token:400
+
+# sandbox/conformance/checks/ninja-forms.sh
+a95e957825317f5fb637aaab35d8701ffad5b573:sandbox/conformance/checks/ninja-forms.sh:stripe-access-token:434
+a95e957825317f5fb637aaab35d8701ffad5b573:sandbox/conformance/checks/ninja-forms.sh:stripe-access-token:435
+
+# sandbox/conformance/checks/paid-memberships-pro.sh
+4e7e214d4ea92632f290f0e0f50b4c6e96db1fad:sandbox/conformance/checks/paid-memberships-pro.sh:aws-access-token:310
+4e7e214d4ea92632f290f0e0f50b4c6e96db1fad:sandbox/conformance/checks/paid-memberships-pro.sh:aws-access-token:316
+4e7e214d4ea92632f290f0e0f50b4c6e96db1fad:sandbox/conformance/checks/paid-memberships-pro.sh:aws-access-token:328
+4e7e214d4ea92632f290f0e0f50b4c6e96db1fad:sandbox/conformance/checks/paid-memberships-pro.sh:aws-access-token:332
+
+# sandbox/conformance/checks/polylang.sh
+05bd4fc793a5991436bc85ef725b2f53f4b0487d:sandbox/conformance/checks/polylang.sh:aws-access-token:458
+05bd4fc793a5991436bc85ef725b2f53f4b0487d:sandbox/conformance/checks/polylang.sh:aws-access-token:461
+
+# sandbox/conformance/checks/redirection.sh
+23289b0705efccf9fd312cffd01542c9ae111d9a:sandbox/conformance/checks/redirection.sh:aws-access-token:229
+23289b0705efccf9fd312cffd01542c9ae111d9a:sandbox/conformance/checks/redirection.sh:aws-access-token:230
+
+# sandbox/conformance/checks/the-events-calendar.sh
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/conformance/checks/the-events-calendar.sh:aws-access-token:2523
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/conformance/checks/the-events-calendar.sh:aws-access-token:2529
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/conformance/checks/the-events-calendar.sh:aws-access-token:2560
+
+# sandbox/conformance/checks/woocommerce.sh
+6c663b7d49ceb9cd03f5aecfb760aae893763e72:sandbox/conformance/checks/woocommerce.sh:aws-access-token:1567
+6c663b7d49ceb9cd03f5aecfb760aae893763e72:sandbox/conformance/checks/woocommerce.sh:aws-access-token:1573
+6c663b7d49ceb9cd03f5aecfb760aae893763e72:sandbox/conformance/checks/woocommerce.sh:aws-access-token:1576
+
+# sandbox/conformance/checks/yoast-duplicate-post.sh
+696a6c9872d735d512a3b8884c52708a7be4dd08:sandbox/conformance/checks/yoast-duplicate-post.sh:generic-api-key:443
+
+# sandbox/conformance/checks/yoast.sh
+56f215b5cb9f22b549e6c0663315fc6571146db9:sandbox/conformance/checks/yoast.sh:aws-access-token:320
+56f215b5cb9f22b549e6c0663315fc6571146db9:sandbox/conformance/checks/yoast.sh:aws-access-token:323
+
+# sandbox/tests/fixtures/core_data_boundary.php
+245c7fd6079c7875b82b3fdfb5215abd691f708c:sandbox/tests/fixtures/core_data_boundary.php:stripe-access-token:57
+245c7fd6079c7875b82b3fdfb5215abd691f708c:sandbox/tests/fixtures/core_data_boundary.php:stripe-access-token:611
+26a363ac12d1870113b01cd83ef7926a0b3c1491:sandbox/tests/fixtures/core_data_boundary.php:stripe-access-token:57
+26a363ac12d1870113b01cd83ef7926a0b3c1491:sandbox/tests/fixtures/core_data_boundary.php:stripe-access-token:601
+
+# sandbox/tests/fixtures/the-events-calendar-wordpress-option-hooks.json
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/fixtures/the-events-calendar-wordpress-option-hooks.json:generic-api-key:262
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/fixtures/the-events-calendar-wordpress-option-hooks.json:generic-api-key:323
+
+# sandbox/tests/fixtures/woocommerce-core-11.0-optional.json
+6c663b7d49ceb9cd03f5aecfb760aae893763e72:sandbox/tests/fixtures/woocommerce-core-11.0-optional.json:generic-api-key:11
+6c663b7d49ceb9cd03f5aecfb760aae893763e72:sandbox/tests/fixtures/woocommerce-core-11.0-optional.json:generic-api-key:26
+6c663b7d49ceb9cd03f5aecfb760aae893763e72:sandbox/tests/fixtures/woocommerce-core-11.0-optional.json:generic-api-key:27
+
+# sandbox/tests/fixtures/woocommerce-core-11.0-settings.json
+6c663b7d49ceb9cd03f5aecfb760aae893763e72:sandbox/tests/fixtures/woocommerce-core-11.0-settings.json:generic-api-key:102
+6c663b7d49ceb9cd03f5aecfb760aae893763e72:sandbox/tests/fixtures/woocommerce-core-11.0-settings.json:generic-api-key:140
+
+# sandbox/tests/grind/grind_adoption.sh
+245c7fd6079c7875b82b3fdfb5215abd691f708c:sandbox/tests/grind/grind_adoption.sh:stripe-access-token:1314
+245c7fd6079c7875b82b3fdfb5215abd691f708c:sandbox/tests/grind/grind_adoption.sh:stripe-access-token:1321
+
+# sandbox/tests/grind/grind_r1c_agency.sh
+245c7fd6079c7875b82b3fdfb5215abd691f708c:sandbox/tests/grind/grind_r1c_agency.sh:stripe-access-token:539
+
+# sandbox/tests/grind_adoption.sh
+918dc7130825ceca8b0938cb2ed51ad5e110f476:sandbox/tests/grind_adoption.sh:stripe-access-token:1312
+918dc7130825ceca8b0938cb2ed51ad5e110f476:sandbox/tests/grind_adoption.sh:stripe-access-token:1319
+
+# sandbox/tests/grind_r1c_agency.sh
+d546f6286d55d868bedd87492ff1ddd0e13ccc29:sandbox/tests/grind_r1c_agency.sh:stripe-access-token:482
+
+# sandbox/tests/live/fixtures/table_row_scopes.php
+fc093acbd915eee3505b3d6e6d73df410cdcb253:sandbox/tests/live/fixtures/table_row_scopes.php:stripe-access-token:44
+
+# sandbox/tests/live/regress_core_data_boundary.sh
+245c7fd6079c7875b82b3fdfb5215abd691f708c:sandbox/tests/live/regress_core_data_boundary.sh:stripe-access-token:289
+26a363ac12d1870113b01cd83ef7926a0b3c1491:sandbox/tests/live/regress_core_data_boundary.sh:stripe-access-token:245
+
+# sandbox/tests/offline/adapter/regress_acf_production_readiness.php
+c5be7d44e2a82d3fdd7e28fcb24220a9e51efdf8:sandbox/tests/offline/adapter/regress_acf_production_readiness.php:stripe-access-token:362
+c5be7d44e2a82d3fdd7e28fcb24220a9e51efdf8:sandbox/tests/offline/adapter/regress_acf_production_readiness.php:stripe-access-token:383
+
+# sandbox/tests/offline/adapter/regress_ninja_forms_production_readiness.php
+a95e957825317f5fb637aaab35d8701ffad5b573:sandbox/tests/offline/adapter/regress_ninja_forms_production_readiness.php:stripe-access-token:257
+
+# sandbox/tests/offline/adapter/regress_polylang_production_readiness.php
+05bd4fc793a5991436bc85ef725b2f53f4b0487d:sandbox/tests/offline/adapter/regress_polylang_production_readiness.php:aws-access-token:2072
+
+# sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php:aws-access-token:1047
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php:aws-access-token:10753
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php:aws-access-token:11274
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php:aws-access-token:12139
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php:aws-access-token:12145
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php:aws-access-token:401
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php:aws-access-token:5653
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php:aws-access-token:6164
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php:aws-access-token:6421
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php:aws-access-token:6542
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php:aws-access-token:728
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php:aws-access-token:746
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php:aws-access-token:8259
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php:aws-access-token:873
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php:aws-access-token:899
+be8e5f7911df1f177915a8f5fcdba1eb248dc127:sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php:aws-access-token:946
+
+# sandbox/tests/offline/capture/regress_capture_atomicity.php
+7f43752c69d8e8923293f7f864c7ece68719cdc9:sandbox/tests/offline/capture/regress_capture_atomicity.php:stripe-access-token:1677
+
+# sandbox/tests/offline/capture/regress_capture_safety_gates.php
+02fc708840a52b8934f74b6383e70311a94d746d:sandbox/tests/offline/capture/regress_capture_safety_gates.php:stripe-access-token:84
+41f15e7dcc8e065a61b1fdb75cddc6a49ca27f3d:sandbox/tests/offline/capture/regress_capture_safety_gates.php:stripe-access-token:390
+7f43752c69d8e8923293f7f864c7ece68719cdc9:sandbox/tests/offline/capture/regress_capture_safety_gates.php:stripe-access-token:549
+
+# sandbox/tests/offline/capture/regress_capture_secret_scan.php
+02fc708840a52b8934f74b6383e70311a94d746d:sandbox/tests/offline/capture/regress_capture_secret_scan.php:stripe-access-token:83
+245c7fd6079c7875b82b3fdfb5215abd691f708c:sandbox/tests/offline/capture/regress_capture_secret_scan.php:stripe-access-token:109
+41f15e7dcc8e065a61b1fdb75cddc6a49ca27f3d:sandbox/tests/offline/capture/regress_capture_secret_scan.php:stripe-access-token:123
+
+# sandbox/tests/offline/cli/regress_classify_command.php
+41f15e7dcc8e065a61b1fdb75cddc6a49ca27f3d:sandbox/tests/offline/cli/regress_classify_command.php:stripe-access-token:477
+41f15e7dcc8e065a61b1fdb75cddc6a49ca27f3d:sandbox/tests/offline/cli/regress_classify_command.php:stripe-access-token:483
+
+# sandbox/tests/offline/cli/regress_cli_json_refusals.php
+245c7fd6079c7875b82b3fdfb5215abd691f708c:sandbox/tests/offline/cli/regress_cli_json_refusals.php:stripe-access-token:1050
+245c7fd6079c7875b82b3fdfb5215abd691f708c:sandbox/tests/offline/cli/regress_cli_json_refusals.php:stripe-access-token:1441
+245c7fd6079c7875b82b3fdfb5215abd691f708c:sandbox/tests/offline/cli/regress_cli_json_refusals.php:stripe-access-token:596
+245c7fd6079c7875b82b3fdfb5215abd691f708c:sandbox/tests/offline/cli/regress_cli_json_refusals.php:stripe-access-token:813
+245c7fd6079c7875b82b3fdfb5215abd691f708c:sandbox/tests/offline/cli/regress_cli_json_refusals.php:stripe-access-token:826
+245c7fd6079c7875b82b3fdfb5215abd691f708c:sandbox/tests/offline/cli/regress_cli_json_refusals.php:stripe-access-token:859
+245c7fd6079c7875b82b3fdfb5215abd691f708c:sandbox/tests/offline/cli/regress_cli_json_refusals.php:stripe-access-token:934
+356eb9b368ca05733cfd9a23b7c62d39cf809f03:sandbox/tests/offline/cli/regress_cli_json_refusals.php:stripe-access-token:888
+86870f510d683cea7e811394b28bb726bf793a09:sandbox/tests/offline/cli/regress_cli_json_refusals.php:stripe-access-token:782
+
+# sandbox/tests/offline/ecommerce/regress_woocommerce_contract.php
+6c663b7d49ceb9cd03f5aecfb760aae893763e72:sandbox/tests/offline/ecommerce/regress_woocommerce_contract.php:aws-access-token:1762
+6c663b7d49ceb9cd03f5aecfb760aae893763e72:sandbox/tests/offline/ecommerce/regress_woocommerce_contract.php:aws-access-token:1770
+6c663b7d49ceb9cd03f5aecfb760aae893763e72:sandbox/tests/offline/ecommerce/regress_woocommerce_contract.php:generic-api-key:934
+
+# sandbox/tests/offline/grammar/regress_block_content_codecs.php
+961693a5b094a9a88bb55fc8e69c822116b160fd:sandbox/tests/offline/grammar/regress_block_content_codecs.php:generic-api-key:102
+
+# sandbox/tests/offline/grammar/regress_body_ref_grammar.php
+41f15e7dcc8e065a61b1fdb75cddc6a49ca27f3d:sandbox/tests/offline/grammar/regress_body_ref_grammar.php:stripe-access-token:470
+41f15e7dcc8e065a61b1fdb75cddc6a49ca27f3d:sandbox/tests/offline/grammar/regress_body_ref_grammar.php:stripe-access-token:826
+41f15e7dcc8e065a61b1fdb75cddc6a49ca27f3d:sandbox/tests/offline/grammar/regress_body_ref_grammar.php:stripe-access-token:883
+d6dee0ebc9f8e6c7f83e2f65314a47518ad613a8:sandbox/tests/offline/grammar/regress_body_ref_grammar.php:generic-api-key:1182
+d6dee0ebc9f8e6c7f83e2f65314a47518ad613a8:sandbox/tests/offline/grammar/regress_body_ref_grammar.php:generic-api-key:1433
+e03dfaed91ba4791fad03b52c9ee0cf97bf67723:sandbox/tests/offline/grammar/regress_body_ref_grammar.php:stripe-access-token:728
+
+# sandbox/tests/offline/grammar/regress_column_codec_grammar.php
+41f15e7dcc8e065a61b1fdb75cddc6a49ca27f3d:sandbox/tests/offline/grammar/regress_column_codec_grammar.php:stripe-access-token:460
+
+# sandbox/tests/offline/grammar/regress_post_field_classification.php
+41f15e7dcc8e065a61b1fdb75cddc6a49ca27f3d:sandbox/tests/offline/grammar/regress_post_field_classification.php:stripe-access-token:797
+41f15e7dcc8e065a61b1fdb75cddc6a49ca27f3d:sandbox/tests/offline/grammar/regress_post_field_classification.php:stripe-access-token:862
+
+# sandbox/tests/offline/grammar/regress_sub_key_grammar.php
+18f32d13d7321ce29db7d8c7efddfd4cfe4f0e9c:sandbox/tests/offline/grammar/regress_sub_key_grammar.php:aws-access-token:158
+
+# sandbox/tests/offline/grammar/regress_table_row_scopes.php
+fc093acbd915eee3505b3d6e6d73df410cdcb253:sandbox/tests/offline/grammar/regress_table_row_scopes.php:stripe-access-token:128
+
+# sandbox/tests/offline/grammar/regress_taxonomy_object_keyspace.php
+245c7fd6079c7875b82b3fdfb5215abd691f708c:sandbox/tests/offline/grammar/regress_taxonomy_object_keyspace.php:stripe-access-token:431
+
+# sandbox/tests/offline/guards/regress_ecommerce_developer_static.sh
+245c7fd6079c7875b82b3fdfb5215abd691f708c:sandbox/tests/offline/guards/regress_ecommerce_developer_static.sh:generic-api-key:482
+
+# sandbox/tests/offline/policy/regress_platform_compatibility.php
+69b6b9cc33ee0df7094f10bba25a44976c4899ba:sandbox/tests/offline/policy/regress_platform_compatibility.php:stripe-access-token:168
+
+# sandbox/tests/offline/repository/regress_repository_compiler.sh
+41f15e7dcc8e065a61b1fdb75cddc6a49ca27f3d:sandbox/tests/offline/repository/regress_repository_compiler.sh:generic-api-key:747
+41f15e7dcc8e065a61b1fdb75cddc6a49ca27f3d:sandbox/tests/offline/repository/regress_repository_compiler.sh:stripe-access-token:727
+41f15e7dcc8e065a61b1fdb75cddc6a49ca27f3d:sandbox/tests/offline/repository/regress_repository_compiler.sh:stripe-access-token:783
+
+# sandbox/tests/regress_adapter_authoring_live.sh
+39bf1b931d0e846ae00750884ac145ac25e901ef:sandbox/tests/regress_adapter_authoring_live.sh:stripe-access-token:211
+
+# sandbox/tests/regress_adapter_draft.php
+38c252f711cb489e9d0f9d7ae7c84cca08a3bd02:sandbox/tests/regress_adapter_draft.php:github-pat:366
+
+# sandbox/tests/regress_adapter_observation.php
+39bf1b931d0e846ae00750884ac145ac25e901ef:sandbox/tests/regress_adapter_observation.php:stripe-access-token:105
+39bf1b931d0e846ae00750884ac145ac25e901ef:sandbox/tests/regress_adapter_observation.php:stripe-access-token:128
+
+# sandbox/tests/regress_capture_safety_gates.php
+776453e43db44994882bef99a33d8030f11989f9:sandbox/tests/regress_capture_safety_gates.php:stripe-access-token:64
+776453e43db44994882bef99a33d8030f11989f9:sandbox/tests/regress_capture_safety_gates.php:stripe-access-token:75
+
+# sandbox/tests/regress_capture_secret_scan.php
+3f7c173b0c996279cb44143719ce75a17aa5bfe7:sandbox/tests/regress_capture_secret_scan.php:stripe-access-token:102
+3f7c173b0c996279cb44143719ce75a17aa5bfe7:sandbox/tests/regress_capture_secret_scan.php:stripe-access-token:107
+3f7c173b0c996279cb44143719ce75a17aa5bfe7:sandbox/tests/regress_capture_secret_scan.php:stripe-access-token:112
+3f7c173b0c996279cb44143719ce75a17aa5bfe7:sandbox/tests/regress_capture_secret_scan.php:stripe-access-token:153
+3f7c173b0c996279cb44143719ce75a17aa5bfe7:sandbox/tests/regress_capture_secret_scan.php:stripe-access-token:83
+
+# sandbox/tests/regress_cli_json_refusals.php
+0daaa9e3d7c57afab93dc885a8b0217c69521c68:sandbox/tests/regress_cli_json_refusals.php:stripe-access-token:410
+5d46e64e1c4d3e0d3093b1b99d5c5aa091fbc52b:sandbox/tests/regress_cli_json_refusals.php:stripe-access-token:173
+5d46e64e1c4d3e0d3093b1b99d5c5aa091fbc52b:sandbox/tests/regress_cli_json_refusals.php:stripe-access-token:263
+5d46e64e1c4d3e0d3093b1b99d5c5aa091fbc52b:sandbox/tests/regress_cli_json_refusals.php:stripe-access-token:306
+918dc7130825ceca8b0938cb2ed51ad5e110f476:sandbox/tests/regress_cli_json_refusals.php:stripe-access-token:703
+918dc7130825ceca8b0938cb2ed51ad5e110f476:sandbox/tests/regress_cli_json_refusals.php:stripe-access-token:716
+aa589597e55810eae509233fe178c47c96d8f841:sandbox/tests/regress_cli_json_refusals.php:stripe-access-token:936
+b973858a826dcced3dcdb518adb61dd4e5a52721:sandbox/tests/regress_cli_json_refusals.php:stripe-access-token:423
+b973858a826dcced3dcdb518adb61dd4e5a52721:sandbox/tests/regress_cli_json_refusals.php:stripe-access-token:475
+d56feb6a164af9718c7af68937ad028c5e56c5da:sandbox/tests/regress_cli_json_refusals.php:stripe-access-token:277
+df196274c79b48fcd0fea5385f1a641142423e2c:sandbox/tests/regress_cli_json_refusals.php:stripe-access-token:319
+df196274c79b48fcd0fea5385f1a641142423e2c:sandbox/tests/regress_cli_json_refusals.php:stripe-access-token:325
+
+# sandbox/tests/regress_ecommerce_developer_static.sh
+a0fb003312f23b96b7e4a15f0b4d3580df8d9f1c:sandbox/tests/regress_ecommerce_developer_static.sh:generic-api-key:389
+
+# sandbox/tests/regress_init_contract.php
+918dc7130825ceca8b0938cb2ed51ad5e110f476:sandbox/tests/regress_init_contract.php:private-key:1736
+918dc7130825ceca8b0938cb2ed51ad5e110f476:sandbox/tests/regress_init_contract.php:private-key:1756
+
+# sandbox/tests/regress_parallel_subject_certification.sh
+81b6fbaff6ab6ba92c8fcbd11d11bd63c266a171:sandbox/tests/regress_parallel_subject_certification.sh:generic-api-key:29
+
+# sandbox/tests/regress_plan_explain.php
+0daaa9e3d7c57afab93dc885a8b0217c69521c68:sandbox/tests/regress_plan_explain.php:stripe-access-token:44
+
+# sandbox/tests/regress_provider_contract.php
+b19caf7c3f28513b894ea50fd6ba8c2c5d3da0bb:sandbox/tests/regress_provider_contract.php:stripe-access-token:1113
+
+# sandbox/tests/regress_scoped_effect_reconciliation.php
+392b8d2368ecf14d14d5a09807c553f549c24703:sandbox/tests/regress_scoped_effect_reconciliation.php:stripe-access-token:161
+
+# sandbox/tests/regress_snapshot_meta.sh
+257abe7e516e7cb38096ed8be3cc95b824bd47d2:sandbox/tests/regress_snapshot_meta.sh:stripe-access-token:256
+257abe7e516e7cb38096ed8be3cc95b824bd47d2:sandbox/tests/regress_snapshot_meta.sh:stripe-access-token:306
+
+# sandbox/tests/regress_taxonomy_object_keyspace.php
+b19caf7c3f28513b894ea50fd6ba8c2c5d3da0bb:sandbox/tests/regress_taxonomy_object_keyspace.php:stripe-access-token:427
+
+# sandbox/tests/regress_typed_table_capture.php
+192542725dbd16b27af87b1d7a10ff48506f98d1:sandbox/tests/regress_typed_table_capture.php:stripe-access-token:243
+
+# sandbox/tests/regress_woocommerce_deletion_authority.php
+b19caf7c3f28513b894ea50fd6ba8c2c5d3da0bb:sandbox/tests/regress_woocommerce_deletion_authority.php:stripe-access-token:504
+
+# sandbox/tests/spike_f_core_loop.sh
+6e6a03d91052c5f6d139f87018761a7bf7e6fecc:sandbox/tests/spike_f_core_loop.sh:stripe-access-token:148

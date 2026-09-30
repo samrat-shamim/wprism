@@ -1,112 +1,126 @@
-# Contributing to wprism
+# Contributing to WPrism
 
-[`AGENTS.md`](AGENTS.md) is the authority for everything below and is the file
-to read before your first edit. This page is the short contributor path into it;
-where the two ever disagree, `AGENTS.md` wins. Setup is
-[`docs/dev-setup.md`](docs/dev-setup.md); the docs tree is mapped in
-[`docs/README.md`](docs/README.md).
+Thank you for helping make WordPress changes reviewable and repeatable.
+Useful contributions include a clear bug reproduction, an improved guide, a
+host-eligibility report, a regression test, or a bounded adapter improvement.
 
-**CI is disabled by owner decision. Local evidence is the gate**, which makes
-the contributor's job to *produce* the evidence rather than to wait for a badge.
+You can participate entirely through GitHub. No Linear account, private project
+history, or coding-agent setup is required. Our [code of conduct](CODE_OF_CONDUCT.md)
+applies to project spaces; [governance](GOVERNANCE.md) explains who reviews and
+decides changes.
 
-## The loop
+## Find a starting point
+
+- Ask usage questions and share examples in
+  [Discussions](https://github.com/duotronic-ai/wprism/discussions).
+- Report reproducible bugs or propose work in
+  [Issues](https://github.com/duotronic-ai/wprism/issues).
+- Small fixes can start as pull requests. Discuss substantial architecture,
+  public-contract, or adapter-scope changes in an issue first.
+- For plugin work, start with [your first adapter contribution](docs/guides/first-adapter.md).
+- Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
+
+A bug report should include the exact WPrism commit, relevant runtime/plugin
+versions, the command and refusal code, expected behavior, and the smallest
+reproduction. Use synthetic data and remove credentials, customer information,
+and identifying site details from attachments.
+
+## Make your first change
+
+Fork the repository, make a full clone of your fork, and branch from current
+upstream main. Avoid shallow clones: some local regression checks examine
+commit ancestry.
 
 ```sh
-bash tools/doctor.sh              # environment diagnosis; --fix applies the 2 safe remedies
-composer check                    # php -l + phpstan + php-cs-fixer(changed) + phpunit
-php tools/offline.php --changed   # only affected suites — iteration only, never the gate
-make regress-offline-all          # THE merge gate — unconditional; quote it in the PR
-make release-gate                 # capability/grade sources validate and generated
-                                  # engine artifacts match their sources
+git clone https://github.com/YOUR-NAME/wprism.git
+cd wprism
+git remote add upstream https://github.com/duotronic-ai/wprism.git
+git fetch upstream
+git switch -c fix/describe-the-change upstream/main
 ```
 
-Mechanically, for every change: `php -l` each touched PHP file, `bash -n` each
-touched script, then `make regress-offline-all` green. **Warnings are not
-green** — human output, machine output and exit status must agree.
+Use PHP 8.3 and Composer for the development toolchain. Docker is needed for
+the demo and live evidence; most regression suites run offline.
+Read [AGENTS.md](AGENTS.md) before editing: its architecture and evidence rules
+apply to every contributor, whether using an editor or an agent.
 
-`php tools/offline.php -j8` runs the same work as the gate with per-suite logs,
-which is the faster way to *find* a failure; the PR still quotes the canonical
-gate. Stock macOS ships GNU Make 3.81 (no `--output-sync`), so prefer
-`tools/offline.php` there.
+```sh
+composer install
+bash tools/doctor.sh
+composer check
+php tools/offline.php --changed
+```
 
-## Where a test goes
+The doctor prints concrete remedies. PHP 8.3 keeps this contributor setup
+inside the certified runtime boundary. [Dev setup](docs/dev-setup.md) explains
+other supported runtimes, platform requirements, and troubleshooting.
 
-- **An adapter-owned suite** →
-  `adapter-packages/<slug>/tests/<execution-class>/`. The fixed
-  `regress-adapter-packages` aggregate discovers capsule-local offline suites;
-  adding one requires no Makefile or corpus edit.
-- **A shared offline engine/product suite** →
-  `sandbox/tests/offline/<domain>/`, plus its own `Makefile` leaf target, then
-  `php tools/offline-corpus.php`. That generator derives
-  `regress-offline-corpus`'s prerequisite list and count from the shared suite
-  files into `tools/offline-corpus.mk`. Cross-adapter evidence instead belongs
-  in a participant-declared `integration-scenarios/<name>/` directory.
-  `tools/suite-layout.review.md` says what each domain means.
-- **A tooling self-test** (anything under `tools/`) → `tests/`, PHPUnit 11.
-- **Shared live, grind, certify, spike suites** → the matching directory
-  under `sandbox/tests/`; adapter-owned suites stay in their capsule. Which
-  gate runs a suite is its execution-class directory, not its name
-  ([`docs/sandbox.md`](docs/sandbox.md)).
-- Build on `sandbox/tests/lib/` (`check.php`, `wp_stubs.php`, `FakeWpdb.php`) —
-  see its README for the skeleton. Do not write another bespoke `$wpdb` fake.
+Keep changes focused. Preserve dependency-free shipped code, canonical output,
+refusal contracts, and lock ordering. Do not mass-format the repository.
+An adapter's identity-bearing package bytes are deployed contract inputs;
+changing them requires deliberate compatibility and migration review.
+Scratch belongs in `sandbox/tmp/` or a temporary directory.
 
-## The non-negotiables, one line each
+## Add evidence with the change
 
-Each is stated in full, with its evidence, in `AGENTS.md` — read it there before
-you argue with one.
+A bug fix needs regression coverage that fails against the previous behavior
+through the product path. Put tests with their owner:
 
-1. **The drop-in is dependency-free.** No composer, no vendored packages,
-   nothing fetched at runtime inside `agent/`, `cli/`, `recovery/`.
-2. **Shipped package and platform-library bytes are adapter identity.** A
-   one-byte edit to an adapter's declared identity inputs moves its
-   `adapter_digest` and refuses deployed compiled artifacts until they are
-   recompiled and re-pinned.
-3. **Never leave scratch under `agent/`, `adapter-packages/`, or `platform/`.**
-   Untracked files included — `pair.sh` refuses. Use `sandbox/tmp/` or a
-   `mktemp -d` directory.
-4. **A new offline suite is wired and counted**, per the section above.
-5. **New suites use `sandbox/tests/lib/`.**
-6. **No mass reformat.** `php-cs-fixer` runs on changed files only, by design.
-7. **`declare(strict_types=1)` in new files only.**
-8. **Some things stay byte-identical** unless the issue is explicitly about
-   changing them: canonical JSON, refusal envelopes and their messages, WP-CLI
-   output, lock ordering, adapter `package/` bytes, platform-library identity
-   inputs, and the version defines in `agent/wprism.php`.
-9. **Fix the root cause** — no silent fallbacks, no compat shims.
-10. **Comments are rationale-dense**: state the constraint and the evidence
-    (file:line, measured number, error string), not the mechanics.
+| Change | Test location |
+|---|---|
+| Plugin adapter | `adapter-packages/<slug>/tests/<execution-class>/` |
+| Shared engine or CLI behavior | `sandbox/tests/offline/<domain>/` |
+| Developer tooling | `tests/` |
+| Cross-adapter behavior | A participant-declared `integration-scenarios/<name>/` |
 
-Two more that apply to prose as much as to code: never hand-copy adapter rows
-into a central document. `php tools/capability-doc.php render` and `php
-tools/adapter-grade.php render` produce the current aggregate from capsule-owned
-sources, while `make release-gate` validates those sources. Every count or
-claim you touch in a document still gets re-measured against the tree at your
-HEAD, not copied forward.
+Use [the shared test helpers](sandbox/tests/lib/README.md) for shared suites.
+A new shared offline suite needs a Makefile leaf and regeneration with
+`php tools/offline-corpus.php`. Package-local offline tests are discovered
+automatically; they need no new aggregate row.
 
-## What a PR carries
+Start offline. Run only the live evidence needed to exercise the changed
+boundary, following the evidence and pair discipline in
+[the sandbox guide](docs/sandbox.md). The internal
+[agent dispatch document](docs/agents/linear-loop.md#evidence-scoping) also
+explains evidence scoping; its tracker claim/close workflow applies only to
+explicit agent dispatches.
 
-- **The gate, quoted.** Paste the `make regress-offline-all` result. A green
-  claim without its output is not evidence.
-- **Regression coverage that fails against the prior defect**, through the
-  product path — not a test that would have passed before the fix.
-- **Offline first.** Reproduce the mechanism with a deterministic offline pin
-  before reaching for a live pair; then scope the live set to the *minimal
-  reasonably-safe* one ([`docs/agents/linear-loop.md`](docs/agents/linear-loop.md)
-  §Evidence scoping). Never the manifest matrix by habit.
-- **One reviewable change.** Branch per issue, squash-merge. Nothing about CI
-  belongs in a PR description.
-- **Out-of-scope discoveries reported, not silently fixed** — file them, say so
-  in the PR, and leave them.
+## Open a pull request
 
-## Reporting a vulnerability
+Run syntax checks on every touched PHP or shell file, then the required gates:
 
-Not here. See [`SECURITY.md`](SECURITY.md) — do not open a public issue or PR
-for a security finding.
+```sh
+composer check
+make regress-offline-all
+make release-gate
+```
+
+`php tools/offline.php -j8` provides the same offline suite work with separate
+logs for diagnosis. Changed-suite runs are for iteration; the full aggregate
+remains the merge gate. Warnings do not count as a passing result.
+
+The pull request should explain the problem, resulting behavior, regression
+evidence, and any compatibility or re-pinning impact. Include the exact commit,
+runtime versions, literal `make regress-offline-all` result, release-gate
+result, and the scoped live result when needed. State incomplete checks plainly.
+
+CI is disabled by owner decision; local evidence is the gate. Nothing about CI
+belongs in a PR description.
+
+Maintainers review the code and evidence, may request changes, and normally
+squash-merge a focused contribution. Report unrelated discoveries separately.
+Keep capability claims derived from package-owned sources; do not copy a
+plugin inventory into a guide.
 
 ## License and sign-off
 
-The project is licensed [GPL-2.0-or-later](LICENSE), and contributions are
-accepted under those same terms. Certify that you have the right to submit
-your change under that license by signing off each commit
-(`git commit -s`, the [Developer Certificate of Origin](https://developercertificate.org/)
-— a statement of provenance, not a copyright assignment).
+WPrism is [GPL-2.0-or-later](LICENSE), and contributions use the same terms.
+Sign off each commit to certify your right to submit the contribution under the
+[Developer Certificate of Origin](https://developercertificate.org/):
+
+```sh
+git commit -s
+```
+
+The sign-off is a provenance statement, not a copyright assignment. Review and
+understand all code you submit, including code produced with an assistant.
