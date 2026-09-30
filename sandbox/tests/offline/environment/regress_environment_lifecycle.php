@@ -68,7 +68,8 @@ function el_process(array $argv, ?string $cwd = null): array {
     fclose($pipes[0]);
     $stdout = (string) stream_get_contents($pipes[1]);
     $stderr = (string) stream_get_contents($pipes[2]);
-    fclose($pipes[1]); fclose($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
     return ['exit' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
 }
 
