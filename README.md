@@ -39,7 +39,7 @@ Composer is needed only to develop WPrism. The first run downloads the pinned
 container images.
 
 ```sh
-git clone https://github.com/duotronic-ai/wprism
+git clone https://github.com/samrat-shamim/wprism
 cd wprism
 cli/wprism demo start
 cli/wprism demo review --accept-page-only
@@ -129,9 +129,9 @@ site. The [repository-format specification](spec/repo-format.md) is normative;
 ## Community and development
 
 Questions and usage examples belong in
-[Discussions](https://github.com/duotronic-ai/wprism/discussions); reproducible
+[Discussions](https://github.com/samrat-shamim/wprism/discussions); reproducible
 bugs and proposed work belong in
-[Issues](https://github.com/duotronic-ai/wprism/issues).
+[Issues](https://github.com/samrat-shamim/wprism/issues).
 [CONTRIBUTING.md](CONTRIBUTING.md) covers a first contribution, setup, and local
 validation. No internal tracker access is required.
 

@@ -205,7 +205,7 @@ spec/repo-format.md's layout already places `wp-content/mu-plugins/wprism/ # the
   { "type": "vcs", "url": "https://github.com/<org>/wprism.git" }   // proposed — not published today
 ],
 "require": {
-  "duotronic/wprism-agent": "0.7.0"   // proposed package name — illustrative, not an existing package
+  "samrat-shamim/wprism-agent": "0.7.0"   // proposed package name — illustrative, not an existing package
 }
 ```
 
@@ -599,7 +599,7 @@ Ordered roughly by severity, matching DESIGN.md's own "loud, blocking, scoped gu
 
 7. **Migration completion timing.** §4.1 step 6 is explicit that `wprism deploy` triggers migration *start* deterministically, not completion — WooCommerce's own background-processed migrations (large catalogs especially) can leave a real window where `wprism apply` (step 8) could still race an in-flight migration if run too eagerly. Not resolved here beyond naming it; a poll/wait step or an explicit human gate for major version bumps on large sites is the likely answer, left for whoever implements §3.4/§6's `Deploy.php`.
 
-8. **The agent's own composer-package distribution (§1.7) is a recommendation, not a verified-working mechanism.** No `duotronic/wprism-agent` package exists; the VCS-repository approach is standard composer practice in the abstract but untested for this specific repo/agent. The vendored-wholesale fallback is lower-risk and may be the pragmatic v0 answer even though it's the less elegant one.
+8. **The agent's own composer-package distribution (§1.7) is a recommendation, not a verified-working mechanism.** No `samrat-shamim/wprism-agent` package exists; the VCS-repository approach is standard composer practice in the abstract but untested for this specific repo/agent. The vendored-wholesale fallback is lower-risk and may be the pragmatic v0 answer even though it's the less elegant one.
 
 9. **Consistent with existing non-goals, not a gap**: `active_sitewide_plugins` (network/multisite-wide activation, a *different* option from `active_plugins`) is out of scope, matching DESIGN.md §5's existing "Multisite (v1)" exclusion. Noted here only so it isn't mistaken for an oversight.
 

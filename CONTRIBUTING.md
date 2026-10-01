@@ -12,9 +12,9 @@ decides changes.
 ## Find a starting point
 
 - Ask usage questions and share examples in
-  [Discussions](https://github.com/duotronic-ai/wprism/discussions).
+  [Discussions](https://github.com/samrat-shamim/wprism/discussions).
 - Report reproducible bugs or propose work in
-  [Issues](https://github.com/duotronic-ai/wprism/issues).
+  [Issues](https://github.com/samrat-shamim/wprism/issues).
 - Small fixes can start as pull requests. Discuss substantial architecture,
   public-contract, or adapter-scope changes in an issue first.
 - For plugin work, start with [your first adapter contribution](docs/guides/adapter-authoring.md).
@@ -34,7 +34,7 @@ commit ancestry.
 ```sh
 git clone https://github.com/YOUR-NAME/wprism.git
 cd wprism
-git remote add upstream https://github.com/duotronic-ai/wprism.git
+git remote add upstream https://github.com/samrat-shamim/wprism.git
 git fetch upstream
 git switch -c fix/describe-the-change upstream/main
 ```

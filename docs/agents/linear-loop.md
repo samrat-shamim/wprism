@@ -7,7 +7,7 @@ dispatch prompt conflicts with this file, prompt parameters win; this
 procedure still wins over improvisation.
 
 Shipping model: branch per issue → PR → squash-merge → verified close gate,
-against `github.com/duotronic-ai/wprism` (squash-only merges; branches
+against `github.com/samrat-shamim/wprism` (squash-only merges; branches
 auto-delete on merge).
 
 **One checkout per actor, no exceptions:** every agent and session operates in
@@ -59,7 +59,7 @@ Ask before claiming if a required parameter is genuinely ambiguous.
 Once per host, before the first claim:
 
 ```
-git clone https://github.com/duotronic-ai/wprism wprism-<AGENT_NAME> && cd wprism-<AGENT_NAME>
+git clone https://github.com/samrat-shamim/wprism wprism-<AGENT_NAME> && cd wprism-<AGENT_NAME>
 bash scripts/agent-bootstrap.sh
 ```
 

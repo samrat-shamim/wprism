@@ -1,6 +1,6 @@
 # Adapter rollout: remaining work after the checkpoint merges
 
-PR [#583](https://github.com/duotronic-ai/wprism/pull/583) was merged at the
+PR [#583](https://github.com/samrat-shamim/wprism/pull/583) was merged at the
 owner's request as an interim checkpoint, not as completion of the adapter
 rollout. Its squash commit is `4f1cb6765040864da6f5fb0798f0bdfee27b819c`.
 This work plan carries the unfinished criteria into the follow-up; it is not
@@ -8,13 +8,13 @@ a capability declaration, disposition, generated inventory, or evidence of a
 passing run.
 
 The owner requested another interim merge on 2026-09-07. PR
-[#586](https://github.com/duotronic-ai/wprism/pull/586) merged as
+[#586](https://github.com/samrat-shamim/wprism/pull/586) merged as
 `99edadfd23718d4a170991c646cabdfdbb49e86f`, with its committed tree identical to
 the locally gated `15dae689409dcc8cd9c46b31fc823038f49983e8` checkpoint.
 The merge was verified against freshly fetched main. This continuation starts
 from that squash; uncommitted follow-up work was not part of the merge.
 
-PR [#587](https://github.com/duotronic-ai/wprism/pull/587) subsequently merged
+PR [#587](https://github.com/samrat-shamim/wprism/pull/587) subsequently merged
 as `d6dee0ebc9f8e6c7f83e2f65314a47518ad613a8`, with its squash tree identical
 to reviewed and locally gated `c3c2dc516bc9aca57af090d413c412dadcb8a17e`.
 Luna/Terra reviews covered the parent delta. Luna's cross-manifest body-owner
@@ -25,7 +25,7 @@ publication-privacy and native-settings fixes, rebased without patch changes
 onto that main commit. Their historical evidence remains bound to the original
 candidate hashes below.
 
-PR [#588](https://github.com/duotronic-ai/wprism/pull/588) merged as
+PR [#588](https://github.com/samrat-shamim/wprism/pull/588) merged as
 `7f43752c69d8e8923293f7f864c7ece68719cdc9`, tree-identical to reviewed
 `bf4d06b8c1187b25eb94c503add4431d318acda2`. Its final gates passed 363 shared
 offline suites, 18 packages/69 package tests, 8 scenario gates/4 scenarios,

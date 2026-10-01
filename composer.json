@@ -1,5 +1,5 @@
 {
-    "name": "duotronic/wprism-dev",
+    "name": "samrat-shamim/wprism-dev",
     "description": "Developer-only toolchain for the WPrism WordPress drop-in. Never shipped: adoption assembles the source adapter packages inside a staged agent and archives exactly that agent plus recovery.",
     "type": "project",
     "license": "GPL-2.0-or-later",
