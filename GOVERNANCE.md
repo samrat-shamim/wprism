@@ -1,7 +1,7 @@
 # Governance
 
 WPrism is a founder-led open-source project maintained by
-[Duotronic](https://github.com/duotronic-ai). The repository's maintainers make
+[Samrat Shamim](https://github.com/samrat-shamim). The repository's maintainers make
 release and merge decisions and are accountable for the supported boundaries
 those releases advertise.
 

@@ -13,7 +13,7 @@ Compose is needed for the demo and live evidence; the offline gate does not
 need a running Docker daemon. `gh` is useful for hosted repository work.
 
 ```sh
-git clone https://github.com/duotronic-ai/wprism
+git clone https://github.com/samrat-shamim/wprism
 cd wprism
 composer install
 bash tools/doctor.sh

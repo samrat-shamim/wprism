@@ -154,7 +154,7 @@ if ! have git; then
     git_ok=0
 elif ! git rev-parse --git-dir >/dev/null 2>&1; then
     fail "$REPO_ROOT is not a Git working tree"
-    remedy "git clone https://github.com/duotronic-ai/wprism && bash wprism/tools/doctor.sh"
+    remedy "git clone https://github.com/samrat-shamim/wprism && bash wprism/tools/doctor.sh"
     git_ok=0
 fi
 

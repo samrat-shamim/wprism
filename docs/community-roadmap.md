@@ -42,8 +42,8 @@ permission.
 
 ## Help shape the work
 
-Use [Discussions](https://github.com/duotronic-ai/wprism/discussions) to describe
-a workflow or offer a pilot. Use [Issues](https://github.com/duotronic-ai/wprism/issues)
+Use [Discussions](https://github.com/samrat-shamim/wprism/discussions) to describe
+a workflow or offer a pilot. Use [Issues](https://github.com/samrat-shamim/wprism/issues)
 for a reproducible defect or a specific proposed improvement.
 
 Adapter demand is prioritized by observed user workflows and maintainable

@@ -12,7 +12,7 @@ network access to download pinned images and can take longer than later runs.
 Docker supplies WordPress and its database; Composer is not required.
 
 ```sh
-git clone https://github.com/duotronic-ai/wprism
+git clone https://github.com/samrat-shamim/wprism
 cd wprism
 cli/wprism --help
 cli/wprism demo start
