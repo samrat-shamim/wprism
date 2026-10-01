@@ -372,7 +372,15 @@ wprism_check(!$findGrade($report), 'and no `grade` member appears anywhere in th
 // orchestrator, the recovery runtime or the adapter library that could have
 // changed it (AGENTS.md rule 2 — package payload bytes are adapter identity).
 $shippedMentions = [];
-foreach (['agent', 'cli', 'recovery', 'adapter-packages', 'platform'] as $tree) {
+$shippedTrees = ['agent', 'cli', 'recovery', 'platform/adapter-library'];
+// Capsules ship only package/: Qi's evidence/authoring-progress.json legitimately
+// cites adapter-grade.php without putting the grade model on a managed site.
+foreach ($adapterLibrary->packages() as $package) {
+    if ($package->name() !== 'core') {
+        $shippedTrees[] = str_replace($wprismRoot . '/', '', $package->root());
+    }
+}
+foreach ($shippedTrees as $tree) {
     $walk = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($wprismRoot . '/' . $tree, FilesystemIterator::SKIP_DOTS));
     foreach ($walk as $file) {
         if (!$file->isFile()) {

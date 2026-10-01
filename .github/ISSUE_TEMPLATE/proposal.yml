@@ -1,0 +1,27 @@
+name: Improvement or adapter proposal
+description: Propose a concrete user workflow or a bounded improvement.
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: User need
+      description: Who needs this, and which task is difficult today?
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Proposed scope
+      description: For adapters, name the exact plugin versions, authored surfaces, operations, protected runtime state, and explicit unsupported boundaries.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Examples and evidence
+      description: Synthetic examples, existing behavior, and a proposed way to verify the outcome. Do not upload customer data.
+  - type: textarea
+    id: contribution
+    attributes:
+      label: How you would like to participate
+      description: Reproduction, documentation, testing, implementation, or pilot evaluation are all useful.

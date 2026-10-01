@@ -7,6 +7,7 @@ require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../Onboarding/Adopt.php';
 require_once __DIR__ . '/../Contract/ContractProposal.php';
 require_once __DIR__ . '/../Contract/ContractStore.php';
+require_once __DIR__ . '/../Contract/ProjectionVocabulary.php';
 require_once __DIR__ . '/HostProcess.php';
 
 /** Source-checkout, disposable two-site journey over the real WPrism commands. */
@@ -432,7 +433,8 @@ final class DemoCommand {
         echo "  Repo:   {$session['source_repo']}\n\n";
         $edit = $options['scenario'] === 'woocommerce' ? "'WPrism Demo Mug' product" : "'WPrism Demo Page' page";
         if ($options['scenario'] === 'core') {
-            echo "Whole-site release assessment: READY (bounded machine view verified).\n";
+            echo "Page release assessment: READY; core runtime options and comment tables stay local.\n";
+            echo "The whole-site assessment retains its Unsupported runtime rows; they are excluded from this page-only journey.\n";
             echo "The generated contract still names an optional code-lifecycle window this page-only journey will not enter.\n";
             echo "Review boundary: accept only the generated page surface; no code, deletion, or unknown effect is accepted.\n";
             echo "Continue with the explicit operator action:\n";
@@ -928,12 +930,15 @@ final class DemoCommand {
         }
         for ($index = count($lines) - 1; $index >= 0; $index--) {
             $line = trim($lines[$index]);
-            if ($line === '') {
+            if (!str_starts_with($line, '{')) {
                 continue;
             }
-            $document = json_decode($line, true);
+            // ReleaseCommand appends AuthorizationPlan::encode() after its
+            // human preview. Those canonical bytes span multiple lines; parse
+            // a complete suffix so trailing diagnostics still refuse.
+            $document = json_decode(implode("\n", array_slice($lines, $index)), true);
             if (!is_array($document)) {
-                break;
+                continue;
             }
 
             return $document;
@@ -1423,8 +1428,12 @@ SH;
         $names = $inventory['names'];
         $profileNames = array_keys(self::coreOptionProfile());
         $missing = array_values(array_diff($profileNames, $names));
+        // WordPress 7.1 creates recently_activated lazily in the Plugins screen
+        // (wp-admin/includes/class-wp-plugins-list-table.php:193-207), not at
+        // install. Its runtime declaration does not require a fresh-site row.
+        $missingExact = array_values(array_diff($inventory['missing_exact'], ['recently_activated']));
         if (count($names) !== self::CORE_OPTION_TOTAL || count(array_unique($names)) !== count($names)
-            || $missing !== [] || $inventory['missing_exact'] !== [] || $inventory['missing_sidebar'] !== []
+            || $missing !== [] || $missingExact !== [] || $inventory['missing_sidebar'] !== []
             || $inventory['missing_dynamic'] !== [] || $inventory['unseen'] !== []) {
             throw new \RuntimeException(
                 'the WordPress 7.1 option inventory moved: total=' . count($names)
@@ -1608,13 +1617,13 @@ SH;
         }
     }
 
-    /** @return array<string,mixed> the bounded, ready view summary */
+    /** @return array<string,mixed> the complete view summary, retaining its runtime boundaries */
     private static function assertCoreAssessment(array $session, string $sourceRoot): array {
         $result = self::runWPrism(
             $session,
             $sourceRoot,
             (string) $session['source_repo'],
-            ['assess', 'demo-target', '--operation=release', '--limit=10', '--format=json'],
+            ['assess', 'demo-target', '--operation=release', '--limit=20', '--format=json'],
             false,
             false
         );
@@ -1622,19 +1631,69 @@ SH;
         $summary = is_array($report['summary'] ?? null) ? $report['summary'] : [];
         $page = is_array($report['page'] ?? null) ? $report['page'] : [];
         $rows = is_array($report['rows'] ?? null) ? $report['rows'] : null;
-        if ($result['exit'] !== 0
+        // ProjectionVocabulary deliberately marks preserve-local runtime as
+        // Unsupported for release. Core's runtime option group and two comment
+        // tables must retain that boundary, not be relabelled whole-site Ready.
+        // Read the complete bounded view so an unshown blocker cannot hide.
+        $expectedLocal = ['option_group:core:runtime', 'table:commentmeta', 'table:comments'];
+        $preserved = [];
+        $seen = [];
+        $pageReady = false;
+        $surfacesValid = $rows !== null && array_is_list($rows);
+        foreach ($rows ?? [] as $row) {
+            $surface = is_array($row) && is_array($row['surface'] ?? null) ? $row['surface'] : [];
+            $id = $surface['id'] ?? null;
+            $release = $surface['operations']['release'] ?? null;
+            if (($row['kind'] ?? null) !== 'surface' || !is_string($id) || isset($seen[$id])
+                || !is_array($release) || array_keys($surface['operations']) !== ['release']) {
+                $surfacesValid = false;
+                break;
+            }
+            $seen[$id] = true;
+            if (in_array($id, $expectedLocal, true)) {
+                if (($release['readiness'] ?? null) !== 'Unsupported'
+                    || ($release['state_class'] ?? null) !== 'runtime'
+                    || ($release['handling'] ?? null) !== 'preserve local'
+                    || ($release['certification_provenance'] ?? null) !== 'Platform-certified'
+                    || ($release['effect_containment'] ?? null) !== 'prevented'
+                    || ($release['blockers'] ?? null) !== [] || ($release['conditions'] ?? null) !== []
+                    || ($release['annotations'] ?? null) !== [ProjectionVocabulary::ANNOTATION_PRESERVE_LOCAL_UNSUPPORTED]) {
+                    $surfacesValid = false;
+                    break;
+                }
+                $preserved[] = $id;
+            } elseif (!in_array($release['readiness'] ?? null, ['Ready', 'Ready with conditions'], true)) {
+                $surfacesValid = false;
+                break;
+            }
+            if ($id === 'post_type:page') {
+                $pageReady = ($release['readiness'] ?? null) === 'Ready'
+                    && ($release['state_class'] ?? null) === 'authored'
+                    && ($release['handling'] ?? null) === 'manage'
+                    && ($release['effect_containment'] ?? null) === 'prevented'
+                    && ($release['blockers'] ?? null) === [] && ($release['conditions'] ?? null) === [];
+            }
+        }
+        sort($preserved, SORT_STRING);
+        if ($result['exit'] !== 3
             || !is_array($report)
             || ($report['format'] ?? null) !== 'wprism-assess-view/v1'
-            || ($summary['readiness'] ?? null) !== 'ready'
+            || ($summary['readiness'] ?? null) !== 'blocked'
             || ($summary['counts']['invisible_option_names'] ?? null) !== 0
             || ($summary['counts']['pending_classifications'] ?? null) !== 0
             || ($summary['counts']['undeclared_tables'] ?? null) !== 0
+            || ($summary['counts']['unknown_names'] ?? null) !== 0
             || ($summary['dispositions']['agree'] ?? null) !== true
             || !is_int($page['shown'] ?? null)
             || $page['shown'] < 0
-            || $page['shown'] > 10
+            || $page['shown'] > 20
+            || ($page['offset'] ?? null) !== 0 || ($page['remaining'] ?? null) !== 0
+            || ($page['has_more'] ?? null) !== false || ($page['next_cursor'] ?? null) !== null
             || $rows === null
-            || count($rows) !== $page['shown']) {
+            || count($rows) !== $page['shown']
+            || ($summary['counts']['rows'] ?? null) !== $page['shown']
+            || ($summary['counts']['surfaces'] ?? null) !== $page['shown']
+            || !$surfacesValid || !$pageReady || $preserved !== $expectedLocal) {
             $detail = json_encode([
                 'exit' => $result['exit'],
                 'format' => $report['format'] ?? null,

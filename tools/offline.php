@@ -67,9 +67,9 @@ require_once __DIR__ . '/src/OfflineScenarioDelegation.php';
  * CONSTRAINTS THIS FILE RESPECTS
  * ------------------------------
  * - Plain PHP, no composer runtime dependencies; must run on PHP 8.3+.
- * - Touches nothing under agent/, cli/, sandbox/bin/, sandbox/tests/ or the
- *   Makefile: a byte change in any of those expires 9 certifications. All
- *   scratch state lives under sandbox/tmp/ (gitignored).
+ * - Changes no source inputs. Runner reports live under sandbox/tmp/
+ *   (gitignored); worker TMPDIRs are isolated outside the checkout because
+ *   repository topology checks reject nested scratch site repositories.
  * - Requirable without side effects, so tests/Tooling/OfflineRunnerTest.php can
  *   unit-test the parser/classifier halves (same `SCRIPT_FILENAME` guard idiom
  *   as recovery/rollback-control.php).
@@ -917,7 +917,7 @@ diagnostic that sandbox/tests/offline_diagnostics_guard.sh would reject.
                         exits 0; an empty --filter stays exit 2)
   --changed-paths=a,b   classify these paths instead of reading a Git diff;
                         implies --changed and is useful for reproducible scope checks
-  --extras              also run check_guide_commands.sh and, if installed,
+  --extras              also run tools/check-guide-commands.sh and, if installed,
                         vendor/bin/phpunit as extra pseudo-suites
   --slowest[=N]         print the N slowest suites (default 20)
   --verbose             print full logs of failures (not just the tail)
@@ -1220,15 +1220,15 @@ TXT;
             return [];
         }
         $extras = [];
-        $guide = $this->repoRoot . '/sandbox/tests/spike/check_guide_commands.sh';
+        $guide = $this->repoRoot . '/tools/check-guide-commands.sh';
         if (is_file($guide)) {
             $extras[] = [
                 'target' => 'extras-check-guide-commands',
-                'argv' => ['bash', 'sandbox/tests/spike/check_guide_commands.sh'],
+                'argv' => ['bash', 'tools/check-guide-commands.sh'],
                 'serial' => false,
             ];
         } else {
-            fwrite(STDERR, "tools/offline.php: NOTICE --extras: sandbox/tests/spike/check_guide_commands.sh missing, skipped\n");
+            fwrite(STDERR, "tools/offline.php: NOTICE --extras: tools/check-guide-commands.sh missing, skipped\n");
         }
         if (is_file($this->repoRoot . '/vendor/bin/phpunit')) {
             $extras[] = [

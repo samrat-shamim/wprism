@@ -717,5 +717,5 @@ action. Read that sentence before reaching for a flag.
 - [assess.md](assess.md) — where every pre-freeze gap action gets fixed.
 - [capabilities-and-limits.md](capabilities-and-limits.md#refusal-to-remedy) —
   the bucket-by-bucket refusal table `wprism status` reports against.
-- [cli/README.md](../../cli/README.md) — flag-by-flag reference for every verb
+- [CLI help and references](../../cli/README.md) — built-in syntax help and detailed command contracts
   named here.

@@ -669,6 +669,48 @@ final class OfflineRunnerTest extends TestCase
 
     // ---------------------------------------------------------- CLI contract
 
+    public function testOptionalDocumentationCheckUsesTheToolingEntryPoint(): void
+    {
+        $root = self::scratchRoot();
+        $tmp = getenv('TMPDIR');
+        $systemTmp = is_string($tmp) && $tmp !== '' ? rtrim($tmp, '/') : sys_get_temp_dir();
+        try {
+            mkdir($root . '/tools');
+            file_put_contents($root . '/Makefile', "regress-offline-corpus: fixture\nfixture:\n\t@echo fixture-ok\n");
+            file_put_contents($root . '/tools/check-guide-commands.sh', "#!/usr/bin/env bash\nprintf 'broken-doc-citation\\n'\nexit 1\n");
+            $process = proc_open(
+                [
+                    PHP_BINARY,
+                    '-r',
+                    'ob_start(); require $argv[1]; ob_end_clean(); '
+                        . '$runner = new WPrism\\Tooling\\OfflineRunnerCli($argv[2]); '
+                        . 'exit($runner->run(["offline.php", "--extras", "--json", "--no-tmpdir-isolation"]));',
+                    self::repoRoot() . '/tools/offline.php',
+                    $root,
+                ],
+                [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $pipes,
+                $root
+            );
+            self::assertIsResource($process);
+            $stdout = (string) stream_get_contents($pipes[1]);
+            $stderr = (string) stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+
+            self::assertSame(1, proc_close($process), $stdout . $stderr);
+            self::assertStringContainsString('extras-check-guide-commands', $stdout);
+            self::assertStringContainsString(
+                'broken-doc-citation',
+                (string) file_get_contents($root . '/sandbox/tmp/offline-runner/logs/extras-check-guide-commands.log')
+            );
+            self::assertStringNotContainsString('check-guide-commands.sh missing, skipped', $stderr);
+        } finally {
+            self::removeScratchRoot($root);
+            self::removeScratchRoot($systemTmp . '/wprism-offline-runner-' . substr(sha1($root), 0, 12));
+        }
+    }
+
     public function testListEmitsExactlyTheOfflineCorpusLeaves(): void
     {
         $result = self::invoke(['--list']);

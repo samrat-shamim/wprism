@@ -929,7 +929,7 @@ rather than working around it.
   installs into the site source as `adapters/<name>.json` plus a signed
   `adapters/certifications/<name>.json`, and that path is shipped today —
   see "Which adapters are installed, and what may they do?" above, plus
-  [adapter-authoring.md](adapter-authoring.md#declaring-repair-work-actions-and-providers).
+  [adapter actions and providers](../reference/adapter-actions.md#declaring-repair-work-actions-and-providers).
   What is absent is the step BEFORE installation: finding out that such a
   package exists.
 - Scoped promotion and synchronization with dependency closure — **Partially shipped (issue #3344)**.

@@ -86,6 +86,6 @@ command in the table above is either driven by a host verb or listed here.
 - [recovery.md](recovery.md) — the supported recovery path.
 - [release.md](release.md) — what `wprism release` freezes, drives and verifies.
 - [adapter-authoring.md](adapter-authoring.md) — the supported authoring path.
-- [cli/README.md](../../cli/README.md) — every host verb and flag.
+- [CLI help and references](../../cli/README.md) — built-in help for host verbs and flags.
 - [docs/recovery-runtime.md](../recovery-runtime.md) — the runtime contract
   itself, for the people who maintain it.

@@ -1,0 +1,42 @@
+name: Bug report
+description: Report a reproducible defect with sanitized evidence.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For vulnerabilities, use SECURITY.md and private reporting. Remove credentials, customer records, and identifying site information from all evidence.
+  - type: input
+    id: revision
+    attributes:
+      label: WPrism revision
+      description: Exact commit SHA or release tag.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment and intended operation
+      description: OS, PHP, WordPress, database, relevant plugin versions, transport, and what you wanted to do.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Commands and synthetic fixtures needed to reproduce the issue. State whether it occurs in the disposable demo.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed result and refusal code
+      description: Include the exit status and relevant sanitized output.
+    validations:
+      required: true

@@ -2041,6 +2041,18 @@ file_put_contents(
     json_encode($inventoryWitness, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
 );
 $assertCoreOptionInventory->invoke(null, $inventorySession, $inventoryRoot);
+$freshInventory = $inventoryWitness;
+$freshInventory['missing_exact'] = ['recently_activated'];
+file_put_contents(
+    $inventoryFixture,
+    json_encode($freshInventory, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
+);
+try {
+    $assertCoreOptionInventory->invoke(null, $inventorySession, $inventoryRoot);
+    wprism_check(true, 'fresh core demo accepts the native absence of the plugin-admin runtime option');
+} catch (RuntimeException $error) {
+    wprism_check(false, 'fresh core demo accepts the native absence of the plugin-admin runtime option: ' . $error->getMessage());
+}
 $inventoryProbe = (string) file_get_contents($inventoryCommand);
 wprism_check(
     str_contains($inventoryProbe, 'Policy::load("/siterepo")')
@@ -2064,8 +2076,8 @@ try {
         'an unexpected live option refuses before the demo can claim exact WordPress 7.1 coverage'
     );
 }
-$missingInventory = $inventoryWitness;
-$missingInventory['missing_exact'] = ['blogname'];
+$missingInventory = $freshInventory;
+$missingInventory['missing_exact'] = ['blogname', 'recently_activated'];
 file_put_contents(
     $inventoryFixture,
     json_encode($missingInventory, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
@@ -2165,20 +2177,8 @@ try {
         'exit 3 and its invisible option gap stop demo setup instead of being relabeled ready'
     );
 }
-$assessmentView['summary']['readiness'] = 'ready';
-$assessmentView['summary']['counts']['invisible_option_names'] = 0;
-$assessmentBytes = json_encode($assessmentView, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-file_put_contents(
-    $assessmentRoot . '/cli/wprism',
-    "#!/bin/sh\nprintf '%s\\n' " . escapeshellarg($assessmentBytes) . "\nexit 0\n"
-);
-$assessmentSummary = $assertCoreAssessment->invoke(null, ['source_repo' => $assessmentRepo], $assessmentRoot);
-wprism_check_same('ready', $assessmentSummary['readiness'] ?? null, 'demo accepts only the exit-0 ready assessment');
-wprism_check_same(
-    0,
-    $assessmentSummary['counts']['invisible_option_names'] ?? null,
-    'the accepted demo assessment carries no invisible option gap'
-);
+// Complete native preserve-local boundaries and hostile variants are exercised
+// through the same product method in regress_demo_assessment.php.
 
 $reviewRoot = $tmp . '/demo-contract-review';
 foreach ([
@@ -3424,7 +3424,7 @@ $document = [
     ],
 ];
 echo "authorization preview fixture\n";
-echo json_encode($document, JSON_UNESCAPED_SLASHES) . "\n";
+echo json_encode($document, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) . "\n";
 PHP;
 file_put_contents($planRoot . '/cli/wprism', $planCli);
 chmod($planRoot . '/cli/wprism', 0700);
@@ -3614,12 +3614,12 @@ wprism_check(
 );
 wprism_check(
     str_contains($demoSource, "'scenario' => 'core'")
-        && str_contains($demoSource, "['assess', 'demo-target', '--operation=release', '--limit=10', '--format=json']")
+        && str_contains($demoSource, "['assess', 'demo-target', '--operation=release', '--limit=20', '--format=json']")
         && str_contains($demoSource, "'wprism-assess-view/v1'")
         && str_contains($demoSource, "'review_required'")
         && str_contains($demoSource, "self::demoCli(\$sourceRoot), 'release', 'demo-target', '--from=' . \$revision")
-        && str_contains($demoSource, 'Whole-site release assessment: READY'),
-    'default demo requires a ready bounded assessment, explicit review, and exact release authorization preview'
+        && str_contains($demoSource, 'Page release assessment: READY'),
+    'default demo requires a complete page-qualified assessment, explicit review, and exact release authorization preview'
 );
 wprism_check(
     str_contains(

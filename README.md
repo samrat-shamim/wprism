@@ -1,41 +1,53 @@
-# WPrism — Branchable WordPress
+# WPrism
 
-Adapter capability claims live with their owners: each
-`adapter-packages/<slug>/package/manifest.json` declares a surface and its
-sibling `package/disposition.json` records the reviewed status and reason.
-Package-local evidence names the exercised boundary. Render the exact aggregate
-for the current checkout without creating a central adapter edit point:
+WPrism is an open-source tool for reviewing and publishing selected WordPress
+content and settings from a test site to a live site.
+
+Working on a test copy of a site, often called **staging**, gives you room to
+prepare changes before visitors see them. Meanwhile, the live site keeps
+receiving orders, comments, and other activity. Copying the whole database from
+staging can overwrite that newer activity. WPrism separates the content and
+settings you want to publish from the data that belongs to the live site.
+
+For example, an agency updating a client's homepage can:
+
+1. Edit the page on staging using the usual WordPress editor.
+2. Review the captured changes with the team before publishing.
+3. Apply the approved page change to the live site, keeping live orders and
+   comments in place.
+
+WPrism is built first for **WordPress agencies and developers** managing sites
+with staging environments. It currently uses a command-line tool and Git to
+store changes as reviewable files with a shared version history. Site owners
+and editors can keep working in WordPress while their developers handle that
+workflow.
+
+Support depends on the site's plugins, versions, and the changes being made.
+WPrism checks the agreed scope and blocks unsupported operations;
+[capabilities and limits](docs/guides/capabilities-and-limits.md) explains those
+boundaries.
+
+**Status: pre-1.0 alpha.** Start with the disposable demo. Outside production
+adoption is still being validated; a passing demo or a reviewed adapter does
+not qualify an entire site. Read [site eligibility](docs/guides/site-eligibility.md)
+before connecting a real host.
+
+## Try it
+
+Use a full source clone with PHP 8.3, Docker with Compose, Git, and `jq`.
+Composer is needed only to develop WPrism. The first run downloads the pinned
+container images.
 
 ```sh
-php tools/capability-doc.php render
-php tools/adapter-grade.php render
-```
-
-`make release-gate` validates the same complete source set and its cross-checks.
-The stable explanation is [docs/capabilities.md](docs/capabilities.md); plugins
-always run unmodified.
-
-WPrism makes the reviewed, certified authored surfaces of a WordPress site **branchable like code** — branch, edit, merge, promote — without modifying plugin or theme source. Authored content and configuration live canonically in a git repository; runtime data (orders, comments, sessions, caches) stays environment-local and untouched. Anything WPrism cannot classify or certify is refused loudly, never guessed — a surface no manifest declares and no reviewer dispositioned is unsupported.
-
-**Status:** the correctness core is complete (H1 exit, 2026-08-08 — no known path by which authored data silently fails to propagate), and the running horizon is adoption on real hosts: a real SSH adoption run, certified crash-rollback machinery, and automatic verified-rollback promotion are in; a first third-party production site is next. Direction and the honest boundary live in [docs/roadmap.md](docs/roadmap.md).
-
-## How it works
-
-WordPress state is classified along three axes — *who authors it*, *env-portability*, *source-vs-derived*. The branchable partition (`human-authored ∧ portable ∧ source`) is represented as entity-per-file canonical text (posts are canonical-JSON front matter over a raw Gutenberg body) keyed by UUIDs, with environment-bound values tokenized (`{{home}}`, `{{uploads}}`, `{{post:<uuid>}}`, `{{term:<uuid>}}`, `{{tt:<uuid>}}`, `user:<login>`), so git provides history, branching, and three-way merge. A per-environment ledger maps UUIDs to local auto-increment ids across typed keyspaces; apply is a terraform-style plan → two-phase hook-free write → derived-state rebuild pass, so applying never re-fires emails or webhooks and never leaves declared derived state stale. Classification comes from exact core rules, version-pinned plugin manifests, site policy, and a provenance journal that only ever *proposes* — everything unknown is **loudly blocked, never silently guessed**.
-
-- **Normative contract:** [spec/repo-format.md](spec/repo-format.md) — entity file formats, identity, tokens, ledger, apply semantics.
-- **Design rationale:** [DESIGN.md](DESIGN.md) — the first-principles state partition and the adversarial review that hardened it.
-
-## Getting started
-
-From a source checkout, the shortest honest evaluation is a disposable
-WordPress-core pair. It requires PHP 8+, Docker with Compose, Git, and `jq`;
-no extension installation is performed:
-
-```sh
+git clone https://github.com/duotronic-ai/wprism
+cd wprism
 cli/wprism demo start
 cli/wprism demo review --accept-page-only
-# edit “WPrism Demo Page” at the printed source wp-admin URL
+```
+
+Open the printed **source** wp-admin URL and edit **WPrism Demo Page**. Then:
+
+```sh
 cli/wprism demo capture
 git -C sandbox/siterepo/wprismdemo1 diff
 cli/wprism demo apply
@@ -43,141 +55,97 @@ cli/wprism demo refusal
 cli/wprism demo stop
 ```
 
-The command verifies the exact digest-pinned WordPress 7.1 image, publishes only
-after the managed core capability set qualifies and the bounded whole-site
-release assessment is ready, then stops for explicit page-only contract review.
-That review accepts and commits only the real contract/projection artifacts; a
-red assessment blocks the journey. Before its lower-level evaluation apply,
-`apply` runs the real read-only release authorization preview for the exact Git
-revision and accepted contract. It then proves both that the target page equals
-the captured artifact and that a target-only comment survived;
-`refusal` proves a caller cannot replace the registry's trusted target binding.
-Production execution still requires stage-source, release prepare, signed
-authorization, and release execute.
-Use `--scenario=woocommerce` for the advanced product/order adapter journey. For a
-real site, `wprism connect` creates the local repository/registry only after
-native reachability, WordPress and topology inspection probes, and `wprism
-onboard` composes adopt → assess → init without a handwritten seed:
+The demo checks that the target page matches the captured change and that a
+target-only comment survives. It also checks that an attempt to substitute an
+untrusted target binding is refused. `stop` removes the disposable sites and
+repositories.
 
-```sh
-WPRISM_CLI="$PWD/cli/wprism"
-"$WPRISM_CLI" connect production --workspace=../my-site \
-  --transport=ssh --host=deploy@wp.example.com \
-  --wp-path=/var/www/html --repo-path=/home/deploy/site-repo \
-  --format=json > ../connection-receipt.json
-cd ../my-site
-"$WPRISM_CLI" onboard production --yes \
-  --git-url=git@github.com:you/my-site.git \
-  --format=json > ../onboarding-handoff.json
-```
+Setup stops for explicit review of the page-only contract. The demo runs the
+real release authorization preview followed by a bounded evaluation apply.
+Production release additionally requires source staging, preparation, signed
+authorization, and execution. The
+[step-by-step demo](docs/guides/try-wprism.md) explains expected results,
+cleanup, and troubleshooting.
 
-The Git remote must be empty and reachable with configured credentials from
-both this controller and the WordPress target. WPrism verifies that before
-adoption or initialization changes the site. If the onboarding response is
-lost, `wprism onboard production status --git-url=<same-url> --format=json`
-reconciles the canonical target/repository/environment handoff without
-repeating mutation.
+## Choose your next step
 
-The [quickstart](docs/guides/quickstart.md) explains both paths. Continue with
-[assess](docs/guides/assess.md) → [daily-workflow](docs/guides/daily-workflow.md)
-→ [release](docs/guides/release.md) →
-[capabilities-and-limits](docs/guides/capabilities-and-limits.md), and read
-[recovery](docs/guides/recovery.md) before the first production release.
-
-## The `wprism` CLI
-
-Host-agnostic, dependency-free PHP orchestration ([cli/](cli/); full reference in [cli/README.md](cli/README.md)) over **local**, **Docker**, and **SSH** transports, driven from a committable environment registry.
-
-- **Environment-bound:** `onboard`, `adopt`, `init`, `assess`, `contract`, `status`, `doctor`, `capture`, `plan`, `apply`, `deploy`, `preview`/`rehearse`, `release`, `verify`, `recover`, `promote`, `pending`, `classify`, `capabilities`, `explain`, `coverage`, `scope`, `env-set`, `refresh`, `rebase`, `adapter-observe`, `driver-capabilities`.
-- **Repo-local (no environment):** `connect`, `demo`, `envs`, `env materialize|reap`, `manifest-validate`, `adapter-draft`, `adapter`.
-
-`wprism capabilities` reports the same reviewed disposition, exact scope, and explicit unsupported surfaces that readiness and promotion consume, evaluated against the live target (`wprism-capability-report/v1`). `wprism promote` composes deploy-before-apply under promotion locks and, when the target proves every rollback capability, automatically selects the **verified-rollback profile** (issue #3310); otherwise it remains operator-directed with an explicit warning.
-
-The composed customer loop sits on top of those: `wprism assess` is a read-only, decision-first projection of every WordPress surface into the product's own vocabulary, and `wprism contract` records the reviewed result as a per-site application contract. `wprism rehearse` materializes a disposable preview and states plainly that it is a preview and not a sandbox. `wprism release` freezes and prints an authorization plan — scope, conditions, what may change, the literal recovery claim, effects, remaining authority — before any mutation, then composes `wprism promote` unchanged and runs `wprism verify` (convergence plus contract-declared journey oracles) behind it. `wprism recover` is the operator verb over the recovery runtime, printing the same restores/does-not-restore claim the plan carried and enforcing writer exclusion and code-first ordering.
-
-The core loop for unclassified writes: loud block → `wprism pending <env>` (journal-evidenced proposals, ref hints, secret flags) → `wprism classify <env>` triage (interactive or `--accept-proposals`; secrets can never be authored silently) → clean capture → `wp wprism policy-to-manifest` export. `wprism adapter-draft` turns captured state into inert `_draft` manifest candidates for human ratification.
-
-## Agent skill
-
-The portable [WPrism skill package](skills/wprism/) teaches a skill-capable
-agent to operate the public CLI and its versioned machine contracts. Install or
-load the complete directory through the agent harness's normal skill mechanism;
-the package is usable with a matching installed `wprism` executable and does
-not require this source checkout for its core workflows. It is guidance, not an
-authority source: it supplies no credentials, signatures, or permission to
-mutate a WordPress environment.
-
-## Reviewed and tested, not asserted
-
-Capability claims are derived, never duplicated by hand. A claim passes three gates in order: `adapter-packages/<slug>/package/manifest.json` **declares** the surface; its sibling `package/disposition.json`, kept outside the manifest document so no adapter can certify itself, records a human's **reviewed** status and reason; and the capsule's named conformance/live tests (or an explicit participant-declared [integration scenario](integration-scenarios/)) **exercise** it against a live WordPress pair. Core and shared compatibility live separately in [platform/adapter-library/](platform/adapter-library/). `tools/capability-doc.php render` projects the current source set to stdout, while `make release-gate` validates it without requiring an adapter edit outside its capsule. `wprism capabilities` answers the same question against a live target. Review can also *reduce* capability: working but unreviewable behavior is removed and refused, not shipped under-proven.
-
-What this deliberately is not: a claim is not sealed to a content-addressed evidence bundle, and no digest binds it to a particular run. The honest reading of a `certified` row is *declared, reviewed by a named human, and exercised by the named live suites* — nothing stronger.
-
-## Layout
-
-| Path | What |
+| I want to… | Start here |
 |---|---|
-| [spec/repo-format.md](spec/repo-format.md) | The normative site-repo contract: entity formats, tokens, ledger, apply semantics |
-| [DESIGN.md](DESIGN.md) | Founding design record: state partition, classification policy, identity model, GitOps semantics |
-| [docs/](docs/README.md) | Map of the documentation tree: guides, runtime references, module map, engineering history |
-| [docs/guides/](docs/guides/README.md) | Operator guides: quickstart, daily workflow, code updates, adapter authoring, coverage cohorts, limits |
-| [docs/adoption.md](docs/adoption.md) | Installing/updating WPrism on an existing SSH WordPress host |
-| [docs/roadmap.md](docs/roadmap.md) | Owner roadmap: thesis, horizons, standing decisions |
-| [agent/](agent/) | The WPrism agent — drop-in mu-plugin + `wp wprism …` engine commands |
-| [cli/](cli/) | The `wprism` orchestrator CLI + transports |
-| [skills/wprism/](skills/wprism/) | Portable agent skill for the public CLI and machine-contract workflows |
-| [adapter-packages/](adapter-packages/) | One capsule per plugin adapter: shipped package bytes plus package-local tests, fixtures, and evidence |
-| [platform/adapter-library/](platform/adapter-library/) | Core classification, profiles, platform compatibility, and adapter authority roots |
-| [integration-scenarios/](integration-scenarios/) | Explicitly participant-declared cross-adapter evidence |
-| [recovery/](recovery/) | WordPress-independent rollback runtime: checkpoints, code releases, upload and effect bundles |
-| [sandbox/](sandbox/) | Dockerized disposable environment pairs plus shared engine and integration test infrastructure |
+| Try a change on disposable sites | [Try WPrism](docs/guides/try-wprism.md) |
+| Find out whether my hosting and site qualify | [Site eligibility](docs/guides/site-eligibility.md) |
+| Connect and adopt an existing site | [Quickstart](docs/guides/quickstart.md) |
+| Work on an adopted site | [Daily workflow](docs/guides/daily-workflow.md), [release](docs/guides/release.md), [recovery](docs/guides/recovery.md) |
+| Report a bug or contribute | [Contributing](CONTRIBUTING.md) |
+| Add support for a plugin | [Your first adapter contribution](docs/guides/adapter-authoring.md) |
+| Use an AI agent to operate WPrism | [Portable WPrism skill](skills/wprism/) |
 
-## Development & verification
+`cli/wprism --help` shows the main workflows. Use `cli/wprism help release`
+for one command, or `cli/wprism help all` for the full reference.
 
-Requires Docker. Disposable WordPress environment pairs run against one shared MariaDB ([docs/sandbox.md](docs/sandbox.md)):
+## What is supported?
+
+Coverage depends on the exact WordPress, PHP, database, plugin versions,
+surface, operation, and host capabilities. Render the current reviewed
+library directly from its sources:
 
 ```sh
-make pair-up PAIR=<name>       # bring up an env pair
-make pair-list                 # list pairs
-make pair-reset PAIR=<name>    # wipe a pair back to baseline
-make pair-destroy PAIR=<name>  # tear it down
+php tools/capability-doc.php render
+php tools/adapter-grade.php render
 ```
 
-The acceptance suite that proved the engine's load-bearing claims runs as permanent regression:
+For an adopted site, use `wprism assess <env>`, `wprism doctor <env>`, and
+`wprism capabilities <env>`. Read
+[capabilities and limits](docs/guides/capabilities-and-limits.md) for the
+meaning of each result.
 
-```sh
-make setup            # boot the legacy two-env stack (A: :8801, B: :8802) and init the site repo
-make spike-a          # round-trip: capture → apply → re-capture, byte-identical, runtime untouched, canary clean
-make spike-b          # merge: divergent edits, real git conflict, drift preserved, converged environments
-make spike-c          # provenance: admin vs anonymous writes vs manifest ground truth
-make spike-d          # WooCommerce catalog round-trip + guarded product deletion
-make spike-e          # ACF interpreter round-trip
-make conformance-<m>  # per-manifest clean-room gate (core, woocommerce, acf, yoast, …)
-make cli-smoke        # wprism CLI end-to-end over the docker transport
-make cli-triage-smoke # interactive wprism classify triage end-to-end
-make release-gate     # regenerate-and-compare: the capability document and the classmaps must match their sources
-make down             # stop; `make clean` also deletes volumes
-```
+A `certified` adapter means its surface was declared, reviewed with a written
+reason, and exercised by its named tests. It does not mean independent
+certification, whole-site support, or evidence sealed to a particular run.
+[Capability semantics](docs/capabilities.md) describes that contract.
 
-Beyond these, the Makefile carries the full live and offline regression surface — the seven `certify-*` targets (the merge, version-skew-merge, adversarial, deletion and version matrices, plus `certify-ssh-rollback` and `certify-ssh-adoption-roundtrip`), `regress-*`, and the grind rounds (`grind-r1a` … `grind-r3b`, plus `grind-mup`, `grind-adapter-walk`, `grind-adoption`): realistic multi-plugin stacks round-tripped end-to-end. Each grind script is its own spec; [docs/grind/](docs/grind/) carries the written specification for the harnesses that have one.
+## How it works
 
-## Working an issue (agents)
+The WordPress drop-in separates authored, portable source state from runtime,
+derived, secret, and environment-bound state. It captures authored entities as
+canonical text files with stable identities. The CLI orchestrates review,
+capture, planning, application, and recovery over local, Docker, or SSH
+transports. A hook-free database write phase avoids replaying normal WordPress
+write hooks, followed by declared derived-state rebuilding. External effects
+and recovery limits are reviewed separately.
 
-Engineering work is tracked in Linear ("WPrism WP Branchability — Correctness Closure"). Agents dispatched with a `LINEAR-LOOP` prompt follow [docs/agents/linear-loop.md](docs/agents/linear-loop.md) — claim gate with Linear readback, branch-per-issue → PR → squash-merge, verified close gate ([scripts/close-gate-check.sh](scripts/close-gate-check.sh)). Fresh host setup is one command:
+| Source | Responsibility |
+|---|---|
+| `agent/` | WordPress drop-in and state engine |
+| `cli/` | Dependency-free host orchestrator |
+| `recovery/` | WordPress-independent recovery runtime |
+| `adapter-packages/` | Plugin adapters with their own tests, fixtures, and evidence |
+| `platform/adapter-library/` | Core policy, profiles, compatibility, and trust roots |
+| `sandbox/`, `tools/`, `tests/` | Development and verification infrastructure |
 
-```sh
-git clone https://github.com/duotronic-ai/wprism && cd wprism
-bash scripts/agent-bootstrap.sh   # verifies host prereqs, pre-pulls sandbox images
-```
+Only the assembled agent and recovery runtime are installed on a managed
+site. The [repository-format specification](spec/repo-format.md) is normative;
+[DESIGN.md](DESIGN.md) explains the architecture.
+
+## Community and development
+
+Questions and usage examples belong in
+[Discussions](https://github.com/duotronic-ai/wprism/discussions); reproducible
+bugs and proposed work belong in
+[Issues](https://github.com/duotronic-ai/wprism/issues).
+[CONTRIBUTING.md](CONTRIBUTING.md) covers a first contribution, setup, and local
+validation. No internal tracker access is required.
+
+We welcome documentation improvements, small reproductions, host-eligibility
+reports, and bounded adapter contributions. The
+[community roadmap](docs/community-roadmap.md) focuses on independent agency
+adoption. [Governance](GOVERNANCE.md) explains review and decision-making;
+the [code of conduct](CODE_OF_CONDUCT.md) applies to project spaces.
+
+Report vulnerabilities privately using [SECURITY.md](SECURITY.md).
+For maintainers, [publication and releases](docs/maintainers/releases.md)
+describes how to prepare and verify a release.
 
 ## License
 
-WPrism is free software, licensed under the [GNU General Public License, version 2
-or later](LICENSE) — the WordPress ecosystem's own license. The `agent/` drop-in
-runs inside WordPress, so GPL compatibility is not just a choice here but the
-shipped half's natural obligation; the whole repository carries one license
-rather than splitting hairs at the tarball boundary
-(`cli/src/Onboarding/Adopt.php` assembles the selected package and platform
-sources into `agent/adapter-library/`, then ships exactly `agent recovery`).
-Contributions are accepted under the same terms — see
-[CONTRIBUTING.md](CONTRIBUTING.md).
+[GPL-2.0-or-later](LICENSE). Contributions use the same license and the
+[Developer Certificate of Origin sign-off](CONTRIBUTING.md#license-and-sign-off).

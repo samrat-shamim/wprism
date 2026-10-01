@@ -6,10 +6,6 @@
     "sandbox/tests/certify_ssh_adoption_roundtrip.sh": "sandbox/tests/certify/certify_ssh_adoption_roundtrip.sh",
     "sandbox/tests/certify_ssh_rollback.sh": "sandbox/tests/certify/certify_ssh_rollback.sh",
     "sandbox/tests/certify_version_matrix.sh": "sandbox/tests/certify/certify_version_matrix.sh",
-    "sandbox/tests/check_guide_commands.sh": "sandbox/tests/spike/check_guide_commands.sh",
-    "sandbox/tests/cli_smoke.sh": "sandbox/tests/spike/cli_smoke.sh",
-    "sandbox/tests/cli_status_truth.sh": "sandbox/tests/spike/cli_status_truth.sh",
-    "sandbox/tests/cli_triage_smoke.sh": "sandbox/tests/spike/cli_triage_smoke.sh",
     "sandbox/tests/grind_adapter_walk.sh": "sandbox/tests/grind/grind_adapter_walk.sh",
     "sandbox/tests/grind_adoption.sh": "sandbox/tests/grind/grind_adoption.sh",
     "sandbox/tests/grind_ecommerce_developer.matrix.json": "sandbox/tests/grind/grind_ecommerce_developer.matrix.json",
@@ -21,7 +17,6 @@
     "sandbox/tests/grind_r1c_agency.sh": "sandbox/tests/grind/grind_r1c_agency.sh",
     "sandbox/tests/grind_r3a_multilingual.sh": "sandbox/tests/grind/grind_r3a_multilingual.sh",
     "sandbox/tests/grind_r3b_events.sh": "sandbox/tests/grind/grind_r3b_events.sh",
-    "sandbox/tests/lint_smoke.sh": "sandbox/tests/spike/lint_smoke.sh",
     "sandbox/tests/manifest_fixtures.php": "sandbox/tests/offline/policy/manifest_fixtures.php",
     "sandbox/tests/regress_action_provider_grammar.php": "sandbox/tests/offline/adapter/regress_action_provider_grammar.php",
     "sandbox/tests/regress_action_scope.php": "sandbox/tests/offline/adapter/regress_action_scope.php",
@@ -311,9 +306,5 @@
     "sandbox/tests/regress_vocabulary_ownership.php": "sandbox/tests/offline/policy/regress_vocabulary_ownership.php",
     "sandbox/tests/regress_widget_type_resolver.php": "sandbox/tests/offline/grammar/regress_widget_type_resolver.php",
     "sandbox/tests/regress_widgets.sh": "sandbox/tests/live/regress_widgets.sh",
-    "sandbox/tests/regress_woocommerce_regen_engine.php": "sandbox/tests/offline/ecommerce/regress_woocommerce_regen_engine.php",
-    "sandbox/tests/spike_a_round_trip.sh": "sandbox/tests/spike/spike_a_round_trip.sh",
-    "sandbox/tests/spike_b_merge.sh": "sandbox/tests/spike/spike_b_merge.sh",
-    "sandbox/tests/spike_c_provenance.sh": "sandbox/tests/spike/spike_c_provenance.sh",
-    "sandbox/tests/spike_d_woo.sh": "sandbox/tests/spike/spike_d_woo.sh"
+    "sandbox/tests/regress_woocommerce_regen_engine.php": "sandbox/tests/offline/ecommerce/regress_woocommerce_regen_engine.php"
 }

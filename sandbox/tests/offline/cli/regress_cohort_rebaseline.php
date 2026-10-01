@@ -1121,7 +1121,7 @@ foreach (['coverage_moved', 'adoption_only', 'shipped_without_movement',
 }
 
 // Each verb the loop names is real, and named as the loop's step. The guide
-// checker (sandbox/tests/spike/check_guide_commands.sh) proves the tokens
+// checker (tools/check-guide-commands.sh) proves the tokens
 // resolve; this proves the RUNBOOK still describes the whole loop rather than
 // silently losing a step.
 foreach ([
@@ -1141,10 +1141,11 @@ foreach ([
     );
 }
 
-// And it is reachable: an unlinked guide is a guide nobody reads.
+// Reachability depends on the destination, not the editorial link label.
+// The consolidated index uses "Coverage cohort" rather than the filename.
 $guidesIndex = (string) file_get_contents($repoRoot . '/docs/guides/README.md');
 wprism_check(
-    str_contains($guidesIndex, '[coverage-cohort.md](coverage-cohort.md)'),
+    preg_match('/\[[^\]\n]+\]\(coverage-cohort\.md\)/', $guidesIndex) === 1,
     'the runbook is linked from the guides index'
 );
 
