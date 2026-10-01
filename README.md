@@ -1,13 +1,31 @@
-# WPrism — Branchable WordPress
+# WPrism
 
-Move supported WordPress content and configuration through Git while keeping
-live orders, inventory, comments, sessions, and secrets local.
+WPrism is an open-source tool for reviewing and publishing selected WordPress
+content and settings from a test site to a live site.
 
-WPrism is for agencies and developers who already use Git and staging. Edit a
-page or supported plugin configuration, capture the authored change as a
-reviewable diff, merge it, and apply it to another environment. Plugins and
-themes run unmodified. Unknown state and unsupported operations are refused
-with an explicit boundary.
+Working on a test copy of a site, often called **staging**, gives you room to
+prepare changes before visitors see them. Meanwhile, the live site keeps
+receiving orders, comments, and other activity. Copying the whole database from
+staging can overwrite that newer activity. WPrism separates the content and
+settings you want to publish from the data that belongs to the live site.
+
+For example, an agency updating a client's homepage can:
+
+1. Edit the page on staging using the usual WordPress editor.
+2. Review the captured changes with the team before publishing.
+3. Apply the approved page change to the live site, keeping live orders and
+   comments in place.
+
+WPrism is built first for **WordPress agencies and developers** managing sites
+with staging environments. It currently uses a command-line tool and Git to
+store changes as reviewable files with a shared version history. Site owners
+and editors can keep working in WordPress while their developers handle that
+workflow.
+
+Support depends on the site's plugins, versions, and the changes being made.
+WPrism checks the agreed scope and blocks unsupported operations;
+[capabilities and limits](docs/guides/capabilities-and-limits.md) explains those
+boundaries.
 
 **Status: pre-1.0 alpha.** Start with the disposable demo. Outside production
 adoption is still being validated; a passing demo or a reviewed adapter does
